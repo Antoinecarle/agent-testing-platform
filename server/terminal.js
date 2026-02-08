@@ -14,17 +14,6 @@ const { ensureUserHome, getUserHomePath } = require('./user-home');
 
 const PTY_AVAILABLE = !!pty;
 
-// Resolve global npm bin path for Railway (claude CLI installed globally)
-let NPM_GLOBAL_BIN = '';
-if (IS_RAILWAY) {
-  try {
-    const { execSync } = require('child_process');
-    NPM_GLOBAL_BIN = execSync('npm prefix -g', { timeout: 5000 }).toString().trim() + '/bin';
-  } catch (_) {
-    NPM_GLOBAL_BIN = '/usr/local/bin';
-  }
-}
-
 const BUFFER_INTERVAL_MS = 8;
 const BUFFER_FLUSH_SIZE = 32768;
 const MAX_SCROLLBACK = 50 * 1024;
@@ -36,6 +25,17 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const IS_RAILWAY = !!process.env.RAILWAY_ENVIRONMENT;
 const TERMINAL_UID = IS_RAILWAY ? process.getuid() : 1001;
 const TERMINAL_GID = IS_RAILWAY ? process.getgid() : 1001;
+
+// Resolve global npm bin path for Railway (claude CLI installed globally)
+let NPM_GLOBAL_BIN = '';
+if (IS_RAILWAY) {
+  try {
+    const { execSync } = require('child_process');
+    NPM_GLOBAL_BIN = execSync('npm prefix -g', { timeout: 5000 }).toString().trim() + '/bin';
+  } catch (_) {
+    NPM_GLOBAL_BIN = '/usr/local/bin';
+  }
+}
 
 const sessions = new Map();
 
