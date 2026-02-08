@@ -197,12 +197,34 @@ function importIteration(projectId) {
     }
   }
 
-  // Then: check root-level HTML files (auto-detect parent)
-  const htmlPath = findLatestHtml(wsDir);
-  if (htmlPath) {
-    const relPath = path.relative(wsDir, htmlPath);
-    if (!relPath.includes(path.sep)) {
-      const result = importSingleHtml(projectId, htmlPath, null, undefined);
+  // Then: check ALL root-level HTML files
+  if (fs.existsSync(wsDir)) {
+    const rootHtmlFiles = fs.readdirSync(wsDir)
+      .filter(f => f.endsWith('.html') && !f.startsWith('.'))
+      .sort((a, b) => {
+        // Sort by modification time (oldest first so they chain correctly)
+        try {
+          return fs.statSync(path.join(wsDir, a)).mtimeMs - fs.statSync(path.join(wsDir, b)).mtimeMs;
+        } catch (_) { return 0; }
+      });
+
+    const isParallelRootBatch = rootHtmlFiles.filter(f => {
+      const fp = path.join(wsDir, f);
+      const hashKey = `${projectId}:${fp}`;
+      try {
+        const content = fs.readFileSync(fp, 'utf-8');
+        return fileHashes.get(hashKey) !== hashContent(content);
+      } catch (_) { return false; }
+    }).length > 1;
+
+    for (const f of rootHtmlFiles) {
+      const fp = path.join(wsDir, f);
+      // Derive title from filename: version1-design-studio.html → "version1-design-studio"
+      const baseName = f.replace(/\.html$/, '');
+      const vMatch = baseName.match(/(?:version-?|v)(\d+)/i);
+      const title = vMatch ? `V${vMatch[1]}` : baseName;
+      const parentOverride = isParallelRootBatch ? null : undefined;
+      const result = importSingleHtml(projectId, fp, title, parentOverride);
       if (result) imported = result;
     }
   }
@@ -353,8 +375,12 @@ function initWatchers(io) {
  * Manually trigger import for a project (API use)
  */
 function manualImport(projectId) {
-  // Reset hash to force import
-  fileHashes.delete(projectId);
+  // Reset all hashes for this project to force re-import
+  for (const key of fileHashes.keys()) {
+    if (key.startsWith(`${projectId}:`)) {
+      fileHashes.delete(key);
+    }
+  }
   return importIteration(projectId);
 }
 
