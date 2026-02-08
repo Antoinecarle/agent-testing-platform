@@ -78,13 +78,17 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
   if (userId) {
     ensureUserHome(userId);
     userHome = getUserHomePath(userId);
-    userName = 'claude-user';
+    userName = IS_RAILWAY ? 'root' : 'claude-user';
   } else {
     userHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
-    userName = IS_RAILWAY ? (process.env.USER || 'root') : 'claude-user';
+    userName = IS_RAILWAY ? 'root' : 'claude-user';
   }
 
   const startCwd = cwd || getWorkspacePath(projectId) || userHome;
+
+  if (IS_RAILWAY) {
+    console.log(`[Terminal] Session ${id}: HOME=${userHome} CWD=${startCwd} USER=${userName} userId=${userId || 'none'}`);
+  }
 
   const spawnOpts = {
     name: 'xterm-256color',

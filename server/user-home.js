@@ -17,23 +17,33 @@ function ensureUserHome(userId) {
     fs.mkdirSync(userClaudeDir, { recursive: true });
   }
 
-  // Symlink shared agents from system/bundled dir
-  // Remove stale symlink if it points to a non-existent target
-  try {
-    if (fs.lstatSync(userAgentsLink).isSymbolicLink()) {
-      const target = fs.readlinkSync(userAgentsLink);
-      if (!fs.existsSync(target)) {
+  // Copy agents from bundled/system dir to user's .claude/agents/
+  // Use direct copy instead of symlinks (more reliable across volume mounts)
+  if (fs.existsSync(AGENTS_SOURCE)) {
+    // Remove stale symlink if present (from old code)
+    try {
+      if (fs.lstatSync(userAgentsLink).isSymbolicLink()) {
         fs.unlinkSync(userAgentsLink);
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
 
-  if (fs.existsSync(AGENTS_SOURCE) && !fs.existsSync(userAgentsLink)) {
+    // Create agents directory and copy files
+    if (!fs.existsSync(userAgentsLink)) {
+      fs.mkdirSync(userAgentsLink, { recursive: true });
+    }
     try {
-      fs.symlinkSync(AGENTS_SOURCE, userAgentsLink, 'dir');
-      console.log(`[UserHome] Symlinked agents for ${userId} → ${AGENTS_SOURCE}`);
+      const agentFiles = fs.readdirSync(AGENTS_SOURCE).filter(f => f.endsWith('.md'));
+      let copied = 0;
+      for (const file of agentFiles) {
+        const dest = path.join(userAgentsLink, file);
+        if (!fs.existsSync(dest)) {
+          fs.copyFileSync(path.join(AGENTS_SOURCE, file), dest);
+          copied++;
+        }
+      }
+      if (copied > 0) console.log(`[UserHome] Copied ${copied} agents to ${userId}`);
     } catch (err) {
-      console.warn(`[UserHome] Failed to symlink agents for ${userId}:`, err.message);
+      console.warn(`[UserHome] Failed to copy agents for ${userId}:`, err.message);
     }
   }
 
