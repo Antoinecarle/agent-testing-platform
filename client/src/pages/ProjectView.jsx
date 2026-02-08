@@ -261,7 +261,9 @@ export default function ProjectView() {
   const [activeTab, setActiveTab] = useState(null);
   const [tabsLoaded, setTabsLoaded] = useState(false);
   const [branchParent, setBranchParent] = useState(undefined); // undefined=no context, null=root, object=iteration
+  const [claudeStatus, setClaudeStatus] = useState(null); // null=loading, { installed, version }
   const terminalRef = useRef(null);
+  const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
 
   // Flatten tree into a flat list for the carousel
@@ -271,6 +273,11 @@ export default function ProjectView() {
     flatten(treeData);
     return flat;
   }, [treeData]);
+
+  // Check Claude CLI status
+  useEffect(() => {
+    api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => setClaudeStatus({ installed: false, version: null }));
+  }, []);
 
   // Load project data + saved terminal tabs
   useEffect(() => {
@@ -546,47 +553,99 @@ export default function ProjectView() {
 
       {/* RIGHT: Terminal */}
       <aside style={{ width: `${rightW}px`, background: t.surface, borderLeft: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`, height: '44px', flexShrink: 0 }}>
-          {termTabs.map(tab => (
-            <div key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-              padding: '0 14px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-              color: activeTab === tab.id ? t.tp : t.ts,
-              background: activeTab === tab.id ? t.surface : t.bg,
-              borderBottom: activeTab === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
-              borderRight: `1px solid ${t.border}`,
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-              {tab.name}
-              {termTabs.length > 1 && (
-                <span onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
-                  style={{ marginLeft: '4px', opacity: 0.4, fontSize: '14px', lineHeight: 1 }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                  onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>
-                  x
-                </span>
-              )}
+        {claudeStatus && !claudeStatus.installed ? (
+          /* Claude not installed — Setup screen */
+          <>
+            <div style={{ height: '44px', display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${t.border}`, gap: '8px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>Claude CLI Setup Required</span>
             </div>
-          ))}
-          <div onClick={addTab} style={{ padding: '0 12px', display: 'flex', alignItems: 'center', cursor: 'pointer', color: t.tm }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </div>
-        </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '20px 16px', borderBottom: `1px solid ${t.border}` }}>
+                <p style={{ fontSize: '13px', color: t.ts, margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                  Claude Code CLI is not installed on this server. Install it to enable AI-powered iterations.
+                </p>
+                <button onClick={() => {
+                  if (setupTerminalRef.current) {
+                    setupTerminalRef.current.sendInput('npm install -g @anthropic-ai/claude-code\n');
+                  }
+                }} style={{
+                  background: t.violet, color: '#fff', border: 'none', borderRadius: '6px',
+                  padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center',
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  Install Claude Code CLI
+                </button>
+                <p style={{ fontSize: '10px', color: t.tm, margin: '8px 0 0 0', textAlign: 'center' }}>
+                  Runs: <code style={{ background: t.surfaceEl, padding: '2px 4px', borderRadius: '3px' }}>npm install -g @anthropic-ai/claude-code</code>
+                </p>
+              </div>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <TerminalPanel
+                  ref={setupTerminalRef}
+                  projectId={projectId}
+                  onSessionCreated={() => {}}
+                />
+              </div>
+              <div style={{ padding: '8px 16px', borderTop: `1px solid ${t.border}`, display: 'flex', justifyContent: 'center' }}>
+                <button onClick={() => {
+                  api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => {});
+                }} style={{
+                  background: 'transparent', color: t.ts, border: `1px solid ${t.border}`,
+                  borderRadius: '4px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer',
+                }}>
+                  Check again
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Claude installed — Normal terminal tabs */
+          <>
+            <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`, height: '44px', flexShrink: 0 }}>
+              {termTabs.map(tab => (
+                <div key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                  padding: '0 14px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                  color: activeTab === tab.id ? t.tp : t.ts,
+                  background: activeTab === tab.id ? t.surface : t.bg,
+                  borderBottom: activeTab === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
+                  borderRight: `1px solid ${t.border}`,
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  {tab.name}
+                  {termTabs.length > 1 && (
+                    <span onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
+                      style={{ marginLeft: '4px', opacity: 0.4, fontSize: '14px', lineHeight: 1 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                      onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>
+                      x
+                    </span>
+                  )}
+                </div>
+              ))}
+              <div onClick={addTab} style={{ padding: '0 12px', display: 'flex', alignItems: 'center', cursor: 'pointer', color: t.tm }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+            </div>
 
-        <div style={{ flex: 1, position: 'relative' }}>
-          {tabsLoaded && activeTab && (() => {
-            const tab = termTabs.find(t => t.id === activeTab);
-            if (!tab) return null;
-            return (
-              <TerminalPanel
-                ref={terminalRef}
-                key={tab.id}
-                sessionId={tab.sessionId}
-                projectId={projectId}
-                onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
-              />
-            );
-          })()}
-        </div>
+            <div style={{ flex: 1, position: 'relative' }}>
+              {tabsLoaded && activeTab && (() => {
+                const tab = termTabs.find(t => t.id === activeTab);
+                if (!tab) return null;
+                return (
+                  <TerminalPanel
+                    ref={terminalRef}
+                    key={tab.id}
+                    sessionId={tab.sessionId}
+                    projectId={projectId}
+                    onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
+                  />
+                );
+              })()}
+            </div>
+          </>
+        )}
       </aside>
 
       {/* Context Menu */}

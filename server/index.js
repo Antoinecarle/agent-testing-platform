@@ -57,6 +57,17 @@ app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
 // Preview route (no auth for iframe embedding)
 app.use('/api/preview', previewRoutes);
 
+// Claude CLI status check
+const { execSync } = require('child_process');
+app.get('/api/claude-status', verifyToken, (req, res) => {
+  try {
+    const version = execSync('claude --version 2>/dev/null', { timeout: 5000 }).toString().trim();
+    res.json({ installed: true, version });
+  } catch (_) {
+    res.json({ installed: false, version: null });
+  }
+});
+
 // Serve static frontend
 const distPath = path.join(__dirname, '..', 'client', 'dist');
 app.use(express.static(distPath));
