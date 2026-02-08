@@ -1,10 +1,17 @@
-const pty = require('node-pty');
+let pty;
+try {
+  pty = require('node-pty');
+} catch (_) {
+  console.warn('[Terminal] node-pty not available — terminal features disabled');
+}
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 const { generateWorkspaceContext } = require('./workspace');
+
+const PTY_AVAILABLE = !!pty;
 
 const BUFFER_INTERVAL_MS = 8;
 const BUFFER_FLUSH_SIZE = 32768;
@@ -42,6 +49,7 @@ function getWorkspacePath(projectId) {
 }
 
 function createSession(cols, rows, name, projectId, cwd) {
+  if (!PTY_AVAILABLE) return null;
   if (sessions.size >= MAX_SESSIONS) return null;
 
   const id = generateId();

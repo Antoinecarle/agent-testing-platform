@@ -15,7 +15,13 @@ const previewRoutes = require('./routes/preview');
 const seedRoutes = require('./routes/seed');
 const terminalTabsRoutes = require('./routes/terminal-tabs');
 const { setupTerminal, initSessions } = require('./terminal');
-const { initWatchers, watchProject, manualImport } = require('./watcher');
+
+let watcher;
+try {
+  watcher = require('./watcher');
+} catch (err) {
+  console.warn('[Server] Watcher module failed to load:', err.message);
+}
 
 // Import db to trigger schema creation + seed admin
 const db = require('./db');
@@ -62,7 +68,9 @@ app.get('*', (req, res) => {
 setupTerminal(io);
 
 // Start file watchers for auto-importing iterations
-initWatchers(io);
+if (watcher) {
+  watcher.initWatchers(io);
+}
 
 const PORT = process.env.PORT || 4000;
 
