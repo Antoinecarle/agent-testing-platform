@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 
 const router = express.Router();
-const ITERATIONS_DIR = path.join(__dirname, '..', '..', 'data', 'iterations');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 
 /**
  * Generate a placeholder SVG for missing images.

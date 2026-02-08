@@ -2,9 +2,12 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 
-const AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
-const WORKSPACES_DIR = path.join(__dirname, '..', 'data', 'workspaces');
-const ITERATIONS_DIR = path.join(__dirname, '..', 'data', 'iterations');
+const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', 'agents');
+const SYSTEM_AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
+const AGENTS_DIR = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : SYSTEM_AGENTS_DIR;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
+const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 
 /**
  * Read the full agent .md file content

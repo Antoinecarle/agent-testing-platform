@@ -6,7 +6,8 @@ const db = require('../db');
 const { generateWorkspaceContext } = require('../workspace');
 
 const router = express.Router();
-const ITERATIONS_DIR = path.join(__dirname, '..', '..', 'data', 'iterations');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 
 // Ensure iterations directory exists
 if (!fs.existsSync(ITERATIONS_DIR)) fs.mkdirSync(ITERATIONS_DIR, { recursive: true });

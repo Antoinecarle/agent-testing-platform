@@ -4,8 +4,9 @@ const crypto = require('crypto');
 const db = require('./db');
 const { generateWorkspaceContext, readBranchContext } = require('./workspace');
 
-const WORKSPACES_DIR = path.join(__dirname, '..', 'data', 'workspaces');
-const ITERATIONS_DIR = path.join(__dirname, '..', 'data', 'iterations');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
+const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 
 // Track file hashes to detect real changes
 const fileHashes = new Map();
