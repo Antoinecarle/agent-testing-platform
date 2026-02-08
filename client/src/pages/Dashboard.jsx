@@ -199,6 +199,63 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Projects List */}
+        <div style={{
+          gridColumn: '1 / -1',
+          backgroundColor: t.surface,
+          border: `1px solid ${t.border}`,
+          borderRadius: '12px',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, color: t.tp, fontSize: '16px', fontWeight: '600' }}>Projects</h3>
+            <button onClick={() => navigate('/project/new')} style={{
+              background: t.violet, color: '#fff', border: 'none', borderRadius: '4px',
+              padding: '6px 14px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <Plus size={14} /> New
+            </button>
+          </div>
+          {projects.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: t.tm, fontSize: '13px' }}>
+              No projects yet. Create one to get started.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {projects.map(p => (
+                <div key={p.id} onClick={() => navigate(`/project/${p.id}`)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
+                    borderRadius: '6px', cursor: 'pointer', background: t.surfaceEl,
+                    border: `1px solid ${t.border}`, transition: 'border-color 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+                >
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: p.status === 'active' ? t.success : t.tm, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: '500', color: t.tp, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    {p.description && <div style={{ fontSize: '11px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.description}</div>}
+                  </div>
+                  {p.agent_name && (
+                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '99px', background: t.violetM, color: t.violet, fontWeight: '600', flexShrink: 0 }}>
+                      {p.agent_name}
+                    </span>
+                  )}
+                  <span style={{ fontSize: '11px', color: t.tm, fontFamily: t.mono, flexShrink: 0 }}>
+                    {p.iteration_count || 0} iter
+                  </span>
+                  <ArrowUpRight size={14} style={{ color: t.tm, flexShrink: 0 }} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Right Column: System Status */}
         <div style={{
           backgroundColor: t.surfaceEl,
