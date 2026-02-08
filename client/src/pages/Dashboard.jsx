@@ -21,6 +21,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [hoveredAction, setHoveredAction] = useState(null);
+  const [guruPrompt, setGuruPrompt] = useState('');
+  const [guruResponse, setGuruResponse] = useState('');
+  const [guruLoading, setGuruLoading] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -255,6 +258,88 @@ export default function Dashboard() {
               Open System Logs
             </button>
           </div>
+        </div>
+
+        {/* Ask Guru - Orchestrator Chat */}
+        <div style={{
+          gridColumn: '1 / -1',
+          backgroundColor: t.surface,
+          border: `1px solid ${t.border}`,
+          borderRadius: '12px',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '28px', height: '28px', borderRadius: '6px', background: t.violetM,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.violet} strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
+            </div>
+            <h3 style={{ margin: 0, color: t.tp, fontSize: '16px', fontWeight: '600' }}>Ask Guru</h3>
+            <span style={{ color: t.tm, fontSize: '11px', fontFamily: t.mono, marginLeft: 'auto' }}>ORCHESTRATOR_V1</span>
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <input
+              value={guruPrompt}
+              onChange={e => setGuruPrompt(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && guruPrompt.trim() && !guruLoading) {
+                  setGuruLoading(true);
+                  setGuruResponse('');
+                  api('/api/orchestrator/command', {
+                    method: 'POST',
+                    body: JSON.stringify({ prompt: guruPrompt }),
+                  }).then(r => setGuruResponse(r.response))
+                    .catch(err => setGuruResponse(`Error: ${err.message}`))
+                    .finally(() => setGuruLoading(false));
+                }
+              }}
+              placeholder="Ask about agents, project setup, or get recommendations..."
+              style={{
+                width: '100%', padding: '10px 80px 10px 14px', background: t.surfaceEl,
+                border: `1px solid ${t.borderS}`, borderRadius: '8px', color: t.tp,
+                fontSize: '13px', outline: 'none',
+              }}
+            />
+            <button
+              onClick={() => {
+                if (!guruPrompt.trim() || guruLoading) return;
+                setGuruLoading(true);
+                setGuruResponse('');
+                api('/api/orchestrator/command', {
+                  method: 'POST',
+                  body: JSON.stringify({ prompt: guruPrompt }),
+                }).then(r => setGuruResponse(r.response))
+                  .catch(err => setGuruResponse(`Error: ${err.message}`))
+                  .finally(() => setGuruLoading(false));
+              }}
+              disabled={!guruPrompt.trim() || guruLoading}
+              style={{
+                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                background: guruPrompt.trim() && !guruLoading ? t.violet : t.tm, color: '#fff',
+                border: 'none', borderRadius: '4px', padding: '6px 12px', fontSize: '11px',
+                fontWeight: '600', cursor: guruPrompt.trim() && !guruLoading ? 'pointer' : 'default',
+                opacity: guruPrompt.trim() && !guruLoading ? 1 : 0.5,
+              }}
+            >
+              {guruLoading ? '...' : 'Ask'}
+            </button>
+          </div>
+
+          {guruResponse && (
+            <div style={{
+              padding: '14px', background: t.surfaceEl, borderRadius: '8px',
+              border: `1px solid ${t.border}`, fontSize: '13px', color: t.ts,
+              lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: t.mono,
+              maxHeight: '300px', overflowY: 'auto',
+            }}>
+              {guruResponse}
+            </div>
+          )}
         </div>
       </div>
 

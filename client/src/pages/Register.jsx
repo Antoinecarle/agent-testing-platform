@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { setToken, setUser } from '../api';
 
-export default function Login() {
+export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -14,16 +15,16 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, displayName }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setToken(data.token);
       setUser({ userId: data.userId, email: data.email, displayName: data.displayName, role: data.role, claudeConnected: data.claudeConnected });
-      navigate('/');
+      navigate('/setup-claude');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -54,12 +55,12 @@ export default function Login() {
             alignItems: 'center', justifyContent: 'center', marginBottom: '16px',
             color: '#8B5CF6', fontSize: '20px',
           }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.02em', marginBottom: '4px' }}>
-            Agent Testing Platform
+          <h1 style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.02em', marginBottom: '4px', color: '#F4F4F5' }}>
+            Create Account
           </h1>
-          <p style={{ fontSize: '13px', color: '#A1A1AA' }}>Sign in to continue</p>
+          <p style={{ fontSize: '13px', color: '#A1A1AA' }}>Join the Agent Testing Platform</p>
         </div>
 
         {error && (
@@ -71,27 +72,32 @@ export default function Login() {
         )}
 
         <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Display Name</label>
+          <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+            style={{ width: '100%' }} placeholder="Your name" />
+        </div>
+        <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Email</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-            style={{ width: '100%' }} placeholder="admin@vps.local" />
+            style={{ width: '100%' }} placeholder="you@example.com" />
         </div>
         <div style={{ marginBottom: '24px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Password</label>
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-            style={{ width: '100%' }} />
+            style={{ width: '100%' }} placeholder="Min. 6 characters" />
         </div>
         <button type="submit" disabled={loading} style={{
           width: '100%', padding: '10px', background: '#F4F4F5', color: '#050505',
           border: 'none', borderRadius: '4px', fontSize: '13px', fontWeight: '600',
-          opacity: loading ? 0.7 : 1,
+          opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer',
         }}>
-          {loading ? 'Signing in...' : 'Sign In'}
+          {loading ? 'Creating account...' : 'Create Account'}
         </button>
 
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#A1A1AA' }}>
-          Don't have an account?{' '}
-          <Link to="/register" style={{ color: '#8B5CF6', textDecoration: 'none', fontWeight: '500' }}>
-            Create one
+          Already have an account?{' '}
+          <Link to="/login" style={{ color: '#8B5CF6', textDecoration: 'none', fontWeight: '500' }}>
+            Sign in
           </Link>
         </div>
       </form>

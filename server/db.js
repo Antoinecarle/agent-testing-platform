@@ -356,15 +356,35 @@ function getTerminalTabBySession(sessionId) { return tabStmts.getBySession.get(s
 const sessionsByProjectStmt = db.prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at ASC');
 function getSessionsByProject(projectId) { return sessionsByProjectStmt.all(projectId); }
 
+// --- Users table: migration for new columns ---
+const userMigrations = [
+  ['display_name', "TEXT DEFAULT ''"],
+  ['claude_connected', 'INTEGER DEFAULT 0'],
+  ['claude_subscription', "TEXT DEFAULT ''"],
+  ['claude_connected_at', 'INTEGER'],
+  ['claude_home_dir', "TEXT DEFAULT ''"],
+];
+for (const [col, def] of userMigrations) {
+  try { db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`); } catch {}
+}
+
 // --- User statements ---
 const userStmts = {
   getByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
-  create: db.prepare('INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)'),
+  getById: db.prepare('SELECT * FROM users WHERE id = ?'),
+  getAll: db.prepare('SELECT id, email, display_name, role, claude_connected, claude_subscription, claude_connected_at, claude_home_dir, created_at FROM users ORDER BY created_at ASC'),
+  create: db.prepare('INSERT INTO users (id, email, password_hash, role, display_name, claude_home_dir) VALUES (?, ?, ?, ?, ?, ?)'),
+  updateClaudeStatus: db.prepare('UPDATE users SET claude_connected = ?, claude_subscription = ?, claude_home_dir = ?, claude_connected_at = ? WHERE id = ?'),
 };
 
 function getUserByEmail(email) { return userStmts.getByEmail.get(email); }
-function createUser(id, email, passwordHash, role) {
-  userStmts.create.run(id, email, passwordHash || null, role || 'admin');
+function getUserById(id) { return userStmts.getById.get(id); }
+function getAllUsers() { return userStmts.getAll.all(); }
+function createUser(id, email, passwordHash, role, displayName, homeDir) {
+  userStmts.create.run(id, email, passwordHash || null, role || 'user', displayName || '', homeDir || '');
+}
+function updateUserClaudeStatus(id, connected, subscription, homeDir) {
+  userStmts.updateClaudeStatus.run(connected ? 1 : 0, subscription || '', homeDir || '', connected ? Math.floor(Date.now() / 1000) : null, id);
 }
 
 // --- Seed admin ---
@@ -374,7 +394,8 @@ function seedAdmin() {
   if (!existing) {
     const id = crypto.randomUUID();
     const passwordHash = process.env.PASSWORD_HASH || null;
-    createUser(id, adminEmail, passwordHash, 'admin');
+    const homeDir = `/data/users/${id}`;
+    createUser(id, adminEmail, passwordHash, 'admin', 'Admin', homeDir);
     console.log(`[DB] Seeded admin user: ${adminEmail}`);
   }
 }
@@ -404,5 +425,5 @@ module.exports = {
   updateTerminalTabSession, removeTerminalTab, removeTerminalTabsByProject,
   getTerminalTabBySession,
   // Users
-  getUserByEmail, createUser,
+  getUserByEmail, getUserById, getAllUsers, createUser, updateUserClaudeStatus,
 };

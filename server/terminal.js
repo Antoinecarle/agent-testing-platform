@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 const { generateWorkspaceContext } = require('./workspace');
+const { ensureUserHome, getUserHomePath } = require('./user-home');
 
 const PTY_AVAILABLE = !!pty;
 
@@ -53,14 +54,25 @@ function getWorkspacePath(projectId) {
   return wsDir;
 }
 
-function createSession(cols, rows, name, projectId, cwd) {
+function createSession(cols, rows, name, projectId, cwd, userId) {
   if (!PTY_AVAILABLE) return null;
   if (sessions.size >= MAX_SESSIONS) return null;
 
   const id = generateId();
   const shell = process.env.SHELL || '/bin/bash';
-  const userHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
-  const userName = IS_RAILWAY ? (process.env.USER || 'root') : 'claude-user';
+
+  // Per-user HOME: if userId is provided, use their dedicated home directory
+  let userHome;
+  let userName;
+  if (userId) {
+    ensureUserHome(userId);
+    userHome = getUserHomePath(userId);
+    userName = 'claude-user';
+  } else {
+    userHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
+    userName = IS_RAILWAY ? (process.env.USER || 'root') : 'claude-user';
+  }
+
   const startCwd = cwd || getWorkspacePath(projectId) || userHome;
 
   const spawnOpts = {
@@ -100,6 +112,7 @@ function createSession(cols, rows, name, projectId, cwd) {
     rows: rows || 30,
     title: sessionTitle,
     projectId: projectId || '',
+    userId: userId || '',
     clients: new Set(),
     outputBuffer: '',
     flushTimer: null,
@@ -169,6 +182,7 @@ function getSessionInfo(session) {
     id: session.id,
     title: session.title,
     projectId: session.projectId,
+    userId: session.userId,
     createdAt: session.createdAt,
     lastActivity: session.lastActivity,
     cols: session.cols,
@@ -216,7 +230,9 @@ function setupTerminal(io) {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     if (!token) return next(new Error('Authentication required'));
     try {
-      jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      // Store userId on socket for per-user HOME
+      socket.userId = decoded.userId;
       next();
     } catch {
       next(new Error('Invalid token'));
@@ -240,7 +256,8 @@ function setupTerminal(io) {
         if (typeof callback === 'function') callback({ error: 'Terminal not available in this environment' });
         return;
       }
-      const session = createSession(cols, rows, null, projectId, cwd);
+      // Pass userId from socket auth for per-user HOME
+      const session = createSession(cols, rows, null, projectId, cwd, socket.userId);
       if (!session) {
         if (typeof callback === 'function') callback({ error: 'Max sessions reached (limit: ' + MAX_SESSIONS + ')' });
         return;

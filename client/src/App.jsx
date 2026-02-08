@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getToken } from './api';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import Register from './pages/Register';
+import ClaudeSetup from './pages/ClaudeSetup';
 import Dashboard from './pages/Dashboard';
 import AgentBrowser from './pages/AgentBrowser';
 import AgentCreate from './pages/AgentCreate';
@@ -19,6 +21,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/setup-claude" element={<ProtectedRoute><ClaudeSetup /></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="agents" element={<AgentBrowser />} />

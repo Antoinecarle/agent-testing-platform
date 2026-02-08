@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { api } from '../api';
+import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 
 const t = {
@@ -262,6 +262,7 @@ export default function ProjectView() {
   const [tabsLoaded, setTabsLoaded] = useState(false);
   const [branchParent, setBranchParent] = useState(undefined); // undefined=no context, null=root, object=iteration
   const [claudeStatus, setClaudeStatus] = useState(null); // null=loading, { installed, version }
+  const [userClaudeConnected, setUserClaudeConnected] = useState(null); // null=loading, boolean
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
@@ -274,9 +275,10 @@ export default function ProjectView() {
     return flat;
   }, [treeData]);
 
-  // Check Claude CLI status
+  // Check Claude CLI status + per-user auth
   useEffect(() => {
     api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => setClaudeStatus({ installed: false, version: null }));
+    api('/api/claude-auth/status').then(s => setUserClaudeConnected(s.connected)).catch(() => setUserClaudeConnected(false));
   }, []);
 
   // Load project data + saved terminal tabs
@@ -554,7 +556,7 @@ export default function ProjectView() {
       {/* RIGHT: Terminal */}
       <aside style={{ width: `${rightW}px`, background: t.surface, borderLeft: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         {claudeStatus && !claudeStatus.installed ? (
-          /* Claude not installed — Setup screen */
+          /* Claude CLI not installed — Setup screen */
           <>
             <div style={{ height: '44px', display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${t.border}`, gap: '8px' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -603,6 +605,17 @@ export default function ProjectView() {
         ) : (
           /* Claude installed — Normal terminal tabs */
           <>
+            {/* Per-user Claude auth banner */}
+            {userClaudeConnected === false && (
+              <div style={{
+                padding: '8px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex',
+                alignItems: 'center', gap: '8px', background: 'rgba(245,158,11,0.06)', fontSize: '11px',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span style={{ color: '#f59e0b', flex: 1 }}>Claude not authenticated. Run <code style={{ background: t.surfaceEl, padding: '1px 4px', borderRadius: '3px' }}>claude</code> in the terminal to connect.</span>
+                <span onClick={() => navigate('/setup-claude')} style={{ color: t.violet, cursor: 'pointer', fontWeight: '500', fontSize: '11px' }}>Setup</span>
+              </div>
+            )}
             <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`, height: '44px', flexShrink: 0 }}>
               {termTabs.map(tab => (
                 <div key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
