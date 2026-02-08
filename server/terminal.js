@@ -20,9 +20,10 @@ const MAX_SESSIONS = 15;
 const IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
-// Run terminals as non-root user
-const TERMINAL_UID = 1001;
-const TERMINAL_GID = 1001;
+// Detect environment: use claude-user on VPS, current user on Railway
+const IS_RAILWAY = !!process.env.RAILWAY_ENVIRONMENT;
+const TERMINAL_UID = IS_RAILWAY ? process.getuid() : 1001;
+const TERMINAL_GID = IS_RAILWAY ? process.getgid() : 1001;
 
 const sessions = new Map();
 
@@ -38,11 +39,15 @@ function appendScrollback(session, data) {
 }
 
 function getWorkspacePath(projectId) {
-  if (!projectId) return '/home/claude-user';
-  const wsDir = path.join(__dirname, '..', 'data', 'workspaces', projectId);
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  const defaultHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
+  if (!projectId) return defaultHome;
+  const wsDir = path.join(dataDir, 'workspaces', projectId);
   if (!fs.existsSync(wsDir)) fs.mkdirSync(wsDir, { recursive: true });
-  // Ensure claude-user can write to it
-  try { fs.chownSync(wsDir, 1001, 1001); } catch (_) {}
+  // Ensure user can write to it
+  if (!IS_RAILWAY) {
+    try { fs.chownSync(wsDir, TERMINAL_UID, TERMINAL_GID); } catch (_) {}
+  }
   // Generate/refresh CLAUDE.md with project context
   try { generateWorkspaceContext(projectId); } catch (_) {}
   return wsDir;
@@ -54,27 +59,34 @@ function createSession(cols, rows, name, projectId, cwd) {
 
   const id = generateId();
   const shell = process.env.SHELL || '/bin/bash';
-  const userHome = '/home/claude-user';
+  const userHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
+  const userName = IS_RAILWAY ? (process.env.USER || 'root') : 'claude-user';
   const startCwd = cwd || getWorkspacePath(projectId) || userHome;
 
-  const term = pty.spawn(shell, [], {
+  const spawnOpts = {
     name: 'xterm-256color',
     cols: cols || 120,
     rows: rows || 30,
     cwd: startCwd,
-    uid: TERMINAL_UID,
-    gid: TERMINAL_GID,
     env: {
       ...process.env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
       HOME: userHome,
-      USER: 'claude-user',
-      LOGNAME: 'claude-user',
-      PATH: `/home/claude-user/.local/bin:${process.env.PATH}`,
+      USER: userName,
+      LOGNAME: userName,
+      PATH: IS_RAILWAY ? process.env.PATH : `/home/claude-user/.local/bin:${process.env.PATH}`,
     },
-  });
+  };
+
+  // Only set uid/gid on VPS (Railway runs as current user)
+  if (!IS_RAILWAY) {
+    spawnOpts.uid = TERMINAL_UID;
+    spawnOpts.gid = TERMINAL_GID;
+  }
+
+  const term = pty.spawn(shell, [], spawnOpts);
 
   const sessionTitle = name || `Terminal ${sessions.size + 1}`;
 
