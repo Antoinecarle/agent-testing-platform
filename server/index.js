@@ -70,7 +70,20 @@ app.use('/api/preview', previewRoutes);
 const { execSync } = require('child_process');
 app.get('/api/claude-status', verifyToken, (req, res) => {
   try {
-    const version = execSync('claude --version 2>/dev/null', { timeout: 5000 }).toString().trim();
+    // Try multiple paths to find claude binary
+    let version = null;
+    const paths = ['/usr/local/bin/claude', '/usr/bin/claude', path.join(__dirname, '..', 'node_modules', '.bin', 'claude')];
+    for (const p of paths) {
+      try {
+        if (fs.existsSync(p)) {
+          version = execSync(`"${p}" --version 2>/dev/null`, { timeout: 5000 }).toString().trim();
+          break;
+        }
+      } catch (_) {}
+    }
+    if (!version) {
+      version = execSync('claude --version 2>/dev/null', { timeout: 5000 }).toString().trim();
+    }
     res.json({ installed: true, version });
   } catch (_) {
     res.json({ installed: false, version: null });
@@ -137,6 +150,24 @@ app.get('/api/user/me', verifyToken, (req, res) => {
 
 // --- Orchestrator Endpoint ---
 
+// Resolve claude binary path (global npm bin or node_modules/.bin)
+function findClaudeBin() {
+  const candidates = [
+    path.join(__dirname, '..', 'node_modules', '.bin', 'claude'),
+  ];
+  try {
+    const globalPrefix = execSync('npm prefix -g', { timeout: 5000 }).toString().trim();
+    candidates.unshift(path.join(globalPrefix, 'bin', 'claude'));
+  } catch (_) {}
+  candidates.push('/usr/local/bin/claude', '/usr/bin/claude');
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return 'claude';
+}
+const CLAUDE_BIN = findClaudeBin();
+console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
+
 // POST /api/orchestrator/command — runs claude -p with system orchestrator HOME
 app.post('/api/orchestrator/command', verifyToken, (req, res) => {
   try {
@@ -147,7 +178,7 @@ app.post('/api/orchestrator/command', verifyToken, (req, res) => {
     const adminUser = db.getUserByEmail(process.env.EMAIL || 'admin@vps.local');
     const orchestratorHome = adminUser ? getUserHomePath(adminUser.id) : (process.env.HOME || '/root');
 
-    const result = execSync(`HOME="${orchestratorHome}" claude -p '${prompt.replace(/'/g, "'\\''")}'`, {
+    const result = execSync(`"${CLAUDE_BIN}" -p '${prompt.replace(/'/g, "'\\''")}'`, {
       timeout: 120000,
       env: { ...process.env, HOME: orchestratorHome },
       maxBuffer: 1024 * 1024,

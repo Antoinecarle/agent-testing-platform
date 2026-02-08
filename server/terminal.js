@@ -14,6 +14,17 @@ const { ensureUserHome, getUserHomePath } = require('./user-home');
 
 const PTY_AVAILABLE = !!pty;
 
+// Resolve global npm bin path for Railway (claude CLI installed globally)
+let NPM_GLOBAL_BIN = '';
+if (IS_RAILWAY) {
+  try {
+    const { execSync } = require('child_process');
+    NPM_GLOBAL_BIN = execSync('npm prefix -g', { timeout: 5000 }).toString().trim() + '/bin';
+  } catch (_) {
+    NPM_GLOBAL_BIN = '/usr/local/bin';
+  }
+}
+
 const BUFFER_INTERVAL_MS = 8;
 const BUFFER_FLUSH_SIZE = 32768;
 const MAX_SCROLLBACK = 50 * 1024;
@@ -88,7 +99,9 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
       HOME: userHome,
       USER: userName,
       LOGNAME: userName,
-      PATH: IS_RAILWAY ? process.env.PATH : `/home/claude-user/.local/bin:${process.env.PATH}`,
+      PATH: IS_RAILWAY
+        ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
+        : `/home/claude-user/.local/bin:${process.env.PATH}`,
     },
   };
 
