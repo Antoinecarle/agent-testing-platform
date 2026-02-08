@@ -224,6 +224,10 @@ function setupTerminal(io) {
     });
 
     socket.on('create-session', ({ cols, rows, projectId, cwd } = {}, callback) => {
+      if (!PTY_AVAILABLE) {
+        if (typeof callback === 'function') callback({ error: 'Terminal not available in this environment' });
+        return;
+      }
       const session = createSession(cols, rows, null, projectId, cwd);
       if (!session) {
         if (typeof callback === 'function') callback({ error: 'Max sessions reached (limit: ' + MAX_SESSIONS + ')' });

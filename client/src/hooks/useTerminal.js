@@ -85,7 +85,14 @@ export default function useTerminal(containerRef, { sessionId, projectId, onSess
         rows: term.rows || 30,
         projectId: projectId || '',
       }, (res) => {
-        if (res.error) { console.error(res.error); return; }
+        if (res.error) {
+          console.error(res.error);
+          if (termRef.current) {
+            termRef.current.write('\r\n\x1b[31m  ' + res.error + '\x1b[0m\r\n');
+            termRef.current.write('\x1b[90m  Terminal features require a local environment with node-pty.\x1b[0m\r\n');
+          }
+          return;
+        }
         currentSessionRef.current = res.id;
         socket.emit('attach-session', {
           id: res.id,
