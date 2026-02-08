@@ -66,24 +66,29 @@ app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
 // Preview route (no auth for iframe embedding)
 app.use('/api/preview', previewRoutes);
 
-// Claude CLI status check
+// Resolve claude binary path (global npm bin or node_modules/.bin)
 const { execSync } = require('child_process');
+function findClaudeBin() {
+  const candidates = [
+    path.join(__dirname, '..', 'node_modules', '.bin', 'claude'),
+  ];
+  try {
+    const globalPrefix = execSync('npm prefix -g', { timeout: 5000 }).toString().trim();
+    candidates.unshift(path.join(globalPrefix, 'bin', 'claude'));
+  } catch (_) {}
+  candidates.push('/usr/local/bin/claude', '/usr/bin/claude');
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return 'claude';
+}
+const CLAUDE_BIN = findClaudeBin();
+console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
+
+// Claude CLI status check
 app.get('/api/claude-status', verifyToken, (req, res) => {
   try {
-    // Try multiple paths to find claude binary
-    let version = null;
-    const paths = ['/usr/local/bin/claude', '/usr/bin/claude', path.join(__dirname, '..', 'node_modules', '.bin', 'claude')];
-    for (const p of paths) {
-      try {
-        if (fs.existsSync(p)) {
-          version = execSync(`"${p}" --version 2>/dev/null`, { timeout: 5000 }).toString().trim();
-          break;
-        }
-      } catch (_) {}
-    }
-    if (!version) {
-      version = execSync('claude --version 2>/dev/null', { timeout: 5000 }).toString().trim();
-    }
+    const version = execSync(`"${CLAUDE_BIN}" --version 2>/dev/null`, { timeout: 5000 }).toString().trim();
     res.json({ installed: true, version });
   } catch (_) {
     res.json({ installed: false, version: null });
@@ -149,24 +154,6 @@ app.get('/api/user/me', verifyToken, (req, res) => {
 });
 
 // --- Orchestrator Endpoint ---
-
-// Resolve claude binary path (global npm bin or node_modules/.bin)
-function findClaudeBin() {
-  const candidates = [
-    path.join(__dirname, '..', 'node_modules', '.bin', 'claude'),
-  ];
-  try {
-    const globalPrefix = execSync('npm prefix -g', { timeout: 5000 }).toString().trim();
-    candidates.unshift(path.join(globalPrefix, 'bin', 'claude'));
-  } catch (_) {}
-  candidates.push('/usr/local/bin/claude', '/usr/bin/claude');
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return 'claude';
-}
-const CLAUDE_BIN = findClaudeBin();
-console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
 // POST /api/orchestrator/command — runs claude -p with system orchestrator HOME
 app.post('/api/orchestrator/command', verifyToken, (req, res) => {
