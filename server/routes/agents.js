@@ -74,9 +74,11 @@ function parseAgentFile(filePath) {
 
 // Sync agents from filesystem to DB
 function syncAgents() {
+  console.log(`[Agents] Syncing from: ${AGENTS_DIR} (exists: ${fs.existsSync(AGENTS_DIR)})`);
   if (!fs.existsSync(AGENTS_DIR)) return [];
 
   const files = fs.readdirSync(AGENTS_DIR).filter(f => f.endsWith('.md'));
+  console.log(`[Agents] Found ${files.length} agent files`);
   const synced = [];
 
   for (const file of files) {

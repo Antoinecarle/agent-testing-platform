@@ -47,7 +47,7 @@ export default function Dashboard() {
   };
 
   const quickActions = [
-    { id: 'new', label: 'New Project', icon: <Plus size={16} />, onClick: () => navigate('/projects/new') },
+    { id: 'new', label: 'New Project', icon: <Plus size={16} />, onClick: () => navigate('/project/new') },
     { id: 'browse', label: 'Browse Agents', icon: <Search size={16} />, onClick: () => navigate('/agents') },
     { id: 'run', label: 'Run Test', icon: <Play size={16} />, onClick: () => navigate('/test-runner'), primary: true },
   ];

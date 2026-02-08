@@ -17,10 +17,21 @@ function ensureUserHome(userId) {
     fs.mkdirSync(userClaudeDir, { recursive: true });
   }
 
-  // Symlink shared agents from system Claude dir
+  // Symlink shared agents from system/bundled dir
+  // Remove stale symlink if it points to a non-existent target
+  try {
+    if (fs.lstatSync(userAgentsLink).isSymbolicLink()) {
+      const target = fs.readlinkSync(userAgentsLink);
+      if (!fs.existsSync(target)) {
+        fs.unlinkSync(userAgentsLink);
+      }
+    }
+  } catch (_) {}
+
   if (fs.existsSync(AGENTS_SOURCE) && !fs.existsSync(userAgentsLink)) {
     try {
       fs.symlinkSync(AGENTS_SOURCE, userAgentsLink, 'dir');
+      console.log(`[UserHome] Symlinked agents for ${userId} → ${AGENTS_SOURCE}`);
     } catch (err) {
       console.warn(`[UserHome] Failed to symlink agents for ${userId}:`, err.message);
     }
