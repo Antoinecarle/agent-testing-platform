@@ -15,7 +15,7 @@ const previewRoutes = require('./routes/preview');
 const seedRoutes = require('./routes/seed');
 const terminalTabsRoutes = require('./routes/terminal-tabs');
 const { setupTerminal, initSessions } = require('./terminal');
-const { isClaudeAuthenticated, ensureUserHome, getUserHomePath } = require('./user-home');
+const { isClaudeAuthenticated, ensureUserHome, getUserHomePath, migrateSystemCredentials } = require('./user-home');
 
 let watcher;
 try {
@@ -28,11 +28,12 @@ try {
 const db = require('./db');
 db.seedAdmin();
 
-// Ensure admin user has a home directory
+// Ensure admin user has a home directory + migrate existing Claude credentials
 const adminEmail = process.env.EMAIL || 'admin@vps.local';
 const adminUser = db.getUserByEmail(adminEmail);
 if (adminUser) {
   ensureUserHome(adminUser.id);
+  migrateSystemCredentials(adminUser.id);
 }
 
 // Clean slate for terminal sessions on startup

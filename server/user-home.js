@@ -28,6 +28,25 @@ function ensureUserHome(userId) {
   return userHome;
 }
 
+// Migrate existing system-level Claude credentials to a user's per-user home
+function migrateSystemCredentials(userId) {
+  const systemCredPath = path.join(SYSTEM_CLAUDE_DIR, '.credentials.json');
+  const userCredPath = path.join(USERS_DIR, userId, '.claude', '.credentials.json');
+
+  // Only migrate if system credentials exist and user doesn't have their own yet
+  if (fs.existsSync(systemCredPath) && !fs.existsSync(userCredPath)) {
+    try {
+      ensureUserHome(userId);
+      fs.copyFileSync(systemCredPath, userCredPath);
+      console.log(`[UserHome] Migrated system Claude credentials to user ${userId}`);
+      return true;
+    } catch (err) {
+      console.warn(`[UserHome] Failed to migrate credentials for ${userId}:`, err.message);
+    }
+  }
+  return false;
+}
+
 function getUserHomePath(userId) {
   return path.join(USERS_DIR, userId);
 }
@@ -69,5 +88,6 @@ module.exports = {
   getUserHomePath,
   getUserClaudeCredentials,
   isClaudeAuthenticated,
+  migrateSystemCredentials,
   USERS_DIR,
 };
