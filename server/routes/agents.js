@@ -4,7 +4,11 @@ const fs = require('fs');
 const db = require('../db');
 
 const router = express.Router();
-const AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
+
+// Use project-bundled agents as primary, fallback to system ~/.claude/agents
+const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+const SYSTEM_AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
+const AGENTS_DIR = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : SYSTEM_AGENTS_DIR;
 
 // Parse a .md agent file to extract metadata
 function parseAgentFile(filePath) {

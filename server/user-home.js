@@ -4,7 +4,8 @@ const path = require('path');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const USERS_DIR = path.join(DATA_DIR, 'users');
 const SYSTEM_CLAUDE_DIR = path.resolve(process.env.HOME || '/root', '.claude');
-const AGENTS_SOURCE = path.join(SYSTEM_CLAUDE_DIR, 'agents');
+const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', 'agents');
+const AGENTS_SOURCE = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : path.join(SYSTEM_CLAUDE_DIR, 'agents');
 
 function ensureUserHome(userId) {
   const userHome = path.join(USERS_DIR, userId);
