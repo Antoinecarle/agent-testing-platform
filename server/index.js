@@ -63,8 +63,28 @@ app.use('/api/iterations', verifyToken, iterationsRoutes);
 app.use('/api/seed', verifyToken, seedRoutes);
 app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
 
+const agentTeamsRoutes = require('./routes/agent-teams');
+app.use('/api/agent-teams', verifyToken, agentTeamsRoutes);
+
+const teamRunsRoutes = require('./routes/team-runs');
+app.use('/api/agent-teams', verifyToken, teamRunsRoutes);
+
 // Preview route (no auth for iframe embedding)
 app.use('/api/preview', previewRoutes);
+
+// Scan workspace for new iterations (manual trigger)
+app.post('/api/projects/:projectId/scan', verifyToken, (req, res) => {
+  try {
+    if (!watcher || !watcher.scanProject) {
+      return res.status(503).json({ error: 'Watcher not available' });
+    }
+    const result = watcher.scanProject(req.params.projectId);
+    res.json({ imported: !!result, iterationId: result || null });
+  } catch (err) {
+    console.error('[Scan] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Resolve claude binary path (global npm bin or node_modules/.bin)
 const { execSync } = require('child_process');

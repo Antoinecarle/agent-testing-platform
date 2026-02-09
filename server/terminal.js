@@ -12,6 +12,13 @@ const db = require('./db');
 const { generateWorkspaceContext } = require('./workspace');
 const { ensureUserHome, getUserHomePath } = require('./user-home');
 
+// Lazy-load watcher to avoid circular deps
+let _watcher = null;
+function getWatcher() {
+  if (!_watcher) { try { _watcher = require('./watcher'); } catch (_) {} }
+  return _watcher;
+}
+
 const PTY_AVAILABLE = !!pty;
 
 const BUFFER_INTERVAL_MS = 8;
@@ -174,6 +181,18 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
     for (const client of session.clients) {
       client.emit('output', exitMsg);
       client.emit('session-exited', { id: session.id });
+    }
+
+    // Scan workspace for new HTML files when terminal exits (agent finished)
+    if (session.projectId) {
+      const watcher = getWatcher();
+      if (watcher && watcher.scanProject) {
+        // Small delay to let filesystem settle
+        setTimeout(() => {
+          console.log(`[Terminal] Session ${session.id} exited, scanning project ${session.projectId} for new iterations`);
+          watcher.scanProject(session.projectId);
+        }, 1500);
+      }
     }
   });
 

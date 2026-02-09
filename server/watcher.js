@@ -7,6 +7,7 @@ const { generateWorkspaceContext, readBranchContext } = require('./workspace');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+const IS_RAILWAY = !!process.env.RAILWAY_ENVIRONMENT;
 
 // Track file hashes to detect real changes
 const fileHashes = new Map();
@@ -14,6 +15,10 @@ const fileHashes = new Map();
 const watchers = new Map();
 // Debounce timers per project
 const debounceTimers = new Map();
+// Polling interval ref
+let pollTimer = null;
+// Poll interval: 5s on Railway (fs.watch unreliable), 10s locally as fallback
+const POLL_INTERVAL_MS = IS_RAILWAY ? 5000 : 10000;
 
 // Socket.IO server ref (set during init)
 let ioRef = null;
@@ -23,42 +28,43 @@ function hashContent(content) {
 }
 
 /**
- * Find the most recently modified .html file in a workspace (root + subdirs)
+ * Scan a workspace directory and find ALL .html files (root + subdirs)
+ * Returns array of { path, name, subdir, mtime }
  */
-function findLatestHtml(wsDir) {
-  if (!fs.existsSync(wsDir)) return null;
+function scanWorkspaceHtmlFiles(wsDir) {
+  if (!fs.existsSync(wsDir)) return [];
 
   const candidates = [];
 
-  // Root-level HTML files
-  const rootFiles = fs.readdirSync(wsDir)
-    .filter(f => f.endsWith('.html') && !f.startsWith('.'));
-  for (const f of rootFiles) {
-    const fp = path.join(wsDir, f);
-    candidates.push({ path: fp, name: f, subdir: null, mtime: fs.statSync(fp).mtimeMs });
-  }
-
-  // Subdirectory HTML files (version-1/index.html, etc.)
-  const entries = fs.readdirSync(wsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const subDir = path.join(wsDir, entry.name);
-    const subFiles = fs.readdirSync(subDir).filter(f => f.endsWith('.html') && !f.startsWith('.'));
-    for (const f of subFiles) {
-      const fp = path.join(subDir, f);
-      candidates.push({ path: fp, name: f, subdir: entry.name, mtime: fs.statSync(fp).mtimeMs });
+  try {
+    // Root-level HTML files
+    const rootFiles = fs.readdirSync(wsDir)
+      .filter(f => f.endsWith('.html') && !f.startsWith('.'));
+    for (const f of rootFiles) {
+      const fp = path.join(wsDir, f);
+      try {
+        candidates.push({ path: fp, name: f, subdir: null, mtime: fs.statSync(fp).mtimeMs });
+      } catch (_) {}
     }
-  }
 
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => b.mtime - a.mtime);
+    // Subdirectory HTML files (version-1/index.html, etc.)
+    const entries = fs.readdirSync(wsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const subDir = path.join(wsDir, entry.name);
+      try {
+        const subFiles = fs.readdirSync(subDir).filter(f => f.endsWith('.html') && !f.startsWith('.'));
+        for (const f of subFiles) {
+          const fp = path.join(subDir, f);
+          try {
+            candidates.push({ path: fp, name: f, subdir: entry.name, mtime: fs.statSync(fp).mtimeMs });
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
 
-  // Prefer root index.html if recently modified
-  const rootIndex = candidates.find(c => c.name === 'index.html' && !c.subdir);
-  if (rootIndex && (candidates[0].mtime - rootIndex.mtime) < 5000) {
-    return rootIndex.path;
-  }
-  return candidates[0].path;
+  return candidates;
 }
 
 /**
@@ -68,21 +74,25 @@ function findAllSubdirHtmls(wsDir) {
   if (!fs.existsSync(wsDir)) return [];
 
   const results = [];
-  const entries = fs.readdirSync(wsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const subDir = path.join(wsDir, entry.name);
-    const indexPath = path.join(subDir, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      results.push({ subdir: entry.name, path: indexPath });
-    } else {
-      // Check for any .html file
-      const htmlFiles = fs.readdirSync(subDir).filter(f => f.endsWith('.html'));
-      if (htmlFiles.length > 0) {
-        results.push({ subdir: entry.name, path: path.join(subDir, htmlFiles[0]) });
+  try {
+    const entries = fs.readdirSync(wsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const subDir = path.join(wsDir, entry.name);
+      const indexPath = path.join(subDir, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        results.push({ subdir: entry.name, path: indexPath });
+      } else {
+        // Check for any .html file
+        try {
+          const htmlFiles = fs.readdirSync(subDir).filter(f => f.endsWith('.html'));
+          if (htmlFiles.length > 0) {
+            results.push({ subdir: entry.name, path: path.join(subDir, htmlFiles[0]) });
+          }
+        } catch (_) {}
       }
     }
-  }
+  } catch (_) {}
   return results;
 }
 
@@ -90,11 +100,17 @@ function findAllSubdirHtmls(wsDir) {
  * Import a single HTML file as an iteration
  * @param {string} projectId
  * @param {string} htmlPath - absolute path to HTML file
- * @param {string|null} titleOverride - custom title
+ * @param {string|null} titleOverride - custom title (null = auto V{n})
  * @param {string|null|undefined} parentIdOverride - explicit parent (null=root, undefined=auto-detect)
  */
 function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) {
-  const content = fs.readFileSync(htmlPath, 'utf-8');
+  let content;
+  try {
+    content = fs.readFileSync(htmlPath, 'utf-8');
+  } catch (err) {
+    console.error(`[Watcher] Cannot read ${htmlPath}:`, err.message);
+    return null;
+  }
   if (!content || content.trim().length < 50) return null;
 
   const hash = hashContent(content);
@@ -137,6 +153,7 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
   fs.writeFileSync(path.join(iterDir, 'index.html'), content);
   const filePath = `${projectId}/${id}/index.html`;
 
+  // Use auto-versioning V{n} as default, only override if a real title was provided
   const title = titleOverride || `V${version}`;
   db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
 
@@ -158,7 +175,7 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
 /**
  * Import from workspace into iterations.
  * Subdirectory-based versions (version-1/, version-2/) are treated as parallel roots.
- * Root-level index.html is chained to the latest iteration.
+ * Root-level HTML files are chained to the latest iteration.
  */
 function importIteration(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
@@ -184,7 +201,8 @@ function importIteration(projectId) {
 
     for (const item of subdirHtmls) {
       const hashKey = `${projectId}:${item.path}`;
-      const content = fs.readFileSync(item.path, 'utf-8');
+      let content;
+      try { content = fs.readFileSync(item.path, 'utf-8'); } catch (_) { continue; }
       const hash = hashContent(content);
       if (fileHashes.get(hashKey) !== hash) {
         const vMatch = item.subdir.match(/(?:version-?|v)(\d+)/i);
@@ -199,14 +217,16 @@ function importIteration(projectId) {
 
   // Then: check ALL root-level HTML files
   if (fs.existsSync(wsDir)) {
-    const rootHtmlFiles = fs.readdirSync(wsDir)
-      .filter(f => f.endsWith('.html') && !f.startsWith('.'))
-      .sort((a, b) => {
-        // Sort by modification time (oldest first so they chain correctly)
-        try {
-          return fs.statSync(path.join(wsDir, a)).mtimeMs - fs.statSync(path.join(wsDir, b)).mtimeMs;
-        } catch (_) { return 0; }
-      });
+    let rootHtmlFiles;
+    try {
+      rootHtmlFiles = fs.readdirSync(wsDir)
+        .filter(f => f.endsWith('.html') && !f.startsWith('.'))
+        .sort((a, b) => {
+          try {
+            return fs.statSync(path.join(wsDir, a)).mtimeMs - fs.statSync(path.join(wsDir, b)).mtimeMs;
+          } catch (_) { return 0; }
+        });
+    } catch (_) { rootHtmlFiles = []; }
 
     const isParallelRootBatch = rootHtmlFiles.filter(f => {
       const fp = path.join(wsDir, f);
@@ -219,10 +239,15 @@ function importIteration(projectId) {
 
     for (const f of rootHtmlFiles) {
       const fp = path.join(wsDir, f);
-      // Derive title from filename: version1-design-studio.html → "version1-design-studio"
       const baseName = f.replace(/\.html$/, '');
-      const vMatch = baseName.match(/(?:version-?|v)(\d+)/i);
-      const title = vMatch ? `V${vMatch[1]}` : baseName;
+
+      // Derive title: index.html → null (auto V{n}), version-1.html → V1, other.html → other
+      let title = null; // null = auto V{n}
+      if (baseName !== 'index') {
+        const vMatch = baseName.match(/(?:version-?|v)(\d+)/i);
+        title = vMatch ? `V${vMatch[1]}` : baseName;
+      }
+
       const parentOverride = isParallelRootBatch ? null : undefined;
       const result = importSingleHtml(projectId, fp, title, parentOverride);
       if (result) imported = result;
@@ -255,7 +280,21 @@ function triggerImport(projectId) {
 }
 
 /**
- * Start watching a project workspace (root + subdirectories)
+ * Poll all watched workspaces for new/changed HTML files
+ * This is the reliable fallback when fs.watch doesn't fire (Railway, Docker, NFS, etc.)
+ */
+function pollAllWorkspaces() {
+  for (const projectId of watchers.keys()) {
+    try {
+      importIteration(projectId);
+    } catch (err) {
+      console.error(`[Watcher/Poll] Error scanning ${projectId}:`, err.message);
+    }
+  }
+}
+
+/**
+ * Start watching a project workspace (fs.watch + polling fallback)
  */
 function watchProject(projectId) {
   if (watchers.has(projectId)) return; // Already watching
@@ -263,35 +302,30 @@ function watchProject(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   if (!fs.existsSync(wsDir)) fs.mkdirSync(wsDir, { recursive: true });
 
-  // Initialize hashes from existing files (root + subdirs)
-  const allSubdirs = findAllSubdirHtmls(wsDir);
-  for (const item of allSubdirs) {
+  // Initialize hashes from existing files (so we don't re-import old files)
+  const allFiles = scanWorkspaceHtmlFiles(wsDir);
+  for (const item of allFiles) {
     try {
       const content = fs.readFileSync(item.path, 'utf-8');
       fileHashes.set(`${projectId}:${item.path}`, hashContent(content));
-    } catch (_) {}
-  }
-  const latestHtml = findLatestHtml(wsDir);
-  if (latestHtml) {
-    try {
-      const content = fs.readFileSync(latestHtml, 'utf-8');
-      fileHashes.set(`${projectId}:${latestHtml}`, hashContent(content));
     } catch (_) {}
   }
 
   const projectWatchers = [];
 
   try {
-    // Watch root directory
+    // Watch root directory (best-effort — may not work on Railway)
     const rootWatcher = fs.watch(wsDir, (eventType, filename) => {
       if (!filename || filename.startsWith('.')) return;
 
       // If a new directory was created, watch it too
       if (eventType === 'rename') {
         const fullPath = path.join(wsDir, filename);
-        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-          watchSubdir(projectId, fullPath, projectWatchers);
-        }
+        try {
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+            watchSubdir(projectId, fullPath, projectWatchers);
+          }
+        } catch (_) {}
       }
 
       if (filename.endsWith('.html')) {
@@ -301,17 +335,19 @@ function watchProject(projectId) {
     projectWatchers.push(rootWatcher);
 
     // Watch existing subdirectories
-    const entries = fs.readdirSync(wsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory() && !entry.name.startsWith('.')) {
-        watchSubdir(projectId, path.join(wsDir, entry.name), projectWatchers);
+    try {
+      const entries = fs.readdirSync(wsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          watchSubdir(projectId, path.join(wsDir, entry.name), projectWatchers);
+        }
       }
-    }
-
-    watchers.set(projectId, projectWatchers);
+    } catch (_) {}
   } catch (err) {
-    console.error(`[Watcher] Failed to watch ${projectId}:`, err.message);
+    console.warn(`[Watcher] fs.watch failed for ${projectId} (using polling only):`, err.message);
   }
+
+  watchers.set(projectId, projectWatchers);
 }
 
 /**
@@ -347,19 +383,22 @@ function unwatchProject(projectId) {
 }
 
 /**
- * Initialize watchers for all existing projects
+ * Initialize watchers for all existing projects + start polling
  */
 function initWatchers(io) {
   ioRef = io;
 
   // Watch all projects that have workspaces
   if (fs.existsSync(WORKSPACES_DIR)) {
-    const dirs = fs.readdirSync(WORKSPACES_DIR).filter(d =>
-      fs.statSync(path.join(WORKSPACES_DIR, d)).isDirectory()
-    );
-    for (const dir of dirs) {
-      watchProject(dir);
-    }
+    try {
+      const dirs = fs.readdirSync(WORKSPACES_DIR).filter(d => {
+        try { return fs.statSync(path.join(WORKSPACES_DIR, d)).isDirectory(); }
+        catch (_) { return false; }
+      });
+      for (const dir of dirs) {
+        watchProject(dir);
+      }
+    } catch (_) {}
   }
 
   // Also watch all active projects (creates workspace if needed)
@@ -368,7 +407,12 @@ function initWatchers(io) {
     watchProject(project.id);
   }
 
-  console.log(`[Watcher] Monitoring ${watchers.size} project workspaces`);
+  // Start polling as reliable fallback
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollAllWorkspaces, POLL_INTERVAL_MS);
+  if (pollTimer.unref) pollTimer.unref();
+
+  console.log(`[Watcher] Monitoring ${watchers.size} project workspaces (polling every ${POLL_INTERVAL_MS / 1000}s)`);
 }
 
 /**
@@ -384,10 +428,28 @@ function manualImport(projectId) {
   return importIteration(projectId);
 }
 
+/**
+ * Scan a specific project NOW (called when terminal exits, agent finishes, etc.)
+ * Unlike manualImport, this doesn't clear hashes — it just checks for new/changed files.
+ */
+function scanProject(projectId) {
+  try {
+    // Ensure we're watching this project
+    if (!watchers.has(projectId)) {
+      watchProject(projectId);
+    }
+    return importIteration(projectId);
+  } catch (err) {
+    console.error(`[Watcher] Scan error for ${projectId}:`, err.message);
+    return null;
+  }
+}
+
 module.exports = {
   initWatchers,
   watchProject,
   unwatchProject,
   importIteration,
   manualImport,
+  scanProject,
 };
