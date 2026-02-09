@@ -15,6 +15,7 @@ import AgentStats from './pages/AgentStats';
 import ProjectView from './pages/ProjectView';
 import Comparison from './pages/Comparison';
 import Sessions from './pages/Sessions';
+import ClientPreview from './pages/ClientPreview';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -24,6 +25,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/preview/:projectId" element={<ClientPreview />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/setup-claude" element={<ProtectedRoute><ClaudeSetup /></ProtectedRoute>} />

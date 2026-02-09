@@ -5,6 +5,7 @@ const fs = require('fs');
 const router = express.Router();
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+const db = require('../db');
 
 /**
  * Generate a placeholder SVG for missing images.
@@ -36,6 +37,19 @@ function placeholderSvg(filename, width = 800, height = 600) {
   <text x="50%" y="${height/2+20}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="rgba(255,255,255,0.35)" letter-spacing="2">${label}</text>
 </svg>`;
 }
+
+// GET /api/preview/showcase/:projectId — public project info + all iterations (for client sharing)
+router.get('/showcase/:projectId', (req, res) => {
+  try {
+    const project = db.getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const iterations = db.getIterationsByProject(req.params.projectId);
+    res.json({ project, iterations });
+  } catch (err) {
+    console.error('[Preview] Showcase error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // GET /api/preview/raw/:projectId/:iterationId — MUST be before wildcard routes
 router.get('/raw/:projectId/:iterationId', (req, res) => {
