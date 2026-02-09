@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const db = require('../db');
 
 const router = express.Router();
@@ -132,17 +133,6 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /api/agents/categories — get unique categories
-router.get('/categories', (req, res) => {
-  try {
-    const agents = db.getAllAgents();
-    const categories = [...new Set(agents.map(a => a.category))].sort();
-    res.json(categories);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
 // POST /api/agents/sync — sync agents from filesystem
 router.post('/sync', (req, res) => {
   try {
@@ -154,12 +144,176 @@ router.post('/sync', (req, res) => {
   }
 });
 
+// POST /api/agents/ai-generate — generate agent config using ChatGPT
+router.post('/ai-generate', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const { purpose, style, tools_needed, category } = req.body;
+    if (!purpose) {
+      return res.status(400).json({ error: 'purpose is required' });
+    }
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-mini-2025-08-07',
+        input: [
+          {
+            role: 'system',
+            content: `You are an expert at creating Claude Code agent prompts. Generate a complete agent configuration.
+You must respond ONLY with valid JSON. No markdown. No explanation. No extra text.
+
+Response format:
+{
+  "name": "kebab-case-name",
+  "description": "One line description",
+  "model": "sonnet|opus|haiku",
+  "tools": ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+  "max_turns": 10,
+  "permission_mode": "default",
+  "prompt": "Full agent instructions/prompt text..."
+}`
+          },
+          {
+            role: 'user',
+            content: `Create an agent for: ${purpose}\nStyle: ${style || 'professional'}\nTools needed: ${tools_needed || 'all'}\nCategory: ${category || 'uncategorized'}`
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error('[Agents] AI generate API error:', response.status, errBody);
+      return res.status(502).json({ error: 'OpenAI API request failed' });
+    }
+
+    const data = await response.json();
+
+    // Parse response object format: output[0].content[0].text
+    const outputText = data.output?.[0]?.content?.[0]?.text;
+    if (!outputText) {
+      console.error('[Agents] AI generate: unexpected response format', JSON.stringify(data));
+      return res.status(502).json({ error: 'Unexpected response format from OpenAI' });
+    }
+
+    const agentConfig = JSON.parse(outputText);
+    res.json(agentConfig);
+  } catch (err) {
+    console.error('[Agents] AI generate error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/import — import agent from .md file content
+router.post('/import', (req, res) => {
+  try {
+    const { filename, content } = req.body;
+    if (!filename || !content) {
+      return res.status(400).json({ error: 'filename and content are required' });
+    }
+
+    const name = filename.replace(/\.md$/, '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+      return res.status(400).json({ error: 'Invalid filename. Must produce a valid kebab-case name.' });
+    }
+
+    const existing = db.getAgent(name);
+    if (existing) return res.status(409).json({ error: `Agent "${name}" already exists` });
+
+    // Write .md file
+    if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(AGENTS_DIR, `${name}.md`), content, 'utf-8');
+
+    // Parse and insert
+    const parsed = parseAgentFile(path.join(AGENTS_DIR, `${name}.md`));
+    db.createAgentManual(name, parsed.description, parsed.model, parsed.category, parsed.promptPreview, parsed.fullPrompt, parsed.tools, parsed.maxTurns, parsed.memory, parsed.permissionMode);
+
+    const created = db.getAgent(name);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('[Agents] Import error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/bulk/delete — delete multiple agents
+router.post('/bulk/delete', (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!Array.isArray(names) || names.length === 0) {
+      return res.status(400).json({ error: 'names array is required' });
+    }
+    db.bulkDeleteAgents(names);
+    res.json({ ok: true, deleted: names.length });
+  } catch (err) {
+    console.error('[Agents] Bulk delete error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/bulk/categorize — update category for multiple agents
+router.post('/bulk/categorize', (req, res) => {
+  try {
+    const { names, category } = req.body;
+    if (!Array.isArray(names) || names.length === 0 || !category) {
+      return res.status(400).json({ error: 'names array and category are required' });
+    }
+    db.bulkUpdateCategory(names, category);
+    res.json({ ok: true, updated: names.length });
+  } catch (err) {
+    console.error('[Agents] Bulk categorize error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/bulk/export — export multiple agents as .md content
+router.post('/bulk/export', (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!Array.isArray(names) || names.length === 0) {
+      return res.status(400).json({ error: 'names array is required' });
+    }
+    const results = names.map(name => {
+      const agent = db.getAgent(name);
+      return agent ? { name: agent.name, content: agent.full_prompt || '' } : null;
+    }).filter(Boolean);
+    res.json(results);
+  } catch (err) {
+    console.error('[Agents] Bulk export error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/agents/stats — get aggregate agent statistics
+router.get('/stats', (req, res) => {
+  try {
+    const stats = db.getAgentStats();
+    res.json(stats);
+  } catch (err) {
+    console.error('[Agents] Stats error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+const RESERVED_NAMES = ['sync', 'import', 'ai-generate', 'categories', 'stats', 'bulk'];
+
 // POST /api/agents — create agent manually
 router.post('/', (req, res) => {
   try {
     const { name, description, model, category, prompt, tools, max_turns, memory, permission_mode } = req.body;
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
       return res.status(400).json({ error: 'Name must be kebab-case (e.g. my-agent)' });
+    }
+    if (RESERVED_NAMES.includes(name)) {
+      return res.status(400).json({ error: `Name "${name}" is reserved` });
     }
     const existing = db.getAgent(name);
     if (existing) return res.status(409).json({ error: 'Agent already exists' });
@@ -191,6 +345,22 @@ router.post('/', (req, res) => {
   }
 });
 
+// GET /api/agents/:name/export — export agent as .md file content
+router.get('/:name/export', (req, res) => {
+  try {
+    const agent = db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const content = agent.full_prompt || '';
+    res.setHeader('Content-Type', 'text/markdown');
+    res.setHeader('Content-Disposition', `attachment; filename="${agent.name}.md"`);
+    res.send(content);
+  } catch (err) {
+    console.error('[Agents] Export error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/agents/:name — get single agent (enriched)
 router.get('/:name', (req, res) => {
   try {
@@ -215,14 +385,122 @@ router.get('/:name/projects', (req, res) => {
   }
 });
 
+// GET /api/agents/:name/versions — list all versions for an agent
+router.get('/:name/versions', (req, res) => {
+  try {
+    const agent = db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const versions = db.getAgentVersions(req.params.name);
+    res.json(versions);
+  } catch (err) {
+    console.error('[Agents] Versions list error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/agents/:name/versions/:versionId — get specific version
+router.get('/:name/versions/:versionId', (req, res) => {
+  try {
+    const version = db.getAgentVersion(req.params.versionId);
+    if (!version || version.agent_name !== req.params.name) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+    res.json(version);
+  } catch (err) {
+    console.error('[Agents] Version get error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/:name/versions/:versionId/revert — revert agent to this version
+router.post('/:name/versions/:versionId/revert', (req, res) => {
+  try {
+    const agent = db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const version = db.getAgentVersion(req.params.versionId);
+    if (!version || version.agent_name !== req.params.name) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    // Snapshot current state before reverting
+    const nextVersion = db.getNextAgentVersionNumber(req.params.name);
+    db.createAgentVersion(
+      crypto.randomUUID(),
+      agent.name,
+      nextVersion,
+      agent.full_prompt || '',
+      agent.description || '',
+      agent.model || '',
+      agent.tools || '',
+      agent.max_turns || 0,
+      agent.memory || '',
+      agent.permission_mode || '',
+      `Reverted to version ${version.version_number}`
+    );
+
+    // Apply the version's state to the agent
+    const fields = {
+      full_prompt: version.full_prompt,
+      prompt_preview: (version.full_prompt || '').substring(0, 500),
+      description: version.description,
+      model: version.model,
+      tools: version.tools,
+      max_turns: version.max_turns,
+      memory: version.memory,
+      permission_mode: version.permission_mode,
+    };
+    db.updateAgent(req.params.name, fields);
+
+    // Write reverted content to .md file on disk
+    const AGENTS_DIR_LOCAL = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : SYSTEM_AGENTS_DIR;
+    if (!fs.existsSync(AGENTS_DIR_LOCAL)) fs.mkdirSync(AGENTS_DIR_LOCAL, { recursive: true });
+    fs.writeFileSync(path.join(AGENTS_DIR_LOCAL, `${req.params.name}.md`), version.full_prompt || '', 'utf-8');
+
+    res.json(db.getAgent(req.params.name));
+  } catch (err) {
+    console.error('[Agents] Revert error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // PUT /api/agents/:name — update agent fields
 router.put('/:name', (req, res) => {
   try {
     const agent = db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const { description, model, category, prompt_preview } = req.body;
-    db.updateAgent(req.params.name, { description, model, category, prompt_preview });
+    // Auto-version: snapshot current state before applying update
+    const versionNumber = db.getNextAgentVersionNumber(req.params.name);
+    const changeSummary = req.body.change_summary || '';
+    db.createAgentVersion(
+      crypto.randomUUID(),
+      agent.name,
+      versionNumber,
+      agent.full_prompt || '',
+      agent.description || '',
+      agent.model || '',
+      agent.tools || '',
+      agent.max_turns || 0,
+      agent.memory || '',
+      agent.permission_mode || '',
+      changeSummary
+    );
+
+    const { description, model, category, full_prompt, tools, max_turns, memory, permission_mode } = req.body;
+    const fields = { description, model, category, tools, max_turns, memory, permission_mode };
+
+    // If full_prompt is updated, also update prompt_preview and write .md file
+    if (full_prompt !== undefined) {
+      fields.full_prompt = full_prompt;
+      fields.prompt_preview = full_prompt.substring(0, 500);
+
+      // Write updated content to .md file on disk
+      if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
+      fs.writeFileSync(path.join(AGENTS_DIR, `${req.params.name}.md`), full_prompt, 'utf-8');
+    }
+
+    db.updateAgent(req.params.name, fields);
     res.json(db.getAgent(req.params.name));
   } catch (err) {
     console.error('[Agents] Update error:', err.message);
@@ -237,6 +515,47 @@ router.patch('/:name/rating', (req, res) => {
     db.updateAgentRating(req.params.name, rating);
     res.json({ ok: true });
   } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/:name/duplicate — duplicate an agent
+router.post('/:name/duplicate', (req, res) => {
+  try {
+    const source = db.getAgent(req.params.name);
+    if (!source) return res.status(404).json({ error: 'Source agent not found' });
+
+    const { new_name } = req.body;
+    if (!new_name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(new_name)) {
+      return res.status(400).json({ error: 'new_name must be kebab-case (e.g. my-agent-copy)' });
+    }
+    const existing = db.getAgent(new_name);
+    if (existing) return res.status(409).json({ error: 'Agent with that name already exists' });
+
+    // Copy all fields to new agent
+    const fullPrompt = source.full_prompt || '';
+    const promptPreview = fullPrompt.substring(0, 500);
+    db.createAgentManual(
+      new_name,
+      source.description || '',
+      source.model || '',
+      source.category || 'uncategorized',
+      promptPreview,
+      fullPrompt,
+      source.tools || '',
+      source.max_turns || 0,
+      source.memory || '',
+      source.permission_mode || ''
+    );
+
+    // Write .md file to disk
+    if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(AGENTS_DIR, `${new_name}.md`), fullPrompt, 'utf-8');
+
+    const created = db.getAgent(new_name);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('[Agents] Duplicate error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

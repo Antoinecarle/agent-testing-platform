@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Check, X, Eye, FileText } from 'lucide-react';
+import { ArrowLeft, Check, X, Eye, FileText, Sparkles, Wand2, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 
 const t = {
@@ -30,11 +30,55 @@ export default function AgentCreate() {
   const [categories, setCategories] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiError, setAiError] = useState('');
 
   const [form, setForm] = useState({
     name: '', description: '', model: 'sonnet', category: 'uncategorized',
     tools: [], max_turns: 0, memory: '', permission_mode: '', prompt: '',
   });
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const res = await api('/api/agents/ai-generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          purpose: aiPrompt,
+          style: form.category !== 'uncategorized' ? form.category : '',
+          tools_needed: '',
+          category: form.category !== 'uncategorized' ? form.category : '',
+        }),
+      });
+      setAiResult(res);
+    } catch (e) {
+      setAiError(e.message || 'AI generation failed');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const applyAiResult = () => {
+    if (!aiResult) return;
+    setForm(f => ({
+      ...f,
+      name: aiResult.name || f.name,
+      description: aiResult.description || f.description,
+      model: aiResult.model || f.model,
+      tools: aiResult.tools || f.tools,
+      max_turns: aiResult.max_turns || f.max_turns,
+      permission_mode: aiResult.permission_mode || f.permission_mode,
+      prompt: aiResult.prompt || f.prompt,
+    }));
+    setAiResult(null);
+    setAiOpen(false);
+  };
 
   useEffect(() => {
     api('/api/categories').then(setCategories).catch(() => {});
@@ -102,6 +146,88 @@ export default function AgentCreate() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* LEFT: Form */}
         <div style={{ width: '60%', overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+          {/* AI Assistant Panel */}
+          <div style={{
+            backgroundColor: t.surface, borderRadius: '10px',
+            border: `1px solid ${aiOpen ? t.violet : t.border}`,
+            overflow: 'hidden', transition: 'border-color 0.2s',
+          }}>
+            <button onClick={() => setAiOpen(!aiOpen)} style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 16px', backgroundColor: 'transparent', border: 'none', color: t.tp,
+              cursor: 'pointer',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={16} color={t.violet} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>AI Assistant</span>
+                <span style={{ fontSize: '11px', color: t.tm }}>Describe your agent and let AI generate the config</span>
+              </div>
+              <span style={{ fontSize: '12px', color: t.violet }}>{aiOpen ? 'Close' : 'Open'}</span>
+            </button>
+            {aiOpen && (
+              <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <textarea
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  placeholder="Describe what you want your agent to do... e.g. 'A code reviewer that focuses on React best practices and security vulnerabilities'"
+                  style={{
+                    ...inputStyle, minHeight: '80px', resize: 'vertical', fontFamily: 'inherit',
+                    border: `1px solid ${t.borderS}`,
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button onClick={handleAiGenerate} disabled={aiLoading || !aiPrompt.trim()} style={{
+                    backgroundColor: t.violetM, color: t.violet, border: `1px solid ${t.violet}`,
+                    padding: '8px 16px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    opacity: (aiLoading || !aiPrompt.trim()) ? 0.5 : 1,
+                  }}>
+                    <Wand2 size={14} />
+                    {aiLoading ? 'Generating...' : 'Generate with AI'}
+                  </button>
+                  {aiError && (
+                    <span style={{ fontSize: '12px', color: t.danger, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <AlertCircle size={12} />{aiError}
+                    </span>
+                  )}
+                </div>
+
+                {/* AI Result Preview */}
+                {aiResult && (
+                  <div style={{
+                    backgroundColor: t.bg, border: `1px solid ${t.success}`, borderRadius: '8px',
+                    padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: t.success, textTransform: 'uppercase' }}>AI Suggestion</span>
+                      <button onClick={applyAiResult} style={{
+                        backgroundColor: t.success, color: '#fff', border: 'none',
+                        padding: '5px 12px', fontSize: '11px', fontWeight: 700, borderRadius: '4px', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                      }}>
+                        <Check size={12} />Apply
+                      </button>
+                    </div>
+                    {aiResult.name && <div style={{ fontSize: '12px' }}><strong style={{ color: t.tm }}>Name:</strong> <span style={{ color: t.ts }}>{aiResult.name}</span></div>}
+                    {aiResult.description && <div style={{ fontSize: '12px' }}><strong style={{ color: t.tm }}>Description:</strong> <span style={{ color: t.ts }}>{aiResult.description}</span></div>}
+                    {aiResult.model && <div style={{ fontSize: '12px' }}><strong style={{ color: t.tm }}>Model:</strong> <span style={{ color: t.ts }}>{aiResult.model}</span></div>}
+                    {aiResult.tools && <div style={{ fontSize: '12px' }}><strong style={{ color: t.tm }}>Tools:</strong> <span style={{ color: t.ts }}>{aiResult.tools.join(', ')}</span></div>}
+                    {aiResult.prompt && (
+                      <pre style={{
+                        fontSize: '11px', color: t.ts, fontFamily: t.mono, backgroundColor: 'rgba(255,255,255,0.02)',
+                        padding: '10px', borderRadius: '6px', maxHeight: '150px', overflowY: 'auto',
+                        whiteSpace: 'pre-wrap', margin: 0, lineHeight: '1.5',
+                      }}>
+                        {aiResult.prompt.substring(0, 500)}{aiResult.prompt.length > 500 ? '...' : ''}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Name */}
           <div>
             <label style={labelStyle}>Name</label>

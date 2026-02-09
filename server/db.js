@@ -122,6 +122,74 @@ db.exec(`
   )
 `);
 
+// --- Agent Teams table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_teams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    updated_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
+
+// --- Agent Team Members table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_team_members (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES agent_teams(id) ON DELETE CASCADE,
+    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+    role TEXT DEFAULT 'member',
+    sort_order INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    UNIQUE(team_id, agent_name)
+  )
+`);
+
+// --- Team Runs table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS team_runs (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES agent_teams(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    status TEXT DEFAULT 'pending',
+    config TEXT DEFAULT '{}',
+    started_at INTEGER,
+    completed_at INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
+
+// --- Team Run Logs table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS team_run_logs (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES team_runs(id) ON DELETE CASCADE,
+    agent_name TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    log_type TEXT DEFAULT 'info',
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
+
+// --- Agent Versions table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agent_versions (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+    version_number INTEGER NOT NULL,
+    full_prompt TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    tools TEXT DEFAULT '',
+    max_turns INTEGER DEFAULT 0,
+    memory TEXT DEFAULT '',
+    permission_mode TEXT DEFAULT '',
+    change_summary TEXT DEFAULT '',
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  )
+`);
+
 // Seed default categories if table is empty
 const catCount = db.prepare('SELECT COUNT(*) as c FROM categories').get();
 if (catCount.c === 0) {
@@ -166,14 +234,29 @@ const agentStmts = {
     INSERT INTO agents (name, description, model, category, prompt_preview, screenshot_path, rating, full_prompt, source, tools, max_turns, memory, permission_mode, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'manual', ?, ?, ?, ?, strftime('%s','now'))
   `),
-  getAll: db.prepare('SELECT * FROM agents ORDER BY name ASC'),
+  getAll: db.prepare(`
+    SELECT a.*, COALESCE(pc.count, 0) as project_count
+    FROM agents a
+    LEFT JOIN (SELECT agent_name, COUNT(*) as count FROM projects GROUP BY agent_name) pc ON pc.agent_name = a.name
+    ORDER BY a.name ASC
+  `),
   getByName: db.prepare('SELECT * FROM agents WHERE name = ?'),
-  getByCategory: db.prepare('SELECT * FROM agents WHERE category = ? ORDER BY name ASC'),
+  getByCategory: db.prepare(`
+    SELECT a.*, COALESCE(pc.count, 0) as project_count
+    FROM agents a
+    LEFT JOIN (SELECT agent_name, COUNT(*) as count FROM projects GROUP BY agent_name) pc ON pc.agent_name = a.name
+    WHERE a.category = ? ORDER BY a.name ASC
+  `),
   updateRating: db.prepare("UPDATE agents SET rating = ?, updated_at = strftime('%s','now') WHERE name = ?"),
   updateLastUsed: db.prepare("UPDATE agents SET last_used_at = strftime('%s','now'), updated_at = strftime('%s','now') WHERE name = ?"),
   updateScreenshot: db.prepare("UPDATE agents SET screenshot_path = ?, updated_at = strftime('%s','now') WHERE name = ?"),
   delete: db.prepare('DELETE FROM agents WHERE name = ?'),
-  search: db.prepare("SELECT * FROM agents WHERE name LIKE ? OR description LIKE ? OR category LIKE ? ORDER BY name ASC"),
+  search: db.prepare(`
+    SELECT a.*, COALESCE(pc.count, 0) as project_count
+    FROM agents a
+    LEFT JOIN (SELECT agent_name, COUNT(*) as count FROM projects GROUP BY agent_name) pc ON pc.agent_name = a.name
+    WHERE a.name LIKE ? OR a.description LIKE ? OR a.category LIKE ? ORDER BY a.name ASC
+  `),
   getProjectCount: db.prepare('SELECT COUNT(*) as count FROM projects WHERE agent_name = ?'),
   getProjectsByAgent: db.prepare('SELECT * FROM projects WHERE agent_name = ? ORDER BY created_at DESC'),
 };
@@ -207,6 +290,11 @@ function updateAgent(name, fields) {
   if (fields.model !== undefined) { sets.push('model = ?'); vals.push(fields.model); }
   if (fields.category !== undefined) { sets.push('category = ?'); vals.push(fields.category); }
   if (fields.prompt_preview !== undefined) { sets.push('prompt_preview = ?'); vals.push(fields.prompt_preview); }
+  if (fields.full_prompt !== undefined) { sets.push('full_prompt = ?'); vals.push(fields.full_prompt); }
+  if (fields.tools !== undefined) { sets.push('tools = ?'); vals.push(fields.tools); }
+  if (fields.max_turns !== undefined) { sets.push('max_turns = ?'); vals.push(fields.max_turns); }
+  if (fields.memory !== undefined) { sets.push('memory = ?'); vals.push(fields.memory); }
+  if (fields.permission_mode !== undefined) { sets.push('permission_mode = ?'); vals.push(fields.permission_mode); }
   if (sets.length === 0) return;
   sets.push("updated_at = strftime('%s','now')");
   vals.push(name);
@@ -400,12 +488,152 @@ function seedAdmin() {
   }
 }
 
+// --- Agent Team statements ---
+const teamStmts = {
+  create: db.prepare('INSERT INTO agent_teams (id, name, description) VALUES (?, ?, ?)'),
+  getAll: db.prepare(`
+    SELECT t.*, COUNT(m.id) as member_count,
+      GROUP_CONCAT(m.agent_name) as member_names
+    FROM agent_teams t
+    LEFT JOIN agent_team_members m ON m.team_id = t.id
+    GROUP BY t.id
+    ORDER BY t.created_at DESC
+  `),
+  getById: db.prepare('SELECT * FROM agent_teams WHERE id = ?'),
+  update: db.prepare("UPDATE agent_teams SET name = ?, description = ?, updated_at = strftime('%s','now') WHERE id = ?"),
+  delete: db.prepare('DELETE FROM agent_teams WHERE id = ?'),
+};
+
+const teamMemberStmts = {
+  add: db.prepare('INSERT INTO agent_team_members (id, team_id, agent_name, role, sort_order) VALUES (?, ?, ?, ?, ?)'),
+  remove: db.prepare('DELETE FROM agent_team_members WHERE team_id = ? AND agent_name = ?'),
+  getByTeam: db.prepare(`
+    SELECT m.*, a.description as agent_description, a.model, a.category, a.rating, a.screenshot_path
+    FROM agent_team_members m
+    LEFT JOIN agents a ON a.name = m.agent_name
+    WHERE m.team_id = ?
+    ORDER BY m.sort_order ASC, m.created_at ASC
+  `),
+  updateOrder: db.prepare('UPDATE agent_team_members SET sort_order = ? WHERE team_id = ? AND agent_name = ?'),
+  updateRole: db.prepare('UPDATE agent_team_members SET role = ? WHERE team_id = ? AND agent_name = ?'),
+};
+
+function createTeam(id, name, description) {
+  teamStmts.create.run(id, name, description || '');
+}
+function getAllTeams() { return teamStmts.getAll.all(); }
+function getTeam(id) { return teamStmts.getById.get(id); }
+function updateTeam(id, name, description) {
+  teamStmts.update.run(name, description || '', id);
+}
+function deleteTeam(id) { teamStmts.delete.run(id); }
+function addTeamMember(id, teamId, agentName, role, sortOrder) {
+  teamMemberStmts.add.run(id, teamId, agentName, role || 'member', sortOrder || 0);
+}
+function removeTeamMember(teamId, agentName) {
+  teamMemberStmts.remove.run(teamId, agentName);
+}
+function getTeamMembers(teamId) { return teamMemberStmts.getByTeam.all(teamId); }
+function updateTeamMemberRole(teamId, agentName, role) {
+  teamMemberStmts.updateRole.run(role, teamId, agentName);
+}
+function reorderTeamMembers(teamId, orderedAgentNames) {
+  const txn = db.transaction((names) => {
+    names.forEach((name, idx) => teamMemberStmts.updateOrder.run(idx, teamId, name));
+  });
+  txn(orderedAgentNames);
+}
+
+// --- Agent Version statements ---
+const versionStmts = {
+  create: db.prepare('INSERT INTO agent_versions (id, agent_name, version_number, full_prompt, description, model, tools, max_turns, memory, permission_mode, change_summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+  getByAgent: db.prepare('SELECT * FROM agent_versions WHERE agent_name = ? ORDER BY version_number DESC'),
+  getById: db.prepare('SELECT * FROM agent_versions WHERE id = ?'),
+  getMaxVersion: db.prepare('SELECT MAX(version_number) as max_version FROM agent_versions WHERE agent_name = ?'),
+  getLatest: db.prepare('SELECT * FROM agent_versions WHERE agent_name = ? ORDER BY version_number DESC LIMIT 1'),
+};
+
+function createAgentVersion(id, agentName, versionNumber, fullPrompt, description, model, tools, maxTurns, memory, permissionMode, changeSummary) {
+  versionStmts.create.run(id, agentName, versionNumber, fullPrompt || '', description || '', model || '', tools || '', maxTurns || 0, memory || '', permissionMode || '', changeSummary || '');
+}
+function getAgentVersions(agentName) { return versionStmts.getByAgent.all(agentName); }
+function getAgentVersion(id) { return versionStmts.getById.get(id); }
+function getNextAgentVersionNumber(agentName) {
+  const row = versionStmts.getMaxVersion.get(agentName);
+  return (row && row.max_version != null) ? row.max_version + 1 : 1;
+}
+function getLatestAgentVersion(agentName) { return versionStmts.getLatest.get(agentName); }
+
+// --- Team Run statements ---
+const teamRunStmts = {
+  create: db.prepare('INSERT INTO team_runs (id, team_id, project_id, status, config) VALUES (?, ?, ?, ?, ?)'),
+  getById: db.prepare('SELECT * FROM team_runs WHERE id = ?'),
+  getByTeam: db.prepare('SELECT * FROM team_runs WHERE team_id = ? ORDER BY created_at DESC'),
+  getByProject: db.prepare('SELECT * FROM team_runs WHERE project_id = ? ORDER BY created_at DESC'),
+  updateStatus: db.prepare('UPDATE team_runs SET status = ?, started_at = ?, completed_at = ? WHERE id = ?'),
+};
+
+const teamRunLogStmts = {
+  add: db.prepare('INSERT INTO team_run_logs (id, run_id, agent_name, message, log_type) VALUES (?, ?, ?, ?, ?)'),
+  getByRun: db.prepare('SELECT * FROM team_run_logs WHERE run_id = ? ORDER BY created_at ASC'),
+};
+
+function createTeamRun(id, teamId, projectId, config) {
+  teamRunStmts.create.run(id, teamId, projectId || null, 'pending', JSON.stringify(config || {}));
+}
+function getTeamRun(id) {
+  const r = teamRunStmts.getById.get(id);
+  return r ? { ...r, config: JSON.parse(r.config || '{}') } : null;
+}
+function getTeamRuns(teamId) {
+  return teamRunStmts.getByTeam.all(teamId).map(r => ({ ...r, config: JSON.parse(r.config || '{}') }));
+}
+function getTeamRunsByProject(projectId) {
+  return teamRunStmts.getByProject.all(projectId).map(r => ({ ...r, config: JSON.parse(r.config || '{}') }));
+}
+function updateTeamRunStatus(id, status) {
+  const run = teamRunStmts.getById.get(id);
+  if (!run) return;
+  const now = Math.floor(Date.now() / 1000);
+  const startedAt = status === 'running' ? now : (run.started_at || null);
+  const completedAt = (status === 'completed' || status === 'failed') ? now : (run.completed_at || null);
+  teamRunStmts.updateStatus.run(status, startedAt, completedAt, id);
+}
+function addTeamRunLog(id, runId, agentName, message, logType) {
+  teamRunLogStmts.add.run(id, runId, agentName || '', message || '', logType || 'info');
+}
+function getTeamRunLogs(runId) {
+  return teamRunLogStmts.getByRun.all(runId);
+}
+
+// --- Bulk operations & stats ---
+function bulkDeleteAgents(names) {
+  const placeholders = names.map(() => '?').join(',');
+  db.prepare(`DELETE FROM agents WHERE name IN (${placeholders})`).run(...names);
+}
+
+function bulkUpdateCategory(names, category) {
+  const placeholders = names.map(() => '?').join(',');
+  db.prepare(`UPDATE agents SET category = ?, updated_at = strftime('%s','now') WHERE name IN (${placeholders})`).run(category, ...names);
+}
+
+function getAgentStats() {
+  const total = db.prepare('SELECT COUNT(*) as count FROM agents').get().count;
+  const byCategory = db.prepare('SELECT category, COUNT(*) as count FROM agents GROUP BY category ORDER BY count DESC').all();
+  const bySource = db.prepare("SELECT COALESCE(source, 'filesystem') as source, COUNT(*) as count FROM agents GROUP BY source").all();
+  const byModel = db.prepare("SELECT COALESCE(model, 'unknown') as model, COUNT(*) as count FROM agents GROUP BY model ORDER BY count DESC").all();
+  const avgRating = db.prepare('SELECT AVG(CASE WHEN rating > 0 THEN rating ELSE NULL END) as avg FROM agents').get().avg || 0;
+  const totalProjects = db.prepare('SELECT COUNT(DISTINCT project_id) as count FROM (SELECT p.id as project_id FROM projects p INNER JOIN agents a ON p.agent_name = a.name)').get().count;
+  return { total, byCategory, bySource, byModel, avgRating: Math.round(avgRating * 10) / 10, totalProjects };
+}
+
 module.exports = {
   seedAdmin,
   // Agents
   upsertAgent, createAgentManual, getAllAgents, getAgent, getAgentsByCategory,
   updateAgentRating, updateAgentLastUsed, updateAgentScreenshot,
   deleteAgent, searchAgents, updateAgent, getAgentProjectCount, getProjectsByAgent,
+  bulkDeleteAgents, bulkUpdateCategory, getAgentStats,
   // Categories
   getAllCategories, getCategory, getCategoryByName,
   createCategory, updateCategory, deleteCategory, reorderCategories,
@@ -426,4 +654,12 @@ module.exports = {
   getTerminalTabBySession,
   // Users
   getUserByEmail, getUserById, getAllUsers, createUser, updateUserClaudeStatus,
+  // Agent Teams
+  createTeam, getAllTeams, getTeam, updateTeam, deleteTeam,
+  addTeamMember, removeTeamMember, getTeamMembers, reorderTeamMembers, updateTeamMemberRole,
+  // Agent Versions
+  createAgentVersion, getAgentVersions, getAgentVersion, getNextAgentVersionNumber, getLatestAgentVersion,
+  // Team Runs
+  createTeamRun, getTeamRun, getTeamRuns, getTeamRunsByProject,
+  updateTeamRunStatus, addTeamRunLog, getTeamRunLogs,
 };

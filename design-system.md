@@ -126,6 +126,39 @@ fontFamily: monospace
 fontSize: 15px
 ```
 
+## Inline Theme Object (used in every page)
+Every page/component defines this exact theme object at the top:
+```js
+const t = {
+  bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
+  border: 'rgba(255,255,255,0.08)', borderS: 'rgba(255,255,255,0.15)',
+  violet: '#8B5CF6', violetM: 'rgba(139,92,246,0.2)', violetG: 'rgba(139,92,246,0.12)',
+  tp: '#F4F4F5', ts: '#A1A1AA', tm: '#52525B',
+  success: '#22c55e', warning: '#f59e0b', danger: '#ef4444',
+  mono: '"JetBrains Mono","Fira Code",monospace',
+};
+```
+
+## Input Style Pattern
+```js
+const inputStyle = {
+  width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`,
+  borderRadius: '6px', padding: '10px 12px', color: '#fff', fontSize: '13px',
+  outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+};
+```
+
+## Key UX Patterns
+- Toast notifications: fixed top-center, auto-dismiss 3s
+- Empty states: dashed border, centered icon + text + CTA
+- Confirm delete: inline confirm/cancel replacing delete button
+- Drawer: fixed overlay, 450px panel from right
+- Expandable accordion: click-to-expand with chevron
+- Loading: opacity 0.5 + "Loading..." text
+
+## Icons (lucide-react)
+All icons from lucide-react. Common ones: Search, Plus, Trash2, Edit3, Star, X, Check, ChevronDown, ChevronRight, Settings, RefreshCw, Upload, Download, Copy, ExternalLink, AlertCircle, Clock, Calendar, Users, Shield, User, Play, BarChart3, History, Eye
+
 ---
 
 ## Branding: guru.ai

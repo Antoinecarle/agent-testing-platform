@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy } from 'lucide-react';
 import { api } from '../api';
+import AgentVersionHistory from '../components/AgentVersionHistory';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -52,6 +53,29 @@ export default function AgentDetail() {
     try {
       await api(`/api/agents/${name}`, { method: 'DELETE' });
       navigate('/agents');
+    } catch (e) { console.error(e); }
+  };
+
+  const handleExport = () => {
+    if (!agent?.full_prompt) return;
+    const blob = new Blob([agent.full_prompt], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agent.name}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDuplicate = async () => {
+    const newName = window.prompt('Enter new agent name (kebab-case):', `${name}-copy`);
+    if (!newName) return;
+    try {
+      await api(`/api/agents/${name}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ new_name: newName }),
+      });
+      navigate(`/agents/${newName}`);
     } catch (e) { console.error(e); }
   };
 
@@ -192,6 +216,20 @@ export default function AgentDetail() {
           }}>
             <ExternalLink size={13} />Test
           </button>
+          <button onClick={handleDuplicate} style={{
+            backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+            padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }}>
+            <Copy size={13} />Duplicate
+          </button>
+          <button onClick={handleExport} style={{
+            backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+            padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }}>
+            <Download size={13} />Export .md
+          </button>
           {!confirmDelete ? (
             <button onClick={() => setConfirmDelete(true)} style={{
               backgroundColor: 'transparent', color: t.danger, border: `1px solid rgba(239,68,68,0.3)`,
@@ -218,7 +256,7 @@ export default function AgentDetail() {
 
       {/* Content: 2 columns */}
       <div style={{ display: 'flex', padding: '0 24px 24px', gap: '24px' }}>
-        {/* LEFT: Prompt */}
+        {/* LEFT: Prompt + Version History */}
         <div style={{ width: '65%' }}>
           <h2 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
             Prompt
@@ -259,6 +297,16 @@ export default function AgentDetail() {
                 [No prompt content]
               </div>
             )}
+          </div>
+
+          {/* Version History */}
+          <div style={{ marginTop: '24px' }}>
+            <AgentVersionHistory
+              agentName={name}
+              onRevert={() => {
+                api(`/api/agents/${name}`).then(setAgent).catch(console.error);
+              }}
+            />
           </div>
         </div>
 

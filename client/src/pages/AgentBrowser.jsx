@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Plus, Trash2, Edit3, Star, Layers,
   LayoutGrid, List, RefreshCw, X, Check, Save,
-  ChevronRight, AlertCircle, ExternalLink, Settings
+  ChevronRight, AlertCircle, ExternalLink, Settings, Upload,
+  CheckSquare, Square, Download, Tag
 } from 'lucide-react';
 import { api } from '../api';
 import CategoryModal from '../components/CategoryModal';
@@ -138,7 +139,19 @@ function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTe
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           paddingTop: isGrid ? '12px' : '0', borderTop: isGrid ? `1px solid ${t.border}` : 'none',
         }}>
-          <span style={{ fontSize: '11px', fontFamily: t.mono, color: t.tm }}>{agent.model || 'unknown'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px', fontFamily: t.mono, color: t.tm }}>{agent.model || 'unknown'}</span>
+            {agent.project_count > 0 && (
+              <span style={{ fontSize: '10px', color: t.tm, backgroundColor: 'rgba(255,255,255,0.04)', padding: '2px 6px', borderRadius: '4px' }}>
+                {agent.project_count} project{agent.project_count !== 1 ? 's' : ''}
+              </span>
+            )}
+            {agent.source === 'manual' && (
+              <span style={{ fontSize: '9px', fontWeight: '600', color: t.success, backgroundColor: 'rgba(34,197,94,0.1)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                custom
+              </span>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button onClick={e => { e.stopPropagation(); onTest(); }} style={{
               backgroundColor: t.violetM, color: t.violet, border: 'none', padding: '4px 10px',
@@ -261,12 +274,16 @@ export default function AgentBrowser() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('rating');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [viewType, setViewType] = useState('grid');
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
   const [categoryForm, setCategoryForm] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedAgents, setSelectedAgents] = useState(new Set());
+  const [bulkCategoryTarget, setBulkCategoryTarget] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -282,6 +299,28 @@ export default function AgentBrowser() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.md';
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const content = await file.text();
+      try {
+        await api('/api/agents/import', {
+          method: 'POST',
+          body: JSON.stringify({ filename: file.name, content }),
+        });
+        await fetchData();
+      } catch (err) {
+        console.error('Import failed:', err);
+        alert(err.message || 'Import failed');
+      }
+    };
+    input.click();
+  };
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -353,6 +392,67 @@ export default function AgentBrowser() {
     } catch (e) { console.error(e); }
   };
 
+  const toggleSelect = (name) => {
+    setSelectedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedAgents.size === filteredAgents.length) {
+      setSelectedAgents(new Set());
+    } else {
+      setSelectedAgents(new Set(filteredAgents.map(a => a.name)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedAgents.size) return;
+    if (!window.confirm(`Delete ${selectedAgents.size} agents?`)) return;
+    try {
+      await api('/api/agents/bulk/delete', {
+        method: 'POST',
+        body: JSON.stringify({ names: [...selectedAgents] }),
+      });
+      setSelectedAgents(new Set());
+      setBulkMode(false);
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const handleBulkCategorize = async (category) => {
+    if (!selectedAgents.size) return;
+    try {
+      await api('/api/agents/bulk/categorize', {
+        method: 'POST',
+        body: JSON.stringify({ names: [...selectedAgents], category }),
+      });
+      setBulkCategoryTarget(null);
+      setSelectedAgents(new Set());
+      setBulkMode(false);
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const handleBulkExport = async () => {
+    if (!selectedAgents.size) return;
+    try {
+      const result = await api('/api/agents/bulk/export', {
+        method: 'POST',
+        body: JSON.stringify({ names: [...selectedAgents] }),
+      });
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `agents-export-${selectedAgents.size}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); }
+  };
+
   const agentCounts = useMemo(() => {
     const counts = {};
     agents.forEach(a => { counts[a.category] = (counts[a.category] || 0) + 1; });
@@ -365,14 +465,16 @@ export default function AgentBrowser() {
         const matchesCat = !activeCategory || a.category === activeCategory;
         const q = searchQuery.toLowerCase();
         const matchesSearch = !q || a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q);
-        return matchesCat && matchesSearch;
+        const matchesSource = sourceFilter === 'all' || (a.source || 'filesystem') === sourceFilter;
+        return matchesCat && matchesSearch && matchesSource;
       })
       .sort((a, b) => {
         if (sortOrder === 'rating') return (b.rating || 0) - (a.rating || 0);
         if (sortOrder === 'name') return a.name.localeCompare(b.name);
+        if (sortOrder === 'projects') return (b.project_count || 0) - (a.project_count || 0);
         return (b.updated_at || 0) - (a.updated_at || 0);
       });
-  }, [agents, activeCategory, searchQuery, sortOrder]);
+  }, [agents, activeCategory, searchQuery, sortOrder, sourceFilter]);
 
   const getCount = (catName) => agents.filter(a => a.category === catName).length;
 
@@ -459,7 +561,16 @@ export default function AgentBrowser() {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{
+              backgroundColor: t.surface, border: `1px solid ${t.border}`, color: t.ts,
+              fontSize: '12px', padding: '6px 10px', borderRadius: '4px', outline: 'none',
+            }}>
+              <option value="all">All Sources</option>
+              <option value="filesystem">Bundled</option>
+              <option value="manual">Custom</option>
+            </select>
+
             <select value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{
               backgroundColor: t.surface, border: `1px solid ${t.border}`, color: t.ts,
               fontSize: '12px', padding: '6px 10px', borderRadius: '4px', outline: 'none',
@@ -467,6 +578,7 @@ export default function AgentBrowser() {
               <option value="rating">Top Rated</option>
               <option value="name">Alphabetical</option>
               <option value="recent">Recent</option>
+              <option value="projects">Most Used</option>
             </select>
 
             <div style={{ display: 'flex', backgroundColor: t.surface, padding: '3px', borderRadius: '6px', border: `1px solid ${t.border}` }}>
@@ -482,6 +594,16 @@ export default function AgentBrowser() {
               }}><List size={14} /></button>
             </div>
 
+            <button onClick={() => { setBulkMode(!bulkMode); setSelectedAgents(new Set()); }} style={{
+              backgroundColor: bulkMode ? t.violetM : t.surfaceEl, color: bulkMode ? t.violet : t.ts,
+              border: `1px solid ${bulkMode ? t.violet : t.borderS}`,
+              padding: '6px 14px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <CheckSquare size={14} />
+              {bulkMode ? 'Cancel' : 'Select'}
+            </button>
+
             <button onClick={handleSync} disabled={isSyncing} style={{
               backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
               padding: '6px 14px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
@@ -489,6 +611,15 @@ export default function AgentBrowser() {
             }}>
               <RefreshCw size={14} style={isSyncing ? { animation: 'spin 1s linear infinite' } : {}} />
               Sync
+            </button>
+
+            <button onClick={handleImport} style={{
+              backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+              padding: '6px 14px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <Upload size={14} />
+              Import .md
             </button>
 
             <button onClick={() => navigate('/agents/new')} style={{
@@ -502,14 +633,74 @@ export default function AgentBrowser() {
           </div>
         </header>
 
-        {/* Title */}
+        {/* Title + Bulk Action Bar */}
         <div style={{ padding: '20px 24px 0 24px' }}>
-          <h1 style={{ fontSize: '20px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '12px', textTransform: 'capitalize' }}>
-            {activeCategory || 'All Agents'}
-            <span style={{ fontSize: '12px', fontWeight: '400', color: t.tm, backgroundColor: t.border, padding: '2px 8px', borderRadius: '100px' }}>
-              {filteredAgents.length}
-            </span>
-          </h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '20px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '12px', textTransform: 'capitalize' }}>
+              {activeCategory || 'All Agents'}
+              <span style={{ fontSize: '12px', fontWeight: '400', color: t.tm, backgroundColor: t.border, padding: '2px 8px', borderRadius: '100px' }}>
+                {filteredAgents.length}
+              </span>
+            </h1>
+
+            {bulkMode && selectedAgents.size > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: t.violet, fontWeight: 600 }}>
+                  {selectedAgents.size} selected
+                </span>
+                <button onClick={selectAll} style={{
+                  background: 'none', border: `1px solid ${t.border}`, color: t.ts,
+                  padding: '4px 10px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer',
+                }}>
+                  {selectedAgents.size === filteredAgents.length ? 'Deselect All' : 'Select All'}
+                </button>
+                {!bulkCategoryTarget ? (
+                  <button onClick={() => setBulkCategoryTarget('picking')} style={{
+                    background: 'none', border: `1px solid ${t.border}`, color: t.ts,
+                    padding: '4px 10px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                  }}>
+                    <Tag size={12} /> Categorize
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <select
+                      autoFocus
+                      onChange={e => { if (e.target.value) handleBulkCategorize(e.target.value); }}
+                      style={{
+                        backgroundColor: t.surfaceEl, border: `1px solid ${t.borderS}`, color: t.tp,
+                        fontSize: '11px', padding: '4px 8px', borderRadius: '4px', outline: 'none',
+                      }}
+                    >
+                      <option value="">Pick category...</option>
+                      {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                    <button onClick={() => setBulkCategoryTarget(null)} style={{
+                      background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '2px', display: 'flex',
+                    }}><X size={14} /></button>
+                  </div>
+                )}
+                <button onClick={handleBulkExport} style={{
+                  background: 'none', border: `1px solid ${t.border}`, color: t.ts,
+                  padding: '4px 10px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                }}>
+                  <Download size={12} /> Export
+                </button>
+                <button onClick={handleBulkDelete} style={{
+                  background: 'none', border: `1px solid rgba(239,68,68,0.3)`, color: t.danger,
+                  padding: '4px 10px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                }}>
+                  <Trash2 size={12} /> Delete
+                </button>
+              </div>
+            )}
+          </div>
+
+          {bulkMode && selectedAgents.size === 0 && (
+            <p style={{ fontSize: '12px', color: t.tm, margin: '8px 0 0 0' }}>Click agents to select them for bulk actions.</p>
+          )}
         </div>
 
         {/* Grid / List */}
@@ -521,17 +712,32 @@ export default function AgentBrowser() {
           gap: '12px', opacity: loading ? 0.5 : 1, transition: 'opacity 0.3s',
         }}>
           {filteredAgents.map(agent => (
-            <AgentCard
-              key={agent.name}
-              agent={agent}
-              viewType={viewType}
-              categories={categories}
-              onClick={() => navigate(`/agents/${agent.name}`)}
-              onEdit={() => { setEditingAgent(agent); }}
-              onDelete={() => { setConfirmDelete(agent.name); }}
-              onRate={val => handleRate(agent.name, val)}
-              onTest={() => navigate(`/project/new?agent=${agent.name}`)}
-            />
+            <div key={agent.name} style={{ position: 'relative' }}>
+              {bulkMode && (
+                <div
+                  onClick={e => { e.stopPropagation(); toggleSelect(agent.name); }}
+                  style={{
+                    position: 'absolute', top: '8px', left: '8px', zIndex: 10,
+                    width: '20px', height: '20px', borderRadius: '4px', cursor: 'pointer',
+                    backgroundColor: selectedAgents.has(agent.name) ? t.violet : t.surfaceEl,
+                    border: `1px solid ${selectedAgents.has(agent.name) ? t.violet : t.borderS}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  {selectedAgents.has(agent.name) && <Check size={12} color="#fff" />}
+                </div>
+              )}
+              <AgentCard
+                agent={agent}
+                viewType={viewType}
+                categories={categories}
+                onClick={() => bulkMode ? toggleSelect(agent.name) : navigate(`/agents/${agent.name}`)}
+                onEdit={() => { if (!bulkMode) setEditingAgent(agent); }}
+                onDelete={() => { if (!bulkMode) setConfirmDelete(agent.name); }}
+                onRate={val => { if (!bulkMode) handleRate(agent.name, val); }}
+                onTest={() => { if (!bulkMode) navigate(`/project/new?agent=${agent.name}`); }}
+              />
+            </div>
           ))}
           {filteredAgents.length === 0 && !loading && (
             <div style={{
