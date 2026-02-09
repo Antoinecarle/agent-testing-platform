@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  ExternalLink,
   Share2,
   RefreshCcw,
   Monitor,
   Smartphone,
   Tablet,
-  AlertCircle
+  AlertCircle,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 
 const t = {
@@ -35,6 +36,7 @@ export default function ClientPreview() {
   const [selectedIterationId, setSelectedIterationId] = useState(null);
   const [viewport, setViewport] = useState('desktop');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [barCollapsed, setBarCollapsed] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -102,6 +104,7 @@ export default function ClientPreview() {
   }
 
   const viewportWidths = { desktop: '100%', tablet: '768px', mobile: '390px' };
+  const sortedIterations = [...data.iterations].sort((a, b) => a.version - b.version);
 
   return (
     <div style={{
@@ -109,136 +112,26 @@ export default function ClientPreview() {
       fontFamily: 'Inter, sans-serif', overflow: 'hidden',
       display: 'flex', flexDirection: 'column', position: 'relative'
     }}>
-      {/* Floating Header */}
-      <header style={{
-        position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
-        width: 'calc(100% - 32px)', maxWidth: '1200px', height: '64px',
-        backgroundColor: 'rgba(26, 26, 27, 0.7)',
-        backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-        border: `1px solid ${t.borderS}`, borderRadius: '16px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 20px', zIndex: 1000, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-      }}>
-        {/* Left: Branding & Project */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '16px', letterSpacing: '-0.5px' }}>guru</span>
-            <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '16px', color: t.violet }}>.ai</span>
-          </div>
-          <div style={{ width: '1px', height: '20px', backgroundColor: t.border }} />
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{data.project.name}</span>
-            <span style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Client Preview</span>
-          </div>
-        </div>
-
-        {/* Center: Iteration Navigator */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '6px',
-          overflowX: 'auto', padding: '0 20px', flex: 1, justifyContent: 'center',
-          msOverflowStyle: 'none', scrollbarWidth: 'none',
-        }}>
-          {[...data.iterations].sort((a, b) => a.version - b.version).map((iter) => {
-            const isActive = selectedIterationId === iter.id;
-            return (
-              <button
-                key={iter.id}
-                onClick={() => setSelectedIterationId(iter.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '6px 12px', borderRadius: '8px',
-                  backgroundColor: isActive ? t.violetM : 'transparent',
-                  border: `1px solid ${isActive ? t.violet : 'transparent'}`,
-                  cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                  whiteSpace: 'nowrap', flexShrink: 0,
-                }}
-              >
-                <div style={{
-                  width: '6px', height: '6px', borderRadius: '50%',
-                  backgroundColor: iter.status === 'completed' ? t.success : iter.status === 'error' ? t.danger : t.warning,
-                }} />
-                <span style={{
-                  fontSize: '12px', fontWeight: 600,
-                  color: isActive ? t.tp : t.ts, fontFamily: t.mono,
-                }}>
-                  v{iter.version}
-                </span>
-                {iter.title && (
-                  <span style={{
-                    fontSize: '11px', color: isActive ? t.tp : t.tm,
-                    maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>
-                    {iter.title}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Right: Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-          {/* Viewport switcher */}
-          <div style={{
-            display: 'flex', backgroundColor: 'rgba(0,0,0,0.2)',
-            padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}`,
-          }}>
-            {[
-              { id: 'mobile', icon: <Smartphone size={14} /> },
-              { id: 'tablet', icon: <Tablet size={14} /> },
-              { id: 'desktop', icon: <Monitor size={14} /> },
-            ].map(v => (
-              <button key={v.id} onClick={() => setViewport(v.id)} style={{
-                padding: '4px 8px', borderRadius: '6px', border: 'none',
-                backgroundColor: viewport === v.id ? t.surfaceEl : 'transparent',
-                color: viewport === v.id ? t.violet : t.tm,
-                cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center',
-              }}>
-                {v.icon}
-              </button>
-            ))}
-          </div>
-
-          {/* Refresh */}
-          <button onClick={handleRefresh} style={{
-            padding: '8px', borderRadius: '8px', border: `1px solid ${t.border}`,
-            backgroundColor: 'transparent', color: t.ts, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
-          }}>
-            <RefreshCcw size={16} style={isRefreshing ? { animation: 'spin 0.8s ease-in-out' } : {}} />
-          </button>
-
-          {/* Share */}
-          <button onClick={handleShare} style={{
-            padding: '8px 14px', borderRadius: '8px', backgroundColor: t.violet,
-            border: 'none', color: 'white', fontSize: '12px', fontWeight: 600,
-            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-            boxShadow: `0 0 12px ${t.violetG}`,
-          }}>
-            <Share2 size={14} />
-            <span>Share</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Preview Area */}
+      {/* Full-screen Preview Area */}
       <main style={{
         flex: 1, width: '100%', height: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         backgroundColor: '#050505', position: 'relative', overflow: 'hidden',
       }}>
-        {/* Background Gradient */}
-        <div style={{
-          position: 'absolute', top: '-10%', left: '50%', transform: 'translateX(-50%)',
-          width: '80%', height: '40%',
-          background: `radial-gradient(circle at center, ${t.violetG} 0%, transparent 70%)`,
-          zIndex: 0, pointerEvents: 'none',
-        }} />
+        {/* Background Gradient (non-desktop only) */}
+        {viewport !== 'desktop' && (
+          <div style={{
+            position: 'absolute', bottom: '10%', left: '50%', transform: 'translateX(-50%)',
+            width: '80%', height: '40%',
+            background: `radial-gradient(circle at center, ${t.violetG} 0%, transparent 70%)`,
+            zIndex: 0, pointerEvents: 'none',
+          }} />
+        )}
 
         {/* Viewport Container */}
         <div style={{
           width: viewportWidths[viewport],
-          height: viewport === 'desktop' ? '100%' : 'calc(100% - 120px)',
+          height: viewport === 'desktop' ? '100%' : 'calc(100% - 100px)',
           maxWidth: '100%',
           transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
           position: 'relative', zIndex: 1,
@@ -271,32 +164,158 @@ export default function ClientPreview() {
         </div>
       </main>
 
-      {/* Bottom Status Pill */}
+      {/* Bottom Control Bar */}
       <div style={{
-        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-        padding: '8px 16px',
-        backgroundColor: 'rgba(26, 26, 27, 0.8)', backdropFilter: 'blur(8px)',
-        border: `1px solid ${t.border}`, borderRadius: '100px',
-        display: 'flex', alignItems: 'center', gap: '12px', zIndex: 1000,
+        position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+        width: barCollapsed ? 'auto' : 'calc(100% - 40px)', maxWidth: barCollapsed ? 'none' : '1100px',
+        backgroundColor: 'rgba(15, 15, 15, 0.85)',
+        backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+        border: `1px solid ${t.borderS}`, borderRadius: '16px',
+        zIndex: 1000, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        overflow: 'hidden',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{
-            width: '8px', height: '8px', borderRadius: '50%',
-            backgroundColor: activeIteration?.status === 'completed' ? t.success : t.warning,
-            boxShadow: `0 0 8px ${activeIteration?.status === 'completed' ? t.success : t.warning}44`,
-          }} />
-          <span style={{ fontSize: '11px', color: t.ts, fontWeight: 500 }}>
-            {activeIteration?.status === 'completed' ? 'Live Preview' : 'Draft'}
-          </span>
-        </div>
-        <div style={{ width: '1px', height: '12px', backgroundColor: t.border }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ fontSize: '11px', color: t.tm }}>Agent:</span>
-          <span style={{ fontSize: '11px', color: t.tp, fontWeight: 600 }}>{activeIteration?.agent_name || 'System'}</span>
-        </div>
-        <div style={{ width: '1px', height: '12px', backgroundColor: t.border }} />
-        <span style={{ fontSize: '10px', color: t.tm, fontFamily: t.mono }}>Powered by guru.ai</span>
+        {/* Collapsed state: just a small pill */}
+        {barCollapsed ? (
+          <button onClick={() => setBarCollapsed(false)} style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '10px 16px', border: 'none', background: 'transparent',
+            cursor: 'pointer', color: t.ts,
+          }}>
+            <ChevronUp size={14} />
+            <span style={{ fontFamily: t.mono, fontSize: '11px', fontWeight: 600 }}>
+              v{activeIteration?.version || '?'}
+            </span>
+            <div style={{ width: '1px', height: '12px', backgroundColor: t.border }} />
+            <span style={{ fontSize: '10px', color: t.tm }}>{data.project.name}</span>
+          </button>
+        ) : (
+          <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Row 1: Brand + Actions */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {/* Left: Branding */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '14px', letterSpacing: '-0.5px' }}>guru</span>
+                  <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '14px', color: t.violet }}>.ai</span>
+                </div>
+                <div style={{ width: '1px', height: '16px', backgroundColor: t.border }} />
+                <span style={{ fontSize: '12px', fontWeight: 600, color: t.tp }}>{data.project.name}</span>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  padding: '2px 8px', borderRadius: '100px',
+                  background: activeIteration?.status === 'completed' ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.1)',
+                  border: `1px solid ${activeIteration?.status === 'completed' ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                }}>
+                  <div style={{
+                    width: '6px', height: '6px', borderRadius: '50%',
+                    backgroundColor: activeIteration?.status === 'completed' ? t.success : t.warning,
+                  }} />
+                  <span style={{ fontSize: '10px', color: activeIteration?.status === 'completed' ? t.success : t.warning, fontWeight: 500 }}>
+                    {activeIteration?.status === 'completed' ? 'Live' : 'Draft'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Right: Actions */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Viewport switcher */}
+                <div style={{
+                  display: 'flex', backgroundColor: 'rgba(255,255,255,0.04)',
+                  padding: '3px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                }}>
+                  {[
+                    { id: 'mobile', icon: <Smartphone size={13} /> },
+                    { id: 'tablet', icon: <Tablet size={13} /> },
+                    { id: 'desktop', icon: <Monitor size={13} /> },
+                  ].map(v => (
+                    <button key={v.id} onClick={() => setViewport(v.id)} style={{
+                      padding: '4px 7px', borderRadius: '6px', border: 'none',
+                      backgroundColor: viewport === v.id ? t.surfaceEl : 'transparent',
+                      color: viewport === v.id ? t.violet : t.tm,
+                      cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center',
+                    }}>
+                      {v.icon}
+                    </button>
+                  ))}
+                </div>
+
+                <button onClick={handleRefresh} style={{
+                  padding: '6px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                  backgroundColor: 'transparent', color: t.ts, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <RefreshCcw size={14} style={isRefreshing ? { animation: 'spin 0.8s ease-in-out' } : {}} />
+                </button>
+
+                <button onClick={handleShare} style={{
+                  padding: '6px 12px', borderRadius: '8px', backgroundColor: t.violet,
+                  border: 'none', color: 'white', fontSize: '11px', fontWeight: 600,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                  boxShadow: `0 0 10px ${t.violetG}`,
+                }}>
+                  <Share2 size={13} />
+                  <span>Share</span>
+                </button>
+
+                <button onClick={() => setBarCollapsed(true)} style={{
+                  padding: '6px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                  backgroundColor: 'transparent', color: t.tm, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <ChevronDown size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Row 2: Iteration Navigator */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              overflowX: 'auto', paddingBottom: '2px',
+              msOverflowStyle: 'none', scrollbarWidth: 'none',
+            }}>
+              {sortedIterations.map((iter) => {
+                const isActive = selectedIterationId === iter.id;
+                return (
+                  <button
+                    key={iter.id}
+                    onClick={() => setSelectedIterationId(iter.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '7px',
+                      padding: '7px 14px', borderRadius: '10px',
+                      backgroundColor: isActive ? t.violetM : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${isActive ? t.violet : t.border}`,
+                      cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      whiteSpace: 'nowrap', flexShrink: 0,
+                    }}
+                  >
+                    <div style={{
+                      width: '6px', height: '6px', borderRadius: '50%',
+                      backgroundColor: iter.status === 'completed' ? t.success : iter.status === 'error' ? t.danger : t.warning,
+                    }} />
+                    <span style={{
+                      fontSize: '12px', fontWeight: 600,
+                      color: isActive ? t.tp : t.ts, fontFamily: t.mono,
+                    }}>
+                      v{iter.version}
+                    </span>
+                    {iter.title && (
+                      <span style={{
+                        fontSize: '11px', color: isActive ? t.ts : t.tm,
+                        maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {iter.title}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } div::-webkit-scrollbar { display: none; }`}</style>
     </div>
   );
 }
