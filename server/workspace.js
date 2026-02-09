@@ -145,14 +145,35 @@ Your job is to **create and iterate on web interfaces** following your agent spe
 
 **IMPORTANT**: Follow your Agent Instructions (below) for the style, type of interface, and design patterns. Do NOT default to generic "landing pages" — build what your agent specialization requires.
 
-### Available Actions
+### HOW TO CREATE AN ITERATION — READ THIS FIRST
 
-1. **Create new iteration** — Generate a fresh HTML interface based on a prompt, following your agent specialization
-2. **Iterate on existing** — Take the latest version and apply adjustments (copy changes, layout tweaks, new sections)
-3. **Branch** — Create an alternative version exploring a different direction
-4. **Compare** — Describe differences between two iterations
+**Step 1**: Write your HTML to \`./index.html\` (current directory)
+**Step 2**: That's it. The platform auto-detects the file within seconds.
 
-### Output Rules — CRITICAL
+\`\`\`bash
+# This is ALL you need to do:
+cat > ./index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html>... your code ...</html>
+HTMLEOF
+\`\`\`
+
+**DO NOT** try to:
+- Call the platform API with curl
+- Read or write to the SQLite database
+- Use python3 to manipulate data
+- Investigate the platform internals
+- Create iterations via any other method
+
+The platform has an automatic file watcher that detects \`index.html\` changes and registers them as iterations automatically.
+
+**If the iteration doesn't appear after 10 seconds**, run this fallback command:
+\`\`\`bash
+node /app/server/cli/register-iteration.js
+\`\`\`
+(It auto-detects the projectId from your current directory)
+
+### Output Rules
 
 #### Single version (default)
 - Save your output as \`index.html\` in the current directory (\`./index.html\`)
