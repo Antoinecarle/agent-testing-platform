@@ -47,6 +47,32 @@ function ensureUserHome(userId) {
     }
   }
 
+  // Create permissive settings.json so agents can write files
+  const userSettingsPath = path.join(userClaudeDir, 'settings.json');
+  if (!fs.existsSync(userSettingsPath)) {
+    const settings = {
+      permissions: {
+        allow: [
+          "Read",
+          "Write",
+          "Edit",
+          "Bash(*)",
+          "Glob",
+          "Grep",
+          "WebFetch",
+          "WebSearch",
+          "Task"
+        ]
+      }
+    };
+    try {
+      fs.writeFileSync(userSettingsPath, JSON.stringify(settings, null, 2));
+      console.log(`[UserHome] Created permissive settings.json for ${userId}`);
+    } catch (err) {
+      console.warn(`[UserHome] Failed to create settings.json for ${userId}:`, err.message);
+    }
+  }
+
   return userHome;
 }
 

@@ -214,6 +214,51 @@ To read a previous iteration for reference:
   const claudeMdPath = path.join(wsDir, 'CLAUDE.md');
   fs.writeFileSync(claudeMdPath, content);
 
+  // Create .claude/settings.local.json with permissions for sub-agents
+  const claudeSettingsDir = path.join(wsDir, '.claude');
+  if (!fs.existsSync(claudeSettingsDir)) fs.mkdirSync(claudeSettingsDir, { recursive: true });
+  const settingsPath = path.join(claudeSettingsDir, 'settings.local.json');
+  const settings = {
+    permissions: {
+      allow: [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash(*)",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "Task",
+        "mcp__plugin_playwright_playwright__browser_navigate",
+        "mcp__plugin_playwright_playwright__browser_take_screenshot",
+        "mcp__plugin_playwright_playwright__browser_evaluate",
+        "mcp__plugin_playwright_playwright__browser_resize",
+        "mcp__plugin_playwright_playwright__browser_close",
+        "mcp__plugin_playwright_playwright__browser_install",
+        "mcp__plugin_playwright_playwright__browser_snapshot",
+        "mcp__plugin_playwright_playwright__browser_click",
+        "mcp__plugin_playwright_playwright__browser_type",
+        "mcp__plugin_playwright_playwright__browser_fill_form",
+        "mcp__plugin_playwright_playwright__browser_press_key",
+        "mcp__plugin_playwright_playwright__browser_hover",
+        "mcp__plugin_playwright_playwright__browser_select_option",
+        "mcp__plugin_playwright_playwright__browser_tabs",
+        "mcp__plugin_playwright_playwright__browser_wait_for",
+        "mcp__plugin_playwright_playwright__browser_run_code",
+        "mcp__plugin_playwright_playwright__browser_console_messages",
+        "mcp__plugin_playwright_playwright__browser_network_requests",
+        "mcp__plugin_playwright_playwright__browser_handle_dialog",
+        "mcp__plugin_playwright_playwright__browser_file_upload",
+        "mcp__plugin_playwright_playwright__browser_navigate_back",
+        "mcp__plugin_playwright_playwright__browser_drag"
+      ]
+    }
+  };
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  try { fs.chownSync(settingsPath, 1001, 1001); } catch (_) {}
+  try { fs.chownSync(claudeSettingsDir, 1001, 1001); } catch (_) {}
+
   // Ensure claude-user can read it
   try { fs.chownSync(claudeMdPath, 1001, 1001); } catch (_) {}
   try { fs.chownSync(wsDir, 1001, 1001); } catch (_) {}
