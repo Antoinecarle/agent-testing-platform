@@ -684,6 +684,31 @@ export default function ProjectView() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
             Branch from here
           </div>
+          <div onClick={async () => {
+              const node = contextMenu.node;
+              setContextMenu(null);
+              const name = prompt(`New project name (from ${node.title || 'V' + node.version}):`, `${project?.name || 'Project'} - Fork`);
+              if (!name) return;
+              const agentChoice = prompt(`Agent name (leave empty to keep "${node.agent_name}"):`, node.agent_name || '');
+              try {
+                const result = await api('/api/projects/fork', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    name,
+                    agent_name: agentChoice || node.agent_name,
+                    source_project_id: projectId,
+                    source_iteration_id: node.id,
+                  }),
+                });
+                if (result?.project?.id) navigate(`/project/${result.project.id}`);
+              } catch (err) { console.error('Fork error:', err); }
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', color: t.ts, cursor: 'pointer', borderRadius: '4px' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/><path d="M3 6v12"/></svg>
+            New project from here
+          </div>
           <div onClick={() => {
               const node = contextMenu.node;
               setContextMenu(null);

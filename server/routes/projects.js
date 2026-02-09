@@ -31,6 +31,52 @@ router.post('/', (req, res) => {
   }
 });
 
+// POST /api/projects/fork — create new project from an existing iteration
+router.post('/fork', (req, res) => {
+  try {
+    const { name, description, agent_name, source_project_id, source_iteration_id } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    if (!source_iteration_id) return res.status(400).json({ error: 'source_iteration_id required' });
+
+    const sourceIteration = db.getIteration(source_iteration_id);
+    if (!sourceIteration) return res.status(404).json({ error: 'Source iteration not found' });
+
+    // Create the new project
+    const projectId = crypto.randomUUID();
+    const agentName = agent_name || sourceIteration.agent_name || '';
+    db.createProject(projectId, name, description || '', agentName);
+
+    // Create v1 iteration in the new project
+    const iterationId = crypto.randomUUID();
+    const path = require('path');
+    const fs = require('fs');
+    const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+    const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+
+    const sourceDir = path.join(ITERATIONS_DIR, source_project_id || sourceIteration.project_id, source_iteration_id);
+    const destDir = path.join(ITERATIONS_DIR, projectId, iterationId);
+
+    // Copy iteration files
+    if (fs.existsSync(sourceDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+      const files = fs.readdirSync(sourceDir);
+      for (const file of files) {
+        fs.copyFileSync(path.join(sourceDir, file), path.join(destDir, file));
+      }
+    }
+
+    const filePath = `${projectId}/${iterationId}/index.html`;
+    db.createIteration(iterationId, projectId, agentName, 1, `Forked from v${sourceIteration.version}`, '', null, filePath, '', 'completed', { forked_from: source_iteration_id });
+    db.updateProjectIterationCount(projectId, 1);
+
+    const project = db.getProject(projectId);
+    res.status(201).json({ project, iterationId });
+  } catch (err) {
+    console.error('[Projects] Fork error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/projects/:id — get project
 router.get('/:id', (req, res) => {
   try {
