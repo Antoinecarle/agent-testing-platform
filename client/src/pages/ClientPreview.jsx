@@ -8,7 +8,8 @@ import {
   Tablet,
   AlertCircle,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Download
 } from 'lucide-react';
 
 const t = {
@@ -247,6 +248,20 @@ export default function ClientPreview() {
                 }}>
                   <RefreshCcw size={14} style={isRefreshing ? { animation: 'spin 0.8s ease-in-out' } : {}} />
                 </button>
+
+                <a
+                  href={selectedIterationId ? `/api/preview/download/${projectId}/${selectedIterationId}` : '#'}
+                  style={{
+                    padding: '6px 12px', borderRadius: '8px',
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${t.border}`, color: t.ts, fontSize: '11px', fontWeight: 600,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <Download size={13} />
+                  <span>Download</span>
+                </a>
 
                 <button onClick={handleShare} style={{
                   padding: '6px 12px', borderRadius: '8px', backgroundColor: t.violet,

@@ -51,6 +51,35 @@ router.get('/showcase/:projectId', (req, res) => {
   }
 });
 
+// GET /api/preview/download/:projectId/:iterationId — download iteration as zip
+router.get('/download/:projectId/:iterationId', (req, res) => {
+  const archiver = require('archiver');
+  try {
+    const iterDir = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId);
+    if (!fs.existsSync(iterDir)) {
+      return res.status(404).json({ error: 'Iteration not found' });
+    }
+
+    const iteration = db.getIteration(req.params.iterationId);
+    const project = db.getProject(req.params.projectId);
+    const name = (project?.name || 'project').replace(/[^a-zA-Z0-9-_]/g, '-');
+    const version = iteration?.version || 'v1';
+    const filename = `${name}-v${version}.zip`;
+
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', err => { throw err; });
+    archive.pipe(res);
+    archive.directory(iterDir, false);
+    archive.finalize();
+  } catch (err) {
+    console.error('[Preview] Download error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/preview/raw/:projectId/:iterationId — MUST be before wildcard routes
 router.get('/raw/:projectId/:iterationId', (req, res) => {
   try {
