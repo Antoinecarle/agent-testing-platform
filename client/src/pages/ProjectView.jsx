@@ -492,6 +492,15 @@ export default function ProjectView() {
             </span>
           </>}
           <div style={{ flex: 1 }} />
+          <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
+            style={{
+              color: '#fff', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px',
+              background: t.violet, padding: '4px 10px', borderRadius: '6px', textDecoration: 'none',
+              fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`,
+            }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            Client Preview
+          </a>
           {selected && (
             <a href={`/api/preview/${projectId}/${selected.id}`} target="_blank" rel="noreferrer"
               style={{ color: t.ts, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
