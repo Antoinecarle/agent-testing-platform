@@ -72,6 +72,60 @@ app.use('/api/agent-teams', verifyToken, teamRunsRoutes);
 // Preview route (no auth for iframe embedding)
 app.use('/api/preview', previewRoutes);
 
+// --- Session Management Endpoints ---
+
+// GET /api/sessions — list all active terminal sessions
+app.get('/api/sessions', verifyToken, (req, res) => {
+  try {
+    const { listSessions } = require('./terminal');
+    const sessions = listSessions();
+    // Enrich with project name
+    const enriched = sessions.map(s => {
+      let projectName = null;
+      if (s.projectId) {
+        const project = db.getProject(s.projectId);
+        projectName = project ? project.name : null;
+      }
+      return { ...s, projectName };
+    });
+    res.json(enriched);
+  } catch (err) {
+    console.error('[Sessions] List error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/sessions/all — kill ALL sessions
+app.delete('/api/sessions/all', verifyToken, (req, res) => {
+  try {
+    const { listSessions, destroySession } = require('./terminal');
+    const sessions = listSessions();
+    let killed = 0;
+    for (const s of sessions) {
+      try { destroySession(s.id); killed++; } catch (_) {}
+    }
+    console.log(`[Sessions] Killed ${killed} sessions`);
+    res.json({ ok: true, killed });
+  } catch (err) {
+    console.error('[Sessions] Kill all error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/sessions/:id — kill a specific session
+app.delete('/api/sessions/:id', verifyToken, (req, res) => {
+  try {
+    const { destroySession, getSession } = require('./terminal');
+    const session = getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    destroySession(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Sessions] Kill error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Scan workspace for new iterations (manual trigger)
 app.post('/api/projects/:projectId/scan', verifyToken, (req, res) => {
   try {
