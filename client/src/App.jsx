@@ -16,6 +16,8 @@ import ProjectView from './pages/ProjectView';
 import Comparison from './pages/Comparison';
 import Sessions from './pages/Sessions';
 import ClientPreview from './pages/ClientPreview';
+import Marketplace from './pages/Marketplace';
+import MarketplaceDetail from './pages/MarketplaceDetail';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -31,6 +33,8 @@ export default function App() {
         <Route path="/setup-claude" element={<ProtectedRoute><ClaudeSetup /></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
+          <Route path="marketplace" element={<Marketplace />} />
+          <Route path="marketplace/:name" element={<MarketplaceDetail />} />
           <Route path="agents" element={<AgentBrowser />} />
           <Route path="agents/new" element={<AgentCreate />} />
           <Route path="agents/teams" element={<AgentTeams />} />

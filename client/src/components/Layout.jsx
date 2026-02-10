@@ -52,6 +52,7 @@ export default function Layout() {
 
         <div style={{ display: 'flex', gap: '4px' }}>
           <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)}>Dashboard</NavLink>
+          <NavLink to="/marketplace" style={({ isActive }) => linkStyle(isActive || location.pathname.startsWith('/marketplace'))}>Marketplace</NavLink>
           <NavLink to="/agents" style={({ isActive }) => linkStyle(isActive || location.pathname.startsWith('/agents'))}>Agents</NavLink>
           <NavLink to="/agents/teams" style={({ isActive }) => linkStyle(isActive)}>Teams</NavLink>
           <NavLink to="/agents/stats" style={({ isActive }) => linkStyle(isActive)}>Stats</NavLink>
