@@ -64,14 +64,14 @@ function writeBranchContext(projectId, parentId) {
  * @param {string} projectId
  * @param {object|null} branchContext - { parentId } or null
  */
-function generateWorkspaceContext(projectId, branchContext = null) {
-  const project = db.getProject(projectId);
+async function generateWorkspaceContext(projectId, branchContext = null) {
+  const project = await db.getProject(projectId);
   if (!project) return null;
 
-  const iterations = db.getIterationsByProject(projectId);
+  const iterations = await db.getIterationsByProject(projectId);
   const agentName = project.agent_name || '';
   const agentPrompt = agentName ? getAgentPrompt(agentName) : null;
-  const agentRecord = agentName ? db.getAgent(agentName) : null;
+  const agentRecord = agentName ? await db.getAgent(agentName) : null;
   const agentDesc = agentRecord?.description || '';
 
   const wsDir = path.join(WORKSPACES_DIR, projectId);
@@ -86,7 +86,7 @@ function generateWorkspaceContext(projectId, branchContext = null) {
   const ctx = branchContext || readBranchContext(projectId);
   let branchSection = '';
   if (ctx && ctx.parentId) {
-    const parentIter = db.getIteration(ctx.parentId);
+    const parentIter = await db.getIteration(ctx.parentId);
     if (parentIter) {
       const parentLabel = parentIter.title || `V${parentIter.version}`;
       const parentPath = parentIter.file_path

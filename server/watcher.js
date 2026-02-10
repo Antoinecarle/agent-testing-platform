@@ -103,7 +103,7 @@ function findAllSubdirHtmls(wsDir) {
  * @param {string|null} titleOverride - custom title (null = auto V{n})
  * @param {string|null|undefined} parentIdOverride - explicit parent (null=root, undefined=auto-detect)
  */
-function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) {
+async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) {
   let content;
   try {
     content = fs.readFileSync(htmlPath, 'utf-8');
@@ -118,12 +118,12 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
   if (fileHashes.get(hashKey) === hash) return null;
   fileHashes.set(hashKey, hash);
 
-  const project = db.getProject(projectId);
+  const project = await db.getProject(projectId);
   if (!project) return null;
 
   const agentName = project.agent_name || 'unknown';
   const id = crypto.randomUUID();
-  const version = db.getNextVersion(projectId);
+  const version = await db.getNextVersion(projectId);
 
   // Determine parent
   let parentId;
@@ -139,7 +139,7 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
       try { fs.unlinkSync(ctxPath); } catch (_) {}
     } else {
       // Default: chain to latest
-      const iterations = db.getIterationsByProject(projectId);
+      const iterations = await db.getIterationsByProject(projectId);
       parentId = iterations.length > 0 ? iterations[iterations.length - 1].id : null;
     }
   }
@@ -155,17 +155,17 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
 
   // Use auto-versioning V{n} as default, only override if a real title was provided
   const title = titleOverride || `V${version}`;
-  db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
+  await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
 
-  const count = db.countIterations(projectId);
-  db.updateProjectIterationCount(projectId, count);
+  const count = await db.countIterations(projectId);
+  await db.updateProjectIterationCount(projectId, count);
 
   console.log(`[Watcher] Imported iteration ${title} (parent: ${parentId || 'ROOT'}) for project ${project.name} (${id})`);
 
   if (ioRef) {
     ioRef.emit('iteration-created', {
       projectId,
-      iteration: db.getIteration(id),
+      iteration: await db.getIteration(id),
     });
   }
 
@@ -177,7 +177,7 @@ function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) 
  * Subdirectory-based versions (version-1/, version-2/) are treated as parallel roots.
  * Root-level HTML files are chained to the latest iteration.
  */
-function importIteration(projectId) {
+async function importIteration(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   let imported = null;
 
@@ -209,7 +209,7 @@ function importIteration(projectId) {
         const title = vMatch ? `V${vMatch[1]}` : item.subdir;
         // Parallel batch → force root (null), single → auto-detect (undefined)
         const parentOverride = isParallelBatch ? null : undefined;
-        const result = importSingleHtml(projectId, item.path, title, parentOverride);
+        const result = await importSingleHtml(projectId, item.path, title, parentOverride);
         if (result) imported = result;
       }
     }
@@ -249,7 +249,7 @@ function importIteration(projectId) {
       }
 
       const parentOverride = isParallelRootBatch ? null : undefined;
-      const result = importSingleHtml(projectId, fp, title, parentOverride);
+      const result = await importSingleHtml(projectId, fp, title, parentOverride);
       if (result) imported = result;
     }
   }
@@ -269,10 +269,10 @@ function triggerImport(projectId) {
   if (debounceTimers.has(projectId)) {
     clearTimeout(debounceTimers.get(projectId));
   }
-  debounceTimers.set(projectId, setTimeout(() => {
+  debounceTimers.set(projectId, setTimeout(async () => {
     debounceTimers.delete(projectId);
     try {
-      importIteration(projectId);
+      await importIteration(projectId);
     } catch (err) {
       console.error(`[Watcher] Import error for ${projectId}:`, err.message);
     }
@@ -283,10 +283,10 @@ function triggerImport(projectId) {
  * Poll all watched workspaces for new/changed HTML files
  * This is the reliable fallback when fs.watch doesn't fire (Railway, Docker, NFS, etc.)
  */
-function pollAllWorkspaces() {
+async function pollAllWorkspaces() {
   for (const projectId of watchers.keys()) {
     try {
-      importIteration(projectId);
+      await importIteration(projectId);
     } catch (err) {
       console.error(`[Watcher/Poll] Error scanning ${projectId}:`, err.message);
     }
@@ -385,7 +385,7 @@ function unwatchProject(projectId) {
 /**
  * Initialize watchers for all existing projects + start polling
  */
-function initWatchers(io) {
+async function initWatchers(io) {
   ioRef = io;
 
   // Watch all projects that have workspaces
@@ -402,7 +402,7 @@ function initWatchers(io) {
   }
 
   // Also watch all active projects (creates workspace if needed)
-  const projects = db.getAllProjects();
+  const projects = await db.getAllProjects();
   for (const project of projects) {
     watchProject(project.id);
   }
@@ -418,27 +418,27 @@ function initWatchers(io) {
 /**
  * Manually trigger import for a project (API use)
  */
-function manualImport(projectId) {
+async function manualImport(projectId) {
   // Reset all hashes for this project to force re-import
   for (const key of fileHashes.keys()) {
     if (key.startsWith(`${projectId}:`)) {
       fileHashes.delete(key);
     }
   }
-  return importIteration(projectId);
+  return await importIteration(projectId);
 }
 
 /**
  * Scan a specific project NOW (called when terminal exits, agent finishes, etc.)
  * Unlike manualImport, this doesn't clear hashes — it just checks for new/changed files.
  */
-function scanProject(projectId) {
+async function scanProject(projectId) {
   try {
     // Ensure we're watching this project
     if (!watchers.has(projectId)) {
       watchProject(projectId);
     }
-    return importIteration(projectId);
+    return await importIteration(projectId);
   } catch (err) {
     console.error(`[Watcher] Scan error for ${projectId}:`, err.message);
     return null;

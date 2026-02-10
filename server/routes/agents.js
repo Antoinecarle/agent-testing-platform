@@ -74,7 +74,7 @@ function parseAgentFile(filePath) {
 }
 
 // Sync agents from filesystem to DB
-function syncAgents() {
+async function syncAgents() {
   console.log(`[Agents] Syncing from: ${AGENTS_DIR} (exists: ${fs.existsSync(AGENTS_DIR)})`);
   if (!fs.existsSync(AGENTS_DIR)) return [];
 
@@ -86,9 +86,9 @@ function syncAgents() {
     try {
       const filePath = path.join(AGENTS_DIR, file);
       const parsed = parseAgentFile(filePath);
-      const existing = db.getAgent(parsed.name);
+      const existing = await db.getAgent(parsed.name);
 
-      db.upsertAgent(
+      await db.upsertAgent(
         parsed.name,
         parsed.description,
         parsed.model,
@@ -113,17 +113,17 @@ function syncAgents() {
 }
 
 // GET /api/agents — list all agents
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { category, search } = req.query;
     let agents;
 
     if (search) {
-      agents = db.searchAgents(search);
+      agents = await db.searchAgents(search);
     } else if (category) {
-      agents = db.getAgentsByCategory(category);
+      agents = await db.getAgentsByCategory(category);
     } else {
-      agents = db.getAllAgents();
+      agents = await db.getAllAgents();
     }
 
     res.json(agents);
@@ -134,9 +134,9 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/agents/sync — sync agents from filesystem
-router.post('/sync', (req, res) => {
+router.post('/sync', async (req, res) => {
   try {
-    const synced = syncAgents();
+    const synced = await syncAgents();
     res.json({ synced: synced.length, agents: synced });
   } catch (err) {
     console.error('[Agents] Sync error:', err.message);
@@ -213,7 +213,7 @@ Response format:
 });
 
 // POST /api/agents/import — import agent from .md file content
-router.post('/import', (req, res) => {
+router.post('/import', async (req, res) => {
   try {
     const { filename, content } = req.body;
     if (!filename || !content) {
@@ -225,7 +225,7 @@ router.post('/import', (req, res) => {
       return res.status(400).json({ error: 'Invalid filename. Must produce a valid kebab-case name.' });
     }
 
-    const existing = db.getAgent(name);
+    const existing = await db.getAgent(name);
     if (existing) return res.status(409).json({ error: `Agent "${name}" already exists` });
 
     // Write .md file
@@ -234,9 +234,9 @@ router.post('/import', (req, res) => {
 
     // Parse and insert
     const parsed = parseAgentFile(path.join(AGENTS_DIR, `${name}.md`));
-    db.createAgentManual(name, parsed.description, parsed.model, parsed.category, parsed.promptPreview, parsed.fullPrompt, parsed.tools, parsed.maxTurns, parsed.memory, parsed.permissionMode);
+    await db.createAgentManual(name, parsed.description, parsed.model, parsed.category, parsed.promptPreview, parsed.fullPrompt, parsed.tools, parsed.maxTurns, parsed.memory, parsed.permissionMode);
 
-    const created = db.getAgent(name);
+    const created = await db.getAgent(name);
     res.status(201).json(created);
   } catch (err) {
     console.error('[Agents] Import error:', err.message);
@@ -245,13 +245,13 @@ router.post('/import', (req, res) => {
 });
 
 // POST /api/agents/bulk/delete — delete multiple agents
-router.post('/bulk/delete', (req, res) => {
+router.post('/bulk/delete', async (req, res) => {
   try {
     const { names } = req.body;
     if (!Array.isArray(names) || names.length === 0) {
       return res.status(400).json({ error: 'names array is required' });
     }
-    db.bulkDeleteAgents(names);
+    await db.bulkDeleteAgents(names);
     res.json({ ok: true, deleted: names.length });
   } catch (err) {
     console.error('[Agents] Bulk delete error:', err.message);
@@ -260,13 +260,13 @@ router.post('/bulk/delete', (req, res) => {
 });
 
 // POST /api/agents/bulk/categorize — update category for multiple agents
-router.post('/bulk/categorize', (req, res) => {
+router.post('/bulk/categorize', async (req, res) => {
   try {
     const { names, category } = req.body;
     if (!Array.isArray(names) || names.length === 0 || !category) {
       return res.status(400).json({ error: 'names array and category are required' });
     }
-    db.bulkUpdateCategory(names, category);
+    await db.bulkUpdateCategory(names, category);
     res.json({ ok: true, updated: names.length });
   } catch (err) {
     console.error('[Agents] Bulk categorize error:', err.message);
@@ -275,16 +275,19 @@ router.post('/bulk/categorize', (req, res) => {
 });
 
 // POST /api/agents/bulk/export — export multiple agents as .md content
-router.post('/bulk/export', (req, res) => {
+router.post('/bulk/export', async (req, res) => {
   try {
     const { names } = req.body;
     if (!Array.isArray(names) || names.length === 0) {
       return res.status(400).json({ error: 'names array is required' });
     }
-    const results = names.map(name => {
-      const agent = db.getAgent(name);
-      return agent ? { name: agent.name, content: agent.full_prompt || '' } : null;
-    }).filter(Boolean);
+    const results = [];
+    for (const name of names) {
+      const agent = await db.getAgent(name);
+      if (agent) {
+        results.push({ name: agent.name, content: agent.full_prompt || '' });
+      }
+    }
     res.json(results);
   } catch (err) {
     console.error('[Agents] Bulk export error:', err.message);
@@ -293,9 +296,9 @@ router.post('/bulk/export', (req, res) => {
 });
 
 // GET /api/agents/stats — get aggregate agent statistics
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
-    const stats = db.getAgentStats();
+    const stats = await db.getAgentStats();
     res.json(stats);
   } catch (err) {
     console.error('[Agents] Stats error:', err.message);
@@ -306,7 +309,7 @@ router.get('/stats', (req, res) => {
 const RESERVED_NAMES = ['sync', 'import', 'ai-generate', 'categories', 'stats', 'bulk'];
 
 // POST /api/agents — create agent manually
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, description, model, category, prompt, tools, max_turns, memory, permission_mode } = req.body;
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
@@ -315,7 +318,7 @@ router.post('/', (req, res) => {
     if (RESERVED_NAMES.includes(name)) {
       return res.status(400).json({ error: `Name "${name}" is reserved` });
     }
-    const existing = db.getAgent(name);
+    const existing = await db.getAgent(name);
     if (existing) return res.status(409).json({ error: 'Agent already exists' });
 
     // Build YAML front matter
@@ -335,9 +338,9 @@ router.post('/', (req, res) => {
 
     // Insert in DB
     const promptPreview = fullContent.substring(0, 500);
-    db.createAgentManual(name, description || '', model || '', category || 'uncategorized', promptPreview, fullContent, tools || '', max_turns || 0, memory || '', permission_mode || '');
+    await db.createAgentManual(name, description || '', model || '', category || 'uncategorized', promptPreview, fullContent, tools || '', max_turns || 0, memory || '', permission_mode || '');
 
-    const created = db.getAgent(name);
+    const created = await db.getAgent(name);
     res.status(201).json(created);
   } catch (err) {
     console.error('[Agents] Create error:', err.message);
@@ -346,9 +349,9 @@ router.post('/', (req, res) => {
 });
 
 // GET /api/agents/:name/export — export agent as .md file content
-router.get('/:name/export', (req, res) => {
+router.get('/:name/export', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     const content = agent.full_prompt || '';
@@ -362,11 +365,11 @@ router.get('/:name/export', (req, res) => {
 });
 
 // GET /api/agents/:name — get single agent (enriched)
-router.get('/:name', (req, res) => {
+router.get('/:name', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    agent.project_count = db.getAgentProjectCount(req.params.name);
+    agent.project_count = await db.getAgentProjectCount(req.params.name);
     res.json(agent);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -374,11 +377,11 @@ router.get('/:name', (req, res) => {
 });
 
 // GET /api/agents/:name/projects — projects using this agent
-router.get('/:name/projects', (req, res) => {
+router.get('/:name/projects', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    const projects = db.getProjectsByAgent(req.params.name);
+    const projects = await db.getProjectsByAgent(req.params.name);
     res.json(projects);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -386,11 +389,11 @@ router.get('/:name/projects', (req, res) => {
 });
 
 // GET /api/agents/:name/versions — list all versions for an agent
-router.get('/:name/versions', (req, res) => {
+router.get('/:name/versions', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    const versions = db.getAgentVersions(req.params.name);
+    const versions = await db.getAgentVersions(req.params.name);
     res.json(versions);
   } catch (err) {
     console.error('[Agents] Versions list error:', err.message);
@@ -399,9 +402,9 @@ router.get('/:name/versions', (req, res) => {
 });
 
 // GET /api/agents/:name/versions/:versionId — get specific version
-router.get('/:name/versions/:versionId', (req, res) => {
+router.get('/:name/versions/:versionId', async (req, res) => {
   try {
-    const version = db.getAgentVersion(req.params.versionId);
+    const version = await db.getAgentVersion(req.params.versionId);
     if (!version || version.agent_name !== req.params.name) {
       return res.status(404).json({ error: 'Version not found' });
     }
@@ -413,19 +416,19 @@ router.get('/:name/versions/:versionId', (req, res) => {
 });
 
 // POST /api/agents/:name/versions/:versionId/revert — revert agent to this version
-router.post('/:name/versions/:versionId/revert', (req, res) => {
+router.post('/:name/versions/:versionId/revert', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const version = db.getAgentVersion(req.params.versionId);
+    const version = await db.getAgentVersion(req.params.versionId);
     if (!version || version.agent_name !== req.params.name) {
       return res.status(404).json({ error: 'Version not found' });
     }
 
     // Snapshot current state before reverting
-    const nextVersion = db.getNextAgentVersionNumber(req.params.name);
-    db.createAgentVersion(
+    const nextVersion = await db.getNextAgentVersionNumber(req.params.name);
+    await db.createAgentVersion(
       crypto.randomUUID(),
       agent.name,
       nextVersion,
@@ -450,14 +453,14 @@ router.post('/:name/versions/:versionId/revert', (req, res) => {
       memory: version.memory,
       permission_mode: version.permission_mode,
     };
-    db.updateAgent(req.params.name, fields);
+    await db.updateAgent(req.params.name, fields);
 
     // Write reverted content to .md file on disk
     const AGENTS_DIR_LOCAL = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : SYSTEM_AGENTS_DIR;
     if (!fs.existsSync(AGENTS_DIR_LOCAL)) fs.mkdirSync(AGENTS_DIR_LOCAL, { recursive: true });
     fs.writeFileSync(path.join(AGENTS_DIR_LOCAL, `${req.params.name}.md`), version.full_prompt || '', 'utf-8');
 
-    res.json(db.getAgent(req.params.name));
+    res.json(await db.getAgent(req.params.name));
   } catch (err) {
     console.error('[Agents] Revert error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -465,15 +468,15 @@ router.post('/:name/versions/:versionId/revert', (req, res) => {
 });
 
 // PUT /api/agents/:name — update agent fields
-router.put('/:name', (req, res) => {
+router.put('/:name', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     // Auto-version: snapshot current state before applying update
-    const versionNumber = db.getNextAgentVersionNumber(req.params.name);
+    const versionNumber = await db.getNextAgentVersionNumber(req.params.name);
     const changeSummary = req.body.change_summary || '';
-    db.createAgentVersion(
+    await db.createAgentVersion(
       crypto.randomUUID(),
       agent.name,
       versionNumber,
@@ -500,8 +503,8 @@ router.put('/:name', (req, res) => {
       fs.writeFileSync(path.join(AGENTS_DIR, `${req.params.name}.md`), full_prompt, 'utf-8');
     }
 
-    db.updateAgent(req.params.name, fields);
-    res.json(db.getAgent(req.params.name));
+    await db.updateAgent(req.params.name, fields);
+    res.json(await db.getAgent(req.params.name));
   } catch (err) {
     console.error('[Agents] Update error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -509,10 +512,10 @@ router.put('/:name', (req, res) => {
 });
 
 // PATCH /api/agents/:name/rating — update rating
-router.patch('/:name/rating', (req, res) => {
+router.patch('/:name/rating', async (req, res) => {
   try {
     const { rating } = req.body;
-    db.updateAgentRating(req.params.name, rating);
+    await db.updateAgentRating(req.params.name, rating);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -520,22 +523,22 @@ router.patch('/:name/rating', (req, res) => {
 });
 
 // POST /api/agents/:name/duplicate — duplicate an agent
-router.post('/:name/duplicate', (req, res) => {
+router.post('/:name/duplicate', async (req, res) => {
   try {
-    const source = db.getAgent(req.params.name);
+    const source = await db.getAgent(req.params.name);
     if (!source) return res.status(404).json({ error: 'Source agent not found' });
 
     const { new_name } = req.body;
     if (!new_name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(new_name)) {
       return res.status(400).json({ error: 'new_name must be kebab-case (e.g. my-agent-copy)' });
     }
-    const existing = db.getAgent(new_name);
+    const existing = await db.getAgent(new_name);
     if (existing) return res.status(409).json({ error: 'Agent with that name already exists' });
 
     // Copy all fields to new agent
     const fullPrompt = source.full_prompt || '';
     const promptPreview = fullPrompt.substring(0, 500);
-    db.createAgentManual(
+    await db.createAgentManual(
       new_name,
       source.description || '',
       source.model || '',
@@ -552,7 +555,7 @@ router.post('/:name/duplicate', (req, res) => {
     if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
     fs.writeFileSync(path.join(AGENTS_DIR, `${new_name}.md`), fullPrompt, 'utf-8');
 
-    const created = db.getAgent(new_name);
+    const created = await db.getAgent(new_name);
     res.status(201).json(created);
   } catch (err) {
     console.error('[Agents] Duplicate error:', err.message);
@@ -561,12 +564,12 @@ router.post('/:name/duplicate', (req, res) => {
 });
 
 // DELETE /api/agents/:name — delete agent
-router.delete('/:name', (req, res) => {
+router.delete('/:name', async (req, res) => {
   try {
-    const agent = db.getAgent(req.params.name);
+    const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    db.deleteAgent(req.params.name);
+    await db.deleteAgent(req.params.name);
     res.json({ ok: true });
   } catch (err) {
     console.error('[Agents] Delete error:', err.message);
@@ -578,7 +581,7 @@ router.delete('/:name', (req, res) => {
 let synced = false;
 function ensureSynced() {
   if (!synced) {
-    syncAgents();
+    syncAgents().catch(err => console.error('[Agents] Auto-sync error:', err.message));
     synced = true;
   }
 }

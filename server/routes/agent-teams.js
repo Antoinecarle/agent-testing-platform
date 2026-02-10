@@ -5,9 +5,9 @@ const db = require('../db');
 const router = express.Router();
 
 // GET /api/agent-teams — list all teams (includes member_count)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const teams = db.getAllTeams();
+    const teams = await db.getAllTeams();
     res.json(teams);
   } catch (err) {
     console.error('[AgentTeams] List error:', err.message);
@@ -16,14 +16,14 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/agent-teams — create team
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, description } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 
     const id = crypto.randomUUID();
-    db.createTeam(id, name.trim(), description);
-    const created = db.getTeam(id);
+    await db.createTeam(id, name.trim(), description);
+    const created = await db.getTeam(id);
     res.status(201).json(created);
   } catch (err) {
     console.error('[AgentTeams] Create error:', err.message);
@@ -32,12 +32,12 @@ router.post('/', (req, res) => {
 });
 
 // GET /api/agent-teams/:id — get team with full member details
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
-    const members = db.getTeamMembers(req.params.id);
+    const members = await db.getTeamMembers(req.params.id);
     res.json({ ...team, members });
   } catch (err) {
     console.error('[AgentTeams] Get error:', err.message);
@@ -46,18 +46,18 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/agent-teams/:id — update team
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
     const { name, description } = req.body;
-    db.updateTeam(
+    await db.updateTeam(
       req.params.id,
       (name || team.name).trim(),
       description !== undefined ? description : team.description
     );
-    res.json(db.getTeam(req.params.id));
+    res.json(await db.getTeam(req.params.id));
   } catch (err) {
     console.error('[AgentTeams] Update error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -65,12 +65,12 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE /api/agent-teams/:id — delete team (cascades members)
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
-    db.deleteTeam(req.params.id);
+    await db.deleteTeam(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     console.error('[AgentTeams] Delete error:', err.message);
@@ -79,23 +79,23 @@ router.delete('/:id', (req, res) => {
 });
 
 // POST /api/agent-teams/:id/members — add member
-router.post('/:id/members', (req, res) => {
+router.post('/:id/members', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
     const { agent_name, role } = req.body;
     if (!agent_name) return res.status(400).json({ error: 'agent_name is required' });
 
-    const agent = db.getAgent(agent_name);
+    const agent = await db.getAgent(agent_name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const members = db.getTeamMembers(req.params.id);
+    const members = await db.getTeamMembers(req.params.id);
     const sortOrder = members.length;
 
     const id = crypto.randomUUID();
-    db.addTeamMember(id, req.params.id, agent_name, role, sortOrder);
-    const updatedMembers = db.getTeamMembers(req.params.id);
+    await db.addTeamMember(id, req.params.id, agent_name, role, sortOrder);
+    const updatedMembers = await db.getTeamMembers(req.params.id);
     res.status(201).json(updatedMembers);
   } catch (err) {
     if (err.message && err.message.includes('UNIQUE constraint')) {
@@ -107,9 +107,9 @@ router.post('/:id/members', (req, res) => {
 });
 
 // PUT /api/agent-teams/:id/members/reorder — reorder members (must be before /:agentName)
-router.put('/:id/members/reorder', (req, res) => {
+router.put('/:id/members/reorder', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
     const { agent_names } = req.body;
@@ -117,8 +117,8 @@ router.put('/:id/members/reorder', (req, res) => {
       return res.status(400).json({ error: 'agent_names array is required' });
     }
 
-    db.reorderTeamMembers(req.params.id, agent_names);
-    const members = db.getTeamMembers(req.params.id);
+    await db.reorderTeamMembers(req.params.id, agent_names);
+    const members = await db.getTeamMembers(req.params.id);
     res.json(members);
   } catch (err) {
     console.error('[AgentTeams] Reorder error:', err.message);
@@ -127,9 +127,9 @@ router.put('/:id/members/reorder', (req, res) => {
 });
 
 // PUT /api/agent-teams/:id/members/:agentName — update member role
-router.put('/:id/members/:agentName', (req, res) => {
+router.put('/:id/members/:agentName', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
     const { role } = req.body;
@@ -137,8 +137,8 @@ router.put('/:id/members/:agentName', (req, res) => {
       return res.status(400).json({ error: 'role must be "leader" or "member"' });
     }
 
-    db.updateTeamMemberRole(req.params.id, req.params.agentName, role);
-    const members = db.getTeamMembers(req.params.id);
+    await db.updateTeamMemberRole(req.params.id, req.params.agentName, role);
+    const members = await db.getTeamMembers(req.params.id);
     res.json(members);
   } catch (err) {
     console.error('[AgentTeams] Update member role error:', err.message);
@@ -147,12 +147,12 @@ router.put('/:id/members/:agentName', (req, res) => {
 });
 
 // DELETE /api/agent-teams/:id/members/:agentName — remove member
-router.delete('/:id/members/:agentName', (req, res) => {
+router.delete('/:id/members/:agentName', async (req, res) => {
   try {
-    const team = db.getTeam(req.params.id);
+    const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
-    db.removeTeamMember(req.params.id, req.params.agentName);
+    await db.removeTeamMember(req.params.id, req.params.agentName);
     res.json({ ok: true });
   } catch (err) {
     console.error('[AgentTeams] Remove member error:', err.message);

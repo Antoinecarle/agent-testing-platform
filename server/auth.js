@@ -15,7 +15,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const user = db.getUserByEmail(email);
+    const user = await db.getUserByEmail(email);
     if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -60,7 +60,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const existing = db.getUserByEmail(email);
+    const existing = await db.getUserByEmail(email);
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -70,7 +70,7 @@ router.post('/register', async (req, res) => {
     const homeDir = `/data/users/${id}`;
 
     // Create user in DB
-    db.createUser(id, email, passwordHash, 'user', displayName || '', homeDir);
+    await db.createUser(id, email, passwordHash, 'user', displayName || '', homeDir);
 
     // Create user home directory with symlinked agents
     ensureUserHome(id);

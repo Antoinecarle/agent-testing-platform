@@ -5,9 +5,9 @@ const db = require('../db');
 const router = express.Router();
 
 // GET /api/projects — list all projects
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const projects = db.getAllProjects();
+    const projects = await db.getAllProjects();
     res.json(projects);
   } catch (err) {
     console.error('[Projects] List error:', err.message);
@@ -16,14 +16,14 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/projects — create project
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, description, agent_name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
 
     const id = crypto.randomUUID();
-    db.createProject(id, name, description, agent_name);
-    const project = db.getProject(id);
+    await db.createProject(id, name, description, agent_name);
+    const project = await db.getProject(id);
     res.status(201).json(project);
   } catch (err) {
     console.error('[Projects] Create error:', err.message);
@@ -32,19 +32,19 @@ router.post('/', (req, res) => {
 });
 
 // POST /api/projects/fork — create new project from an existing iteration
-router.post('/fork', (req, res) => {
+router.post('/fork', async (req, res) => {
   try {
     const { name, description, agent_name, source_project_id, source_iteration_id } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     if (!source_iteration_id) return res.status(400).json({ error: 'source_iteration_id required' });
 
-    const sourceIteration = db.getIteration(source_iteration_id);
+    const sourceIteration = await db.getIteration(source_iteration_id);
     if (!sourceIteration) return res.status(404).json({ error: 'Source iteration not found' });
 
     // Create the new project
     const projectId = crypto.randomUUID();
     const agentName = agent_name || sourceIteration.agent_name || '';
-    db.createProject(projectId, name, description || '', agentName);
+    await db.createProject(projectId, name, description || '', agentName);
 
     // Create v1 iteration in the new project
     const iterationId = crypto.randomUUID();
@@ -66,10 +66,10 @@ router.post('/fork', (req, res) => {
     }
 
     const filePath = `${projectId}/${iterationId}/index.html`;
-    db.createIteration(iterationId, projectId, agentName, 1, `Forked from v${sourceIteration.version}`, '', null, filePath, '', 'completed', { forked_from: source_iteration_id });
-    db.updateProjectIterationCount(projectId, 1);
+    await db.createIteration(iterationId, projectId, agentName, 1, `Forked from v${sourceIteration.version}`, '', null, filePath, '', 'completed', { forked_from: source_iteration_id });
+    await db.updateProjectIterationCount(projectId, 1);
 
-    const project = db.getProject(projectId);
+    const project = await db.getProject(projectId);
     res.status(201).json({ project, iterationId });
   } catch (err) {
     console.error('[Projects] Fork error:', err.message);
@@ -78,9 +78,9 @@ router.post('/fork', (req, res) => {
 });
 
 // GET /api/projects/:id — get project
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const project = db.getProject(req.params.id);
+    const project = await db.getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     res.json(project);
   } catch (err) {
@@ -89,13 +89,13 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/projects/:id — update project
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const { name, description, agent_name, status } = req.body;
-    const existing = db.getProject(req.params.id);
+    const existing = await db.getProject(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Project not found' });
 
-    db.updateProject(
+    await db.updateProject(
       req.params.id,
       name || existing.name,
       description !== undefined ? description : existing.description,
@@ -103,16 +103,16 @@ router.put('/:id', (req, res) => {
       status || existing.status
     );
 
-    res.json(db.getProject(req.params.id));
+    res.json(await db.getProject(req.params.id));
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // DELETE /api/projects/:id — delete project
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    db.deleteProject(req.params.id);
+    await db.deleteProject(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

@@ -44,7 +44,7 @@ function parseLandingPageDir(dirName) {
 }
 
 // POST /api/seed — import existing landing pages
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     if (!fs.existsSync(SOURCE_DIR)) {
       return res.status(404).json({ error: 'Source directory not found: ' + SOURCE_DIR });
@@ -78,7 +78,7 @@ router.post('/', (req, res) => {
       const projectId = crypto.randomUUID();
       const displayName = projectName.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-      db.createProject(projectId, displayName, `Landing page tests with ${group.agentName} agent`, group.agentName);
+      await db.createProject(projectId, displayName, `Landing page tests with ${group.agentName} agent`, group.agentName);
       results.projects++;
 
       // Sort iterations by version
@@ -126,7 +126,7 @@ router.post('/', (req, res) => {
           }
         }
 
-        db.createIteration(
+        await db.createIteration(
           iterationId, projectId, iter.agentName, versionCounter,
           title, `Iteration ${title} of ${displayName}`,
           parentId, filePath, '', 'completed', { source: iter.dirName }
@@ -138,7 +138,7 @@ router.post('/', (req, res) => {
       }
 
       // Update project iteration count
-      db.updateProjectIterationCount(projectId, versionCounter - 1);
+      await db.updateProjectIterationCount(projectId, versionCounter - 1);
     }
 
     res.json({ ok: true, ...results });
@@ -149,9 +149,9 @@ router.post('/', (req, res) => {
 });
 
 // GET /api/seed/status — check if seed data exists
-router.get('/status', (req, res) => {
+router.get('/status', async (req, res) => {
   try {
-    const projects = db.getAllProjects();
+    const projects = await db.getAllProjects();
     res.json({ seeded: projects.length > 0, projectCount: projects.length });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

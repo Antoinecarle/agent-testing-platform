@@ -197,7 +197,7 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
   });
 
   sessions.set(id, session);
-  db.insertSession(id, sessionTitle, session.createdAt, projectId || '', startCwd, shell);
+  db.insertSession(id, sessionTitle, session.createdAt, projectId || '', startCwd, shell).catch(err => console.error('[Terminal] DB insert error:', err.message));
   return session;
 }
 
@@ -207,7 +207,7 @@ function destroySession(id) {
   if (session.flushTimer) clearTimeout(session.flushTimer);
   if (!session.exited) { try { session.pty.kill(); } catch (_) {} }
   sessions.delete(id);
-  db.removeSession(id);
+  db.removeSession(id).catch(err => console.error('[Terminal] DB remove error:', err.message));
 }
 
 function attachSocket(session, socket) { session.clients.add(socket); }
@@ -239,7 +239,7 @@ function renameSession(id, title) {
   const session = sessions.get(id);
   if (!session) return null;
   session.title = title || session.title;
-  db.renameSession(id, session.title);
+  db.renameSession(id, session.title).catch(err => console.error('[Terminal] DB rename error:', err.message));
   return getSessionInfo(session);
 }
 
@@ -253,8 +253,8 @@ function cleanupIdleSessions() {
   }
 }
 
-function initSessions() {
-  db.removeAllSessions();
+async function initSessions() {
+  await db.removeAllSessions();
 }
 
 let cleanupTimer = null;

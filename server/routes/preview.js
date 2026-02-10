@@ -39,11 +39,11 @@ function placeholderSvg(filename, width = 800, height = 600) {
 }
 
 // GET /api/preview/showcase/:projectId — public project info + all iterations (for client sharing)
-router.get('/showcase/:projectId', (req, res) => {
+router.get('/showcase/:projectId', async (req, res) => {
   try {
-    const project = db.getProject(req.params.projectId);
+    const project = await db.getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const iterations = db.getIterationsByProject(req.params.projectId);
+    const iterations = await db.getIterationsByProject(req.params.projectId);
     res.json({ project, iterations });
   } catch (err) {
     console.error('[Preview] Showcase error:', err.message);
@@ -52,7 +52,7 @@ router.get('/showcase/:projectId', (req, res) => {
 });
 
 // GET /api/preview/download/:projectId/:iterationId — download iteration as zip
-router.get('/download/:projectId/:iterationId', (req, res) => {
+router.get('/download/:projectId/:iterationId', async (req, res) => {
   const archiver = require('archiver');
   try {
     const iterDir = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId);
@@ -60,8 +60,8 @@ router.get('/download/:projectId/:iterationId', (req, res) => {
       return res.status(404).json({ error: 'Iteration not found' });
     }
 
-    const iteration = db.getIteration(req.params.iterationId);
-    const project = db.getProject(req.params.projectId);
+    const iteration = await db.getIteration(req.params.iterationId);
+    const project = await db.getProject(req.params.projectId);
     const name = (project?.name || 'project').replace(/[^a-zA-Z0-9-_]/g, '-');
     const version = iteration?.version || 'v1';
     const filename = `${name}-v${version}.zip`;

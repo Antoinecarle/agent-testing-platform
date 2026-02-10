@@ -9,24 +9,24 @@
  * If htmlFile is omitted, defaults to ./index.html in the workspace.
  */
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
-const DB_PATH = path.join(DATA_DIR, 'platform.db');
 
-// Minimal DB access (no need for the full server)
-let db;
-try {
-  const Database = require('better-sqlite3');
-  db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-} catch (err) {
-  console.error('Error: Cannot open database at', DB_PATH);
-  console.error(err.message);
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Error: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
   process.exit(1);
 }
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const projectId = process.argv[2];
 if (!projectId) {
@@ -45,7 +45,7 @@ if (!projectId) {
   run(projectId, process.argv[3]);
 }
 
-function run(projectId, htmlFileArg) {
+async function run(projectId, htmlFileArg) {
   // Find HTML file
   const wsDir = path.join(DATA_DIR, 'workspaces', projectId);
   let htmlPath;
@@ -79,18 +79,30 @@ function run(projectId, htmlFileArg) {
   }
 
   // Get project info
-  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+  const { data: project } = await supabase.from('projects').select('*').eq('id', projectId).single();
   if (!project) {
     console.error(`Error: Project ${projectId} not found in database`);
     process.exit(1);
   }
 
   // Get next version
-  const maxVersion = db.prepare('SELECT MAX(version) as v FROM iterations WHERE project_id = ?').get(projectId);
-  const version = (maxVersion?.v || 0) + 1;
+  const { data: maxRow } = await supabase
+    .from('iterations')
+    .select('version')
+    .eq('project_id', projectId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .single();
+  const version = (maxRow?.version || 0) + 1;
 
   // Get latest iteration for parent chain
-  const latest = db.prepare('SELECT id FROM iterations WHERE project_id = ? ORDER BY version DESC LIMIT 1').get(projectId);
+  const { data: latest } = await supabase
+    .from('iterations')
+    .select('id')
+    .eq('project_id', projectId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .single();
   const parentId = latest?.id || null;
 
   // Create iteration
@@ -105,20 +117,34 @@ function run(projectId, htmlFileArg) {
   const filePath = `${projectId}/${id}/index.html`;
 
   // Insert into DB
-  db.prepare(`
-    INSERT INTO iterations (id, project_id, agent_name, version, title, prompt, parent_id, file_path, thumbnail, status, meta)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', '{}');
+  await supabase.from('iterations').insert({
+    id,
+    project_id: projectId,
+    agent_name: agentName,
+    version,
+    title,
+    prompt: '',
+    parent_id: parentId,
+    file_path: filePath,
+    thumbnail: '',
+    status: 'completed',
+    meta: '{}',
+  });
 
   // Update project iteration count
-  const count = db.prepare('SELECT COUNT(*) as c FROM iterations WHERE project_id = ?').get(projectId);
-  db.prepare('UPDATE projects SET iteration_count = ?, updated_at = ? WHERE id = ?').run(count.c, Date.now(), projectId);
+  const { count } = await supabase
+    .from('iterations')
+    .select('*', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+  await supabase.from('projects').update({
+    iteration_count: count,
+    updated_at: Math.floor(Date.now() / 1000),
+  }).eq('id', projectId);
 
   console.log(`Registered iteration ${title} (${id})`);
   console.log(`  Project: ${project.name}`);
   console.log(`  Parent: ${parentId || 'ROOT'}`);
   console.log(`  File: ${filePath}`);
 
-  db.close();
   process.exit(0);
 }

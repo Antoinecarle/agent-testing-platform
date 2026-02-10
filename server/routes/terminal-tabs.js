@@ -13,9 +13,9 @@ try {
 const router = express.Router();
 
 // GET /api/terminal-tabs/:projectId — get saved tabs for a project
-router.get('/:projectId', (req, res) => {
+router.get('/:projectId', async (req, res) => {
   try {
-    const tabs = db.getTerminalTabsByProject(req.params.projectId);
+    const tabs = await db.getTerminalTabsByProject(req.params.projectId);
     // Mark which sessions are still alive
     const result = tabs.map(tab => ({
       ...tab,
@@ -29,14 +29,14 @@ router.get('/:projectId', (req, res) => {
 });
 
 // POST /api/terminal-tabs — save/update a tab
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { id, project_id, session_id, name } = req.body;
     if (!id || !project_id) {
       return res.status(400).json({ error: 'id and project_id required' });
     }
     const cwd = getWorkspacePath(project_id);
-    db.upsertTerminalTab(id, project_id, session_id || '', name || '', cwd);
+    await db.upsertTerminalTab(id, project_id, session_id || '', name || '', cwd);
     res.json({ ok: true });
   } catch (err) {
     console.error('[TerminalTabs] Save error:', err.message);
@@ -45,10 +45,10 @@ router.post('/', (req, res) => {
 });
 
 // PUT /api/terminal-tabs/:id/session — update session ID for a tab
-router.put('/:id/session', (req, res) => {
+router.put('/:id/session', async (req, res) => {
   try {
     const { session_id } = req.body;
-    db.updateTerminalTabSession(req.params.id, session_id || '');
+    await db.updateTerminalTabSession(req.params.id, session_id || '');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -56,9 +56,9 @@ router.put('/:id/session', (req, res) => {
 });
 
 // DELETE /api/terminal-tabs/:id — remove a tab
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    db.removeTerminalTab(req.params.id);
+    await db.removeTerminalTab(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -83,14 +83,14 @@ router.post('/:projectId/import', (req, res) => {
 });
 
 // POST /api/terminal-tabs/:projectId/branch-context — set branch parent for next import
-router.post('/:projectId/branch-context', (req, res) => {
+router.post('/:projectId/branch-context', async (req, res) => {
   try {
     const { parentId } = req.body;
     const projectId = req.params.projectId;
     // Write branch context file
     writeBranchContext(projectId, parentId !== undefined ? parentId : null);
     // Regenerate CLAUDE.md with branch context
-    generateWorkspaceContext(projectId, { parentId: parentId !== undefined ? parentId : null });
+    await generateWorkspaceContext(projectId, { parentId: parentId !== undefined ? parentId : null });
     res.json({ ok: true });
   } catch (err) {
     console.error('[TerminalTabs] Branch context error:', err.message);
@@ -99,9 +99,9 @@ router.post('/:projectId/branch-context', (req, res) => {
 });
 
 // POST /api/terminal-tabs/:projectId/refresh-context — regenerate CLAUDE.md
-router.post('/:projectId/refresh-context', (req, res) => {
+router.post('/:projectId/refresh-context', async (req, res) => {
   try {
-    const result = generateWorkspaceContext(req.params.projectId);
+    const result = await generateWorkspaceContext(req.params.projectId);
     if (!result) return res.status(404).json({ error: 'Project not found' });
     res.json({ ok: true, path: result });
   } catch (err) {
