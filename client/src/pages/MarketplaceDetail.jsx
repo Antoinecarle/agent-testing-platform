@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Download, Star, ChevronRight, ChevronLeft, X, Plus, Trash2,
-  ArrowUp, ArrowDown, Eye, ChevronDown, User, Package, Play, Code
+  ArrowUp, ArrowDown, Eye, ChevronDown, ChevronUp, User, Package, Play, Code,
+  Share2, RefreshCcw, Monitor, Smartphone, Tablet
 } from 'lucide-react';
 import { api, getToken } from '../api';
 
@@ -94,6 +95,17 @@ function ProjectIterationCarousel({ iterations, projectId, projectName, onSelect
     }
   };
 
+  const handleDragStart = (e, iter) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      project_id: projectId,
+      iteration_id: iter.id,
+      title: iter.title || `V${iter.version}`,
+      project_name: projectName,
+      iteration_version: iter.version,
+    }));
+  };
+
   if (!iterations || iterations.length === 0) return null;
 
   return (
@@ -120,9 +132,14 @@ function ProjectIterationCarousel({ iterations, projectId, projectName, onSelect
           msOverflowStyle: 'none', padding: '4px 0', scrollBehavior: 'smooth',
         }}>
           {iterations.map((iter) => (
-            <div key={iter.id} onClick={() => onSelectIteration(iter, projectId, projectName)} style={{
-              flex: '0 0 180px', cursor: 'pointer', transition: 'transform 0.2s',
-            }}
+            <div
+              key={iter.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, iter)}
+              onClick={() => onSelectIteration(iter, projectId, projectName)}
+              style={{
+                flex: '0 0 180px', cursor: 'grab', transition: 'transform 0.2s',
+              }}
               onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
             >
@@ -189,6 +206,12 @@ export default function MarketplaceDetail() {
   const [availableProjects, setAvailableProjects] = useState([]);
   const [availableIterations, setAvailableIterations] = useState([]);
   const [newShowcase, setNewShowcase] = useState({ project_id: '', iteration_id: '', title: '', description: '' });
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Preview modal state (ClientPreview-style)
+  const [previewViewport, setPreviewViewport] = useState('desktop');
+  const [previewRefreshing, setPreviewRefreshing] = useState(false);
+  const [previewBarCollapsed, setPreviewBarCollapsed] = useState(false);
 
   useEffect(() => { loadData(); }, [name]);
 
@@ -284,6 +307,38 @@ export default function MarketplaceDetail() {
       console.error(err);
       alert(err.message || 'Failed to add showcase');
     }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    if (showcases.length >= 6) {
+      alert('Maximum 6 showcases per agent');
+      return;
+    }
+
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/json'));
+      await api(`/api/marketplace/${name}/showcases`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      await loadData();
+    } catch (err) {
+      console.error('Drop error:', err);
+      alert(err.message || 'Failed to add showcase');
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
   };
 
   if (loading) return (
@@ -401,7 +456,12 @@ export default function MarketplaceDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
                 <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 4px 0' }}>Manage Showcases</h3>
-                <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>Feature projects that use this agent. Max 6 showcases.</p>
+                <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>
+                  Feature projects that use this agent. Max 6 showcases.
+                  <span style={{ display: 'block', marginTop: '4px', color: t.violet, fontWeight: '500' }}>
+                    💡 Drag & drop iterations from below or click Add Showcase
+                  </span>
+                </p>
               </div>
               {showcases.length < 6 && (
                 <button onClick={openAddModal} style={{
@@ -414,7 +474,22 @@ export default function MarketplaceDetail() {
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                minHeight: showcases.length === 0 ? '120px' : 'auto',
+                border: isDragOver ? `2px dashed ${t.violet}` : 'none',
+                borderRadius: '8px',
+                padding: isDragOver ? '8px' : '0',
+                background: isDragOver ? `${t.violet}10` : 'transparent',
+                transition: 'all 0.2s',
+              }}
+            >
               {showcases.map((s, idx) => (
                 <div key={s.id} style={{
                   display: 'flex', alignItems: 'center', gap: '12px', padding: '12px',
@@ -444,8 +519,16 @@ export default function MarketplaceDetail() {
                 </div>
               ))}
               {showcases.length === 0 && (
-                <div style={{ padding: '40px', textAlign: 'center', border: `2px dashed ${t.border}`, borderRadius: '8px', color: t.tm }}>
-                  No showcases added yet.
+                <div style={{
+                  padding: '40px',
+                  textAlign: 'center',
+                  border: `2px dashed ${isDragOver ? t.violet : t.border}`,
+                  borderRadius: '8px',
+                  color: isDragOver ? t.violet : t.tm,
+                  background: isDragOver ? `${t.violet}10` : 'transparent',
+                  transition: 'all 0.2s',
+                }}>
+                  {isDragOver ? '🎯 Drop iteration here to add to showcase' : 'No showcases added yet. Drag & drop iterations here!'}
                 </div>
               )}
             </div>
@@ -543,39 +626,251 @@ export default function MarketplaceDetail() {
         </section>
       </div>
 
-      {/* Fullscreen Preview Modal */}
-      {selectedShowcase && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)',
-          display: 'flex', flexDirection: 'column',
-        }}>
+      {/* Fullscreen Preview Modal — ClientPreview-style */}
+      {selectedShowcase && (() => {
+        const viewportWidths = { desktop: '100%', tablet: '768px', mobile: '390px' };
+        const projectIters = iterationsByProject[selectedShowcase.project_id] || [];
+        const sortedIters = [...projectIters].sort((a, b) => a.version - b.version);
+
+        const handlePreviewRefresh = () => {
+          setPreviewRefreshing(true);
+          setTimeout(() => setPreviewRefreshing(false), 800);
+        };
+
+        const handlePreviewShare = async () => {
+          try {
+            const url = `${window.location.origin}/preview/${selectedShowcase.project_id}`;
+            await navigator.clipboard.writeText(url);
+          } catch (_) {}
+        };
+
+        const handleIterationSelect = (iter) => {
+          setSelectedShowcase({
+            ...selectedShowcase,
+            iteration_id: iter.id,
+            title: iter.title || `V${iter.version}`,
+            iteration_version: iter.version,
+          });
+        };
+
+        return (
           <div style={{
-            height: '60px', borderBottom: `1px solid ${t.border}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px',
+            position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: '#050505',
+            display: 'flex', flexDirection: 'column', color: t.tp,
+            fontFamily: 'Inter, sans-serif',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '14px', fontWeight: '600' }}>{selectedShowcase.title}</span>
-              <span style={{ fontSize: '12px', color: t.tm }}>{selectedShowcase.project_name} v{selectedShowcase.iteration_version}</span>
-            </div>
+            {/* Close button (top-right) */}
             <button
-              onClick={() => setSelectedShowcase(null)}
+              onClick={() => { setSelectedShowcase(null); setPreviewViewport('desktop'); setPreviewBarCollapsed(false); }}
               style={{
-                background: t.surfaceEl, border: 'none', color: t.tp,
-                width: '32px', height: '32px', borderRadius: '4px', cursor: 'pointer',
+                position: 'absolute', top: '16px', right: '16px', zIndex: 1100,
+                background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(12px)',
+                border: `1px solid ${t.borderS}`, borderRadius: '10px',
+                width: '36px', height: '36px', cursor: 'pointer', color: t.ts,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
-              <X size={18} />
+              <X size={16} />
             </button>
+
+            {/* Preview Area */}
+            <main style={{
+              flex: 1, width: '100%', height: '100%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative', overflow: 'hidden',
+            }}>
+              {previewViewport !== 'desktop' && (
+                <div style={{
+                  position: 'absolute', bottom: '10%', left: '50%', transform: 'translateX(-50%)',
+                  width: '80%', height: '40%',
+                  background: `radial-gradient(circle at center, ${t.violetG} 0%, transparent 70%)`,
+                  zIndex: 0, pointerEvents: 'none',
+                }} />
+              )}
+
+              <div style={{
+                width: viewportWidths[previewViewport],
+                height: previewViewport === 'desktop' ? '100%' : 'calc(100% - 100px)',
+                maxWidth: '100%',
+                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                position: 'relative', zIndex: 1,
+                boxShadow: previewViewport === 'desktop' ? 'none' : '0 24px 64px rgba(0,0,0,0.8)',
+                borderRadius: previewViewport === 'desktop' ? '0' : '12px',
+                overflow: 'hidden',
+                border: previewViewport === 'desktop' ? 'none' : `1px solid ${t.borderS}`,
+              }}>
+                <iframe
+                  key={`${selectedShowcase.iteration_id}-${previewRefreshing}`}
+                  src={`/api/preview/${selectedShowcase.project_id}/${selectedShowcase.iteration_id}`}
+                  style={{
+                    width: '100%', height: '100%', border: 'none',
+                    backgroundColor: 'white',
+                    opacity: previewRefreshing ? 0.5 : 1, transition: 'opacity 0.2s',
+                  }}
+                  title={selectedShowcase.title}
+                />
+              </div>
+            </main>
+
+            {/* Bottom Control Bar */}
+            <div style={{
+              position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+              width: previewBarCollapsed ? 'auto' : 'calc(100% - 40px)', maxWidth: previewBarCollapsed ? 'none' : '1100px',
+              backgroundColor: 'rgba(15, 15, 15, 0.85)',
+              backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+              border: `1px solid ${t.borderS}`, borderRadius: '16px',
+              zIndex: 1100, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              overflow: 'hidden',
+            }}>
+              {previewBarCollapsed ? (
+                <button onClick={() => setPreviewBarCollapsed(false)} style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 16px', border: 'none', background: 'transparent',
+                  cursor: 'pointer', color: t.ts,
+                }}>
+                  <ChevronUp size={14} />
+                  <span style={{ fontFamily: t.mono, fontSize: '11px', fontWeight: 600 }}>
+                    v{selectedShowcase.iteration_version || '?'}
+                  </span>
+                  <div style={{ width: '1px', height: '12px', backgroundColor: t.border }} />
+                  <span style={{ fontSize: '10px', color: t.tm }}>{selectedShowcase.project_name}</span>
+                </button>
+              ) : (
+                <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Row 1: Brand + Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '14px', letterSpacing: '-0.5px' }}>guru</span>
+                        <span style={{ fontFamily: t.mono, fontWeight: 800, fontSize: '14px', color: t.violet }}>.ai</span>
+                      </div>
+                      <div style={{ width: '1px', height: '16px', backgroundColor: t.border }} />
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: t.tp }}>{selectedShowcase.project_name}</span>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        padding: '2px 8px', borderRadius: '100px',
+                        background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)',
+                      }}>
+                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: t.success }} />
+                        <span style={{ fontSize: '10px', color: t.success, fontWeight: 500 }}>Live</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Viewport switcher */}
+                      <div style={{
+                        display: 'flex', backgroundColor: 'rgba(255,255,255,0.04)',
+                        padding: '3px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                      }}>
+                        {[
+                          { id: 'mobile', icon: <Smartphone size={13} /> },
+                          { id: 'tablet', icon: <Tablet size={13} /> },
+                          { id: 'desktop', icon: <Monitor size={13} /> },
+                        ].map(v => (
+                          <button key={v.id} onClick={() => setPreviewViewport(v.id)} style={{
+                            padding: '4px 7px', borderRadius: '6px', border: 'none',
+                            backgroundColor: previewViewport === v.id ? t.surfaceEl : 'transparent',
+                            color: previewViewport === v.id ? t.violet : t.tm,
+                            cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center',
+                          }}>
+                            {v.icon}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button onClick={handlePreviewRefresh} style={{
+                        padding: '6px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                        backgroundColor: 'transparent', color: t.ts, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <RefreshCcw size={14} style={previewRefreshing ? { animation: 'mpSpin 0.8s ease-in-out' } : {}} />
+                      </button>
+
+                      <a
+                        href={`/api/preview/download/${selectedShowcase.project_id}/${selectedShowcase.iteration_id}`}
+                        style={{
+                          padding: '6px 12px', borderRadius: '8px',
+                          backgroundColor: 'rgba(255,255,255,0.06)',
+                          border: `1px solid ${t.border}`, color: t.ts, fontSize: '11px', fontWeight: 600,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        <Download size={13} />
+                        <span>Download</span>
+                      </a>
+
+                      <button onClick={handlePreviewShare} style={{
+                        padding: '6px 12px', borderRadius: '8px', backgroundColor: t.violet,
+                        border: 'none', color: 'white', fontSize: '11px', fontWeight: 600,
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                        boxShadow: `0 0 10px ${t.violetG}`,
+                      }}>
+                        <Share2 size={13} />
+                        <span>Share</span>
+                      </button>
+
+                      <button onClick={() => setPreviewBarCollapsed(true)} style={{
+                        padding: '6px', borderRadius: '8px', border: `1px solid ${t.border}`,
+                        backgroundColor: 'transparent', color: t.tm, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <ChevronDown size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Iteration tabs */}
+                  {sortedIters.length > 0 && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      overflowX: 'auto', paddingBottom: '2px',
+                      msOverflowStyle: 'none', scrollbarWidth: 'none',
+                    }}>
+                      {sortedIters.map((iter) => {
+                        const isActive = selectedShowcase.iteration_id === iter.id;
+                        return (
+                          <button
+                            key={iter.id}
+                            onClick={() => handleIterationSelect(iter)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '7px',
+                              padding: '7px 14px', borderRadius: '10px',
+                              backgroundColor: isActive ? t.violetM : 'rgba(255,255,255,0.03)',
+                              border: `1px solid ${isActive ? t.violet : t.border}`,
+                              cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              whiteSpace: 'nowrap', flexShrink: 0, color: isActive ? t.tp : t.ts,
+                            }}
+                          >
+                            <div style={{
+                              width: '6px', height: '6px', borderRadius: '50%',
+                              backgroundColor: iter.status === 'completed' ? t.success : iter.status === 'error' ? t.danger : t.warning,
+                            }} />
+                            <span style={{ fontSize: '12px', fontWeight: 600, fontFamily: t.mono }}>
+                              v{iter.version}
+                            </span>
+                            {iter.title && (
+                              <span style={{
+                                fontSize: '11px', color: isActive ? t.ts : t.tm,
+                                maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis',
+                              }}>
+                                {iter.title}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <style>{`@keyframes mpSpin { to { transform: rotate(360deg); } } div::-webkit-scrollbar { display: none; }`}</style>
           </div>
-          <div style={{ flex: 1 }}>
-            <iframe
-              src={`/api/preview/${selectedShowcase.project_id}/${selectedShowcase.iteration_id}`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-            />
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Add Showcase Modal */}
       {isAddModalOpen && (
