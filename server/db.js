@@ -57,8 +57,8 @@ async function upsertAgent(name, description, model, category, promptPreview, sc
   }
 }
 
-async function createAgentManual(name, description, model, category, promptPreview, fullPrompt, tools, maxTurns, memory, permissionMode) {
-  await supabase.from('agents').insert({
+async function createAgentManual(name, description, model, category, promptPreview, fullPrompt, tools, maxTurns, memory, permissionMode, createdBy) {
+  const row = {
     name,
     description: description || '',
     model: model || '',
@@ -73,7 +73,9 @@ async function createAgentManual(name, description, model, category, promptPrevi
     memory: memory || '',
     permission_mode: permissionMode || '',
     updated_at: now(),
-  });
+  };
+  if (createdBy) row.created_by = createdBy;
+  await supabase.from('agents').insert(row);
 }
 
 async function getAllAgents() {
@@ -605,6 +607,117 @@ async function getTeamRunLogs(runId) {
   return data || [];
 }
 
+// ===================== MARKETPLACE / SHOWCASES =====================
+
+async function getMarketplaceAgents({ search, category, sortBy, limit, offset } = {}) {
+  let query = supabase.from('agents').select('*');
+  if (search) {
+    const q = `%${search}%`;
+    query = query.or(`name.ilike.${q},description.ilike.${q},category.ilike.${q}`);
+  }
+  if (category) query = query.eq('category', category);
+  if (sortBy === 'popular') query = query.order('download_count', { ascending: false });
+  else if (sortBy === 'rating') query = query.order('rating', { ascending: false });
+  else if (sortBy === 'name') query = query.order('name', { ascending: true });
+  else query = query.order('updated_at', { ascending: false });
+  if (limit) query = query.limit(limit);
+  if (offset) query = query.range(offset, offset + (limit || 50) - 1);
+
+  const { data: agents } = await query;
+
+  // Enrich with project counts
+  const { data: projectCounts } = await supabase.from('projects').select('agent_name');
+  const pcMap = {};
+  (projectCounts || []).forEach(p => { pcMap[p.agent_name] = (pcMap[p.agent_name] || 0) + 1; });
+
+  // Enrich with showcase counts + featured showcase (need project_id for iframe URL)
+  const { data: showcases } = await supabase.from('agent_showcases').select('agent_name, project_id, iteration_id, sort_order').order('sort_order', { ascending: true });
+  const scMap = {};
+  const featuredMap = {};
+  (showcases || []).forEach(s => {
+    scMap[s.agent_name] = (scMap[s.agent_name] || 0) + 1;
+    if (!featuredMap[s.agent_name]) featuredMap[s.agent_name] = { project_id: s.project_id, iteration_id: s.iteration_id };
+  });
+
+  // Enrich with creator info
+  const creatorIds = [...new Set((agents || []).map(a => a.created_by).filter(Boolean))];
+  const creatorMap = {};
+  if (creatorIds.length > 0) {
+    const { data: users } = await supabase.from('users').select('id, email, display_name').in('id', creatorIds);
+    (users || []).forEach(u => { creatorMap[u.id] = { email: u.email, display_name: u.display_name }; });
+  }
+
+  const result = (agents || []).map(a => ({
+    ...a,
+    project_count: pcMap[a.name] || 0,
+    showcase_count: scMap[a.name] || 0,
+    featured_project_id: featuredMap[a.name]?.project_id || null,
+    featured_iteration_id: featuredMap[a.name]?.iteration_id || null,
+    creator: a.created_by ? (creatorMap[a.created_by] || null) : null,
+  }));
+
+  // Sort: agents with showcases first
+  result.sort((a, b) => (b.showcase_count > 0 ? 1 : 0) - (a.showcase_count > 0 ? 1 : 0));
+
+  return result;
+}
+
+async function incrementAgentDownloads(name) {
+  const agent = await getAgent(name);
+  if (!agent) return;
+  await supabase.from('agents').update({ download_count: (agent.download_count || 0) + 1 }).eq('name', name);
+}
+
+async function createShowcase(id, agentName, projectId, iterationId, title, description, sortOrder) {
+  await supabase.from('agent_showcases').insert({
+    id, agent_name: agentName, project_id: projectId, iteration_id: iterationId,
+    title: title || '', description: description || '', sort_order: sortOrder || 0,
+  });
+}
+
+async function getShowcasesByAgent(agentName) {
+  const { data: showcases } = await supabase.from('agent_showcases').select('*').eq('agent_name', agentName).order('sort_order', { ascending: true });
+  if (!showcases || showcases.length === 0) return [];
+
+  // Enrich with project + iteration info
+  const projectIds = [...new Set(showcases.map(s => s.project_id))];
+  const iterationIds = [...new Set(showcases.map(s => s.iteration_id))];
+  const { data: projects } = await supabase.from('projects').select('id, name').in('id', projectIds);
+  const { data: iterations } = await supabase.from('iterations').select('id, version, title').in('id', iterationIds);
+  const pMap = {};
+  (projects || []).forEach(p => { pMap[p.id] = p; });
+  const iMap = {};
+  (iterations || []).forEach(i => { iMap[i.id] = i; });
+
+  return showcases.map(s => ({
+    ...s,
+    project_name: pMap[s.project_id]?.name || '',
+    iteration_version: iMap[s.iteration_id]?.version || 0,
+    iteration_title: iMap[s.iteration_id]?.title || '',
+  }));
+}
+
+async function getShowcase(id) {
+  const { data } = await supabase.from('agent_showcases').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function deleteShowcase(id) {
+  await supabase.from('agent_showcases').delete().eq('id', id);
+}
+
+async function reorderShowcases(agentName, orderedIds) {
+  const updates = orderedIds.map((id, idx) =>
+    supabase.from('agent_showcases').update({ sort_order: idx, updated_at: new Date().toISOString() }).eq('id', id).eq('agent_name', agentName)
+  );
+  await Promise.all(updates);
+}
+
+async function countShowcases(agentName) {
+  const { count } = await supabase.from('agent_showcases').select('*', { count: 'exact', head: true }).eq('agent_name', agentName);
+  return count || 0;
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -643,4 +756,8 @@ module.exports = {
   // Team Runs
   createTeamRun, getTeamRun, getTeamRuns, getTeamRunsByProject,
   updateTeamRunStatus, addTeamRunLog, getTeamRunLogs,
+  // Marketplace / Showcases
+  getMarketplaceAgents, incrementAgentDownloads,
+  createShowcase, getShowcasesByAgent, getShowcase, deleteShowcase,
+  reorderShowcases, countShowcases,
 };

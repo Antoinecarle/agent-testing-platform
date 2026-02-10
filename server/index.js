@@ -85,6 +85,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   app.use('/api/seed', verifyToken, seedRoutes);
   app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
 
+  const marketplaceRoutes = require('./routes/marketplace');
+  app.use('/api/marketplace', verifyToken, marketplaceRoutes);
+
   const agentTeamsRoutes = require('./routes/agent-teams');
   app.use('/api/agent-teams', verifyToken, agentTeamsRoutes);
 

@@ -234,7 +234,7 @@ router.post('/import', async (req, res) => {
 
     // Parse and insert
     const parsed = parseAgentFile(path.join(AGENTS_DIR, `${name}.md`));
-    await db.createAgentManual(name, parsed.description, parsed.model, parsed.category, parsed.promptPreview, parsed.fullPrompt, parsed.tools, parsed.maxTurns, parsed.memory, parsed.permissionMode);
+    await db.createAgentManual(name, parsed.description, parsed.model, parsed.category, parsed.promptPreview, parsed.fullPrompt, parsed.tools, parsed.maxTurns, parsed.memory, parsed.permissionMode, req.user?.userId);
 
     const created = await db.getAgent(name);
     res.status(201).json(created);
@@ -338,7 +338,7 @@ router.post('/', async (req, res) => {
 
     // Insert in DB
     const promptPreview = fullContent.substring(0, 500);
-    await db.createAgentManual(name, description || '', model || '', category || 'uncategorized', promptPreview, fullContent, tools || '', max_turns || 0, memory || '', permission_mode || '');
+    await db.createAgentManual(name, description || '', model || '', category || 'uncategorized', promptPreview, fullContent, tools || '', max_turns || 0, memory || '', permission_mode || '', req.user?.userId);
 
     const created = await db.getAgent(name);
     res.status(201).json(created);
@@ -548,7 +548,8 @@ router.post('/:name/duplicate', async (req, res) => {
       source.tools || '',
       source.max_turns || 0,
       source.memory || '',
-      source.permission_mode || ''
+      source.permission_mode || '',
+      req.user?.userId
     );
 
     // Write .md file to disk
