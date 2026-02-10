@@ -284,6 +284,7 @@ export default function AgentBrowser() {
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState(new Set());
   const [bulkCategoryTarget, setBulkCategoryTarget] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -479,10 +480,17 @@ export default function AgentBrowser() {
   const getCount = (catName) => agents.filter(a => a.category === catName).length;
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 53px)', width: '100%', backgroundColor: t.bg, color: t.tp, overflow: 'hidden' }}>
+    <div className="ab-root" style={{ display: 'flex', height: 'calc(100vh - 53px)', width: '100%', backgroundColor: t.bg, color: t.tp, overflow: 'hidden' }}>
 
       {/* ─── SIDEBAR ─────────────────────────────── */}
-      <aside style={{ width: '260px', borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0b', flexShrink: 0 }}>
+      <aside className="ab-sidebar" style={{ width: '260px', borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0b', flexShrink: 0 }}>
+        {/* Mobile close button for sidebar */}
+        <button className="ab-sidebar-close" onClick={() => setSidebarOpen(false)} style={{
+          display: 'none', background: 'none', border: 'none', color: t.tm, cursor: 'pointer',
+          padding: '8px', position: 'absolute', top: '8px', right: '8px', zIndex: 10,
+        }}>
+          <X size={18} />
+        </button>
         <div style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${t.border}` }}>
           <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Categories</span>
           <button onClick={() => setCategoryModalOpen(true)} title="Manage categories" style={{
@@ -545,13 +553,22 @@ export default function AgentBrowser() {
       {/* ─── MAIN ────────────────────────────────── */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Toolbar */}
-        <header style={{
-          height: '52px', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          borderBottom: `1px solid ${t.border}`, flexShrink: 0,
+        <header className="ab-toolbar" style={{
+          minHeight: '52px', padding: '8px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderBottom: `1px solid ${t.border}`, flexShrink: 0, flexWrap: 'wrap', gap: '8px',
         }}>
-          <div style={{
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Mobile sidebar toggle */}
+            <button className="ab-sidebar-toggle" onClick={() => setSidebarOpen(!sidebarOpen)} style={{
+              display: 'none', background: 'none', border: `1px solid ${t.border}`, color: t.ts,
+              padding: '6px', borderRadius: '4px', cursor: 'pointer', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Layers size={14} />
+            </button>
+          </div>
+          <div className="ab-search" style={{
             display: 'flex', alignItems: 'center', backgroundColor: t.surface,
-            border: `1px solid ${t.border}`, borderRadius: '6px', padding: '0 12px', width: '300px',
+            border: `1px solid ${t.border}`, borderRadius: '6px', padding: '0 12px', width: '300px', maxWidth: '100%',
           }}>
             <Search size={14} color={t.tm} />
             <input
@@ -561,7 +578,7 @@ export default function AgentBrowser() {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="ab-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{
               backgroundColor: t.surface, border: `1px solid ${t.border}`, color: t.ts,
               fontSize: '12px', padding: '6px 10px', borderRadius: '4px', outline: 'none',
@@ -803,6 +820,37 @@ export default function AgentBrowser() {
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+          .ab-sidebar {
+            position: fixed !important;
+            top: 53px;
+            left: ${sidebarOpen ? '0' : '-280px'};
+            width: 260px !important;
+            height: calc(100vh - 53px) !important;
+            z-index: 100;
+            transition: left 0.3s ease;
+          }
+          .ab-sidebar-close { display: flex !important; }
+          .ab-sidebar-toggle { display: flex !important; }
+          .ab-toolbar { padding: 8px 12px !important; }
+          .ab-search { width: 100% !important; flex: 1; min-width: 0; }
+          .ab-toolbar-right { width: 100%; overflow-x: auto; scrollbar-width: none; }
+          .ab-toolbar-right::-webkit-scrollbar { display: none; }
+        }
+      `}</style>
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} className="ab-overlay" style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 99,
+          display: 'none',
+        }} />
+      )}
+      <style>{`
+        @media (max-width: 768px) {
+          .ab-overlay { display: block !important; }
+        }
       `}</style>
     </div>
   );

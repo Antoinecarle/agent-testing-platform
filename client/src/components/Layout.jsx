@@ -7,15 +7,19 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [userInfo, setUserInfo] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    // Load user info from API
     api('/api/user/me').then(setUserInfo).catch(() => {
-      // Fallback to localStorage
       const stored = getUser();
       if (stored) setUserInfo(stored);
     });
   }, []);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = () => {
     clearToken();
@@ -39,18 +43,18 @@ export default function Layout() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f' }}>
-      <nav style={{
+      <nav className="guru-nav" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '12px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)',
         position: 'sticky', top: 0, zIndex: 50, background: 'rgba(15,15,15,0.95)',
         backdropFilter: 'blur(12px)',
       }}>
-        {/* Logo guru.ai */}
         <div style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
           <GuruLogo size={28} withText={true} />
         </div>
 
-        <div style={{ display: 'flex', gap: '4px' }}>
+        {/* Desktop nav links */}
+        <div className="guru-nav-links" style={{ display: 'flex', gap: '4px' }}>
           <NavLink to="/" end style={({ isActive }) => linkStyle(isActive)}>Dashboard</NavLink>
           <NavLink to="/marketplace" style={({ isActive }) => linkStyle(isActive || location.pathname.startsWith('/marketplace'))}>Marketplace</NavLink>
           <NavLink to="/agents" style={({ isActive }) => linkStyle(isActive || location.pathname.startsWith('/agents'))}>Agents</NavLink>
@@ -59,10 +63,9 @@ export default function Layout() {
           <NavLink to="/sessions" style={({ isActive }) => linkStyle(isActive)}>Sessions</NavLink>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* User info + Claude status */}
+        <div className="guru-nav-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {userInfo && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="guru-user-info" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '12px', color: '#A1A1AA' }}>
                 {userInfo.displayName || userInfo.email}
               </span>
@@ -80,7 +83,7 @@ export default function Layout() {
               />
             </div>
           )}
-          <button onClick={handleLogout} style={{
+          <button onClick={handleLogout} className="guru-logout-btn" style={{
             background: 'none', border: '1px solid rgba(255,255,255,0.15)',
             color: '#A1A1AA', borderRadius: '4px', padding: '6px 12px',
             fontSize: '12px', fontWeight: '500', cursor: 'pointer',
@@ -96,16 +99,62 @@ export default function Layout() {
           }}>
             Logout
           </button>
+
+          {/* Mobile hamburger */}
+          <button
+            className="guru-hamburger"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              display: 'none', background: 'none', border: '1px solid rgba(255,255,255,0.15)',
+              color: '#A1A1AA', borderRadius: '4px', padding: '6px 8px',
+              cursor: 'pointer', flexDirection: 'column', gap: '3px', alignItems: 'center',
+            }}
+          >
+            <span style={{ width: '16px', height: '2px', background: '#A1A1AA', borderRadius: '1px', transition: 'all 0.2s', transform: mobileMenuOpen ? 'rotate(45deg) translateY(5px)' : 'none' }} />
+            <span style={{ width: '16px', height: '2px', background: '#A1A1AA', borderRadius: '1px', transition: 'all 0.2s', opacity: mobileMenuOpen ? 0 : 1 }} />
+            <span style={{ width: '16px', height: '2px', background: '#A1A1AA', borderRadius: '1px', transition: 'all 0.2s', transform: mobileMenuOpen ? 'rotate(-45deg) translateY(-5px)' : 'none' }} />
+          </button>
         </div>
       </nav>
 
-      <main style={{
+      {/* Mobile menu overlay */}
+      {mobileMenuOpen && (
+        <div className="guru-mobile-menu" style={{
+          position: 'fixed', top: '53px', left: 0, right: 0, bottom: 0,
+          background: 'rgba(15,15,15,0.98)', zIndex: 49,
+          display: 'flex', flexDirection: 'column', padding: '16px 24px', gap: '4px',
+          backdropFilter: 'blur(12px)',
+        }}>
+          <NavLink to="/" end style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Dashboard</NavLink>
+          <NavLink to="/marketplace" style={({ isActive }) => ({ ...linkStyle(isActive || location.pathname.startsWith('/marketplace')), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Marketplace</NavLink>
+          <NavLink to="/agents" style={({ isActive }) => ({ ...linkStyle(isActive || location.pathname.startsWith('/agents')), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Agents</NavLink>
+          <NavLink to="/agents/teams" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Teams</NavLink>
+          <NavLink to="/agents/stats" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Stats</NavLink>
+          <NavLink to="/sessions" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Sessions</NavLink>
+        </div>
+      )}
+
+      <main className="guru-main" style={{
         padding: isFullWidth ? 0 : '24px',
         maxWidth: isFullWidth ? 'none' : '1400px',
         margin: '0 auto',
       }}>
         <Outlet />
       </main>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .guru-nav { padding: 10px 16px !important; }
+          .guru-nav-links { display: none !important; }
+          .guru-hamburger { display: flex !important; }
+          .guru-user-info { display: none !important; }
+          .guru-logout-btn { display: none !important; }
+          .guru-main { padding: 16px !important; }
+        }
+        @media (min-width: 769px) {
+          .guru-mobile-menu { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 }

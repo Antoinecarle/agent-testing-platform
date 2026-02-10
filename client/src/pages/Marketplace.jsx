@@ -214,7 +214,7 @@ export default function Marketplace() {
     str.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   return (
-    <div style={{ backgroundColor: t.bg, minHeight: 'calc(100vh - 53px)', color: t.tp, padding: '40px 24px' }}>
+    <div className="mp-root" style={{ backgroundColor: t.bg, minHeight: 'calc(100vh - 53px)', color: t.tp, padding: '40px 24px' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: '48px' }}>
@@ -296,7 +296,7 @@ export default function Marketplace() {
             <p style={{ margin: 0 }}>No agents found matching your criteria.</p>
           </div>
         ) : (
-          <div style={{
+          <div className="mp-grid" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: '24px',
@@ -313,6 +313,16 @@ export default function Marketplace() {
             ))}
           </div>
         )}
+
+        <style>{`
+          @media (max-width: 768px) {
+            .mp-root { padding: 20px 12px !important; }
+            .mp-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
+          }
+          @media (max-width: 480px) {
+            .mp-grid { grid-template-columns: 1fr !important; }
+          }
+        `}</style>
       </div>
     </div>
   );

@@ -386,7 +386,7 @@ export default function AgentDetail() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: t.bg, color: t.tp, overflowY: 'auto' }}>
       {/* Back nav */}
-      <div style={{ padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: `1px solid ${t.border}` }}>
+      <div className="agent-detail-breadcrumb" style={{ padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: `1px solid ${t.border}` }}>
         <Link to="/agents" style={{ color: t.tm, display: 'flex', textDecoration: 'none' }}><ArrowLeft size={18} /></Link>
         <span style={{ fontSize: '12px', color: t.tm }}>Agents</span>
         <span style={{ fontSize: '12px', color: t.tm }}>/</span>
@@ -394,7 +394,7 @@ export default function AgentDetail() {
       </div>
 
       {/* Header Card */}
-      <div style={{ margin: '0', padding: '32px', borderRadius: '0', border: 'none', borderBottom: `1px solid ${t.border}`,
+      <div className="agent-detail-header" style={{ margin: '0', padding: '32px', borderRadius: '0', border: 'none', borderBottom: `1px solid ${t.border}`,
         background: 'rgba(26,26,27,0.8)', backdropFilter: 'blur(20px)',
         boxShadow: `0 0 40px ${t.violetG}`,
       }}>
@@ -485,7 +485,7 @@ export default function AgentDetail() {
         </div>
 
         {/* Actions */}
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="agent-detail-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={() => navigate(`/agents/${name}/edit`)} style={{
             backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
             padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
@@ -675,9 +675,9 @@ export default function AgentDetail() {
       )}
 
       {/* Content: 2 columns */}
-      <div style={{ display: 'flex', padding: '0 24px 24px', gap: '24px' }}>
+      <div className="agent-detail-content" style={{ display: 'flex', padding: '0 24px 24px', gap: '24px', flexWrap: 'wrap' }}>
         {/* LEFT: Prompt + Version History */}
-        <div style={{ width: '65%' }}>
+        <div className="agent-detail-left" style={{ width: '65%', minWidth: '300px', flex: '1 1 400px' }}>
           <h2 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
             Prompt
             {agent.full_prompt && (
@@ -731,7 +731,7 @@ export default function AgentDetail() {
         </div>
 
         {/* RIGHT: Projects */}
-        <div style={{ width: '35%' }}>
+        <div className="agent-detail-right" style={{ width: '35%', minWidth: '280px', flex: '1 1 280px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h2 style={{ fontSize: '14px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
               Projects
@@ -987,16 +987,16 @@ export default function AgentDetail() {
             height: '60px', borderBottom: `1px solid ${t.border}`,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '14px', fontWeight: '600' }}>{selectedShowcase.title}</span>
-              <span style={{ fontSize: '12px', color: t.tm }}>{selectedShowcase.project_name} v{selectedShowcase.iteration_version}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', overflow: 'hidden' }}>
+              <span style={{ fontSize: '14px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedShowcase.title}</span>
+              <span style={{ fontSize: '12px', color: t.tm, whiteSpace: 'nowrap' }}>{selectedShowcase.project_name} v{selectedShowcase.iteration_version}</span>
             </div>
             <button
               onClick={() => setSelectedShowcase(null)}
               style={{
                 background: t.surfaceEl, border: 'none', color: t.tp,
                 width: '32px', height: '32px', borderRadius: '4px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}
             >
               <X size={18} />
@@ -1010,6 +1010,16 @@ export default function AgentDetail() {
           </div>
         </div>
       )}
+
+      <style>{`
+        @media (max-width: 768px) {
+          .agent-detail-breadcrumb { padding: 12px 16px !important; }
+          .agent-detail-header { padding: 20px 16px !important; }
+          .agent-detail-content { padding: 0 16px 16px !important; flex-direction: column; }
+          .agent-detail-left, .agent-detail-right { width: 100% !important; min-width: 0 !important; }
+          .agent-detail-actions button { padding: 6px 10px !important; font-size: 11px !important; }
+        }
+      `}</style>
     </div>
   );
 }

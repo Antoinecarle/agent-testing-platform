@@ -373,7 +373,7 @@ export default function MarketplaceDetail() {
   const formatName = (str) => str.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   return (
-    <div style={{ background: t.bg, minHeight: 'calc(100vh - 53px)', color: t.tp, padding: '40px 20px' }}>
+    <div className="mp-detail" style={{ background: t.bg, minHeight: 'calc(100vh - 53px)', color: t.tp, padding: '40px 20px' }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
         {/* Breadcrumb */}
@@ -384,8 +384,8 @@ export default function MarketplaceDetail() {
         </div>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', gap: '40px', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: '300px' }}>
+        <div className="mp-detail-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px', gap: '24px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '0' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: '32px', fontWeight: '800', letterSpacing: '-0.02em', margin: 0 }}>
                 {formatName(agent.name)}
@@ -1083,6 +1083,13 @@ export default function MarketplaceDetail() {
 
       <style>{`
         select option { background: ${t.surface}; color: ${t.tp}; }
+        @media (max-width: 768px) {
+          .mp-detail { padding: 20px 12px !important; }
+          .mp-detail-header { flex-direction: column; gap: 16px !important; }
+          .mp-detail-header > div:last-child { flex-direction: row; width: 100%; }
+          .mp-detail-header > div:last-child button,
+          .mp-detail-header > div:last-child a { flex: 1; }
+        }
       `}</style>
     </div>
   );

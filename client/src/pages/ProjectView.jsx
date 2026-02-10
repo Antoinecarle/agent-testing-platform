@@ -260,12 +260,21 @@ export default function ProjectView() {
   const [termTabs, setTermTabs] = useState([]);
   const [activeTab, setActiveTab] = useState(null);
   const [tabsLoaded, setTabsLoaded] = useState(false);
-  const [branchParent, setBranchParent] = useState(undefined); // undefined=no context, null=root, object=iteration
-  const [claudeStatus, setClaudeStatus] = useState(null); // null=loading, { installed, version }
-  const [userClaudeConnected, setUserClaudeConnected] = useState(null); // null=loading, boolean
+  const [branchParent, setBranchParent] = useState(undefined);
+  const [claudeStatus, setClaudeStatus] = useState(null);
+  const [userClaudeConnected, setUserClaudeConnected] = useState(null);
+  const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
+
+  // Detect mobile
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 900);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Flatten tree into a flat list for the carousel
   const allIterations = React.useMemo(() => {
@@ -425,7 +434,7 @@ export default function ProjectView() {
 
   if (projectId === 'new') {
     return (
-      <div style={{ padding: '48px', maxWidth: '500px' }}>
+      <div style={{ padding: '24px', maxWidth: '500px', width: '100%', boxSizing: 'border-box' }}>
         <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>New Project</h1>
         <NewProjectForm onCreated={id => navigate(`/project/${id}`)} />
       </div>
@@ -433,11 +442,39 @@ export default function ProjectView() {
   }
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 53px)', background: t.bg, overflow: 'hidden',  }}
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', height: 'calc(100vh - 53px)', background: t.bg, overflow: 'hidden' }}
       onClick={() => setContextMenu(null)}>
 
+      {/* Mobile Panel Switcher */}
+      {isMobile && (
+        <div style={{
+          display: 'flex', borderBottom: `1px solid ${t.border}`, background: t.surface, flexShrink: 0,
+        }}>
+          {[
+            { id: 'tree', label: 'Worktree' },
+            { id: 'preview', label: 'Preview' },
+            { id: 'terminal', label: 'Terminal' },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setMobilePanel(tab.id)} style={{
+              flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+              background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
+              color: mobilePanel === tab.id ? t.tp : t.tm,
+              border: 'none', borderBottom: mobilePanel === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
+            }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* LEFT: Worktree */}
-      <aside style={{ width: `${leftW}px`, background: t.surface, borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <aside style={{
+        width: isMobile ? '100%' : `${leftW}px`,
+        background: t.surface, borderRight: isMobile ? 'none' : `1px solid ${t.border}`,
+        display: isMobile && mobilePanel !== 'tree' ? 'none' : 'flex',
+        flexDirection: 'column', flexShrink: 0,
+        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
+      }}>
         <div style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', borderBottom: `1px solid ${t.border}` }}>
           <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
           <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
@@ -472,13 +509,19 @@ export default function ProjectView() {
       </aside>
 
       {/* Left Resizer */}
-      <div onMouseDown={() => setResizing('left')} style={{
-        width: '4px', cursor: 'col-resize', background: resizing === 'left' ? t.violet : 'transparent',
-        transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
-      }} />
+      {!isMobile && (
+        <div onMouseDown={() => setResizing('left')} style={{
+          width: '4px', cursor: 'col-resize', background: resizing === 'left' ? t.violet : 'transparent',
+          transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
+        }} />
+      )}
 
       {/* CENTER: Preview */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <main style={{
+        flex: 1, display: isMobile && mobilePanel !== 'preview' ? 'none' : 'flex',
+        flexDirection: 'column', minWidth: 0,
+        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
+      }}>
         <div style={{
           height: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', fontSize: '12px', color: t.ts, flexShrink: 0,
@@ -557,13 +600,21 @@ export default function ProjectView() {
       </main>
 
       {/* Right Resizer */}
-      <div onMouseDown={() => setResizing('right')} style={{
-        width: '4px', cursor: 'col-resize', background: resizing === 'right' ? t.violet : 'transparent',
-        transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
-      }} />
+      {!isMobile && (
+        <div onMouseDown={() => setResizing('right')} style={{
+          width: '4px', cursor: 'col-resize', background: resizing === 'right' ? t.violet : 'transparent',
+          transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
+        }} />
+      )}
 
       {/* RIGHT: Terminal */}
-      <aside style={{ width: `${rightW}px`, background: t.surface, borderLeft: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <aside style={{
+        width: isMobile ? '100%' : `${rightW}px`,
+        background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
+        display: isMobile && mobilePanel !== 'terminal' ? 'none' : 'flex',
+        flexDirection: 'column', flexShrink: 0,
+        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
+      }}>
         {claudeStatus && !claudeStatus.installed ? (
           /* Claude CLI not installed — Setup screen */
           <>

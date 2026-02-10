@@ -301,7 +301,7 @@ export default function Dashboard() {
       style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}
     >
       {/* Header */}
-      <motion.header variants={itemVariants} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <motion.header variants={itemVariants} className="dash-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '6px', letterSpacing: '-0.02em' }}>
             Dashboard <span style={{ fontSize: '24px' }}>👋</span>
@@ -322,7 +322,7 @@ export default function Dashboard() {
       </motion.header>
 
       {/* Quick Actions Bar */}
-      <motion.div variants={itemVariants} style={{
+      <motion.div variants={itemVariants} className="dash-actions" style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px'
       }}>
         <button
@@ -419,7 +419,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Metrics Section */}
-      <motion.div variants={itemVariants} style={{
+      <motion.div variants={itemVariants} className="dash-metrics" style={{
         display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px'
       }}>
         {[
@@ -851,7 +851,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Main Content Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '28px', alignItems: 'start' }}>
+      <div className="dash-main-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '28px', alignItems: 'start' }}>
 
         {/* Projects Column */}
         <motion.div variants={itemVariants} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1059,6 +1059,19 @@ export default function Dashboard() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${t.borderS}; borderRadius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: ${t.tm}; }
+
+        @media (max-width: 1024px) {
+          .dash-main-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 768px) {
+          .dash-actions { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+          .dash-metrics { grid-template-columns: 1fr !important; gap: 12px !important; }
+          .dash-main-grid { grid-template-columns: 1fr !important; }
+          .dash-header { flex-direction: column; align-items: flex-start !important; }
+        }
+        @media (max-width: 480px) {
+          .dash-actions { grid-template-columns: 1fr !important; }
+        }
       `}} />
 
       {/* Agent Creator Modal */}
