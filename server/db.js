@@ -718,6 +718,101 @@ async function countShowcases(agentName) {
   return count || 0;
 }
 
+// ===================== AGENT CONVERSATIONS =====================
+
+async function createAgentConversation(userId, name) {
+  const { data } = await supabase.from('agent_conversations').insert({
+    user_id: userId,
+    name: name || 'New Agent',
+  }).select('*').single();
+  return data;
+}
+
+async function getAgentConversation(conversationId) {
+  const { data } = await supabase.from('agent_conversations').select('*').eq('id', conversationId).single();
+  return data || null;
+}
+
+async function getUserAgentConversations(userId) {
+  const { data } = await supabase.from('agent_conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  return data || [];
+}
+
+async function updateAgentConversation(conversationId, updates) {
+  await supabase.from('agent_conversations').update({
+    ...updates,
+    updated_at: new Date().toISOString(),
+  }).eq('id', conversationId);
+}
+
+async function deleteAgentConversation(conversationId) {
+  await supabase.from('agent_conversations').delete().eq('id', conversationId);
+}
+
+// Conversation Messages
+
+async function createConversationMessage(conversationId, role, content) {
+  const { data } = await supabase.from('agent_conversation_messages').insert({
+    conversation_id: conversationId,
+    role,
+    content,
+  }).select('*').single();
+
+  // Update conversation updated_at
+  await updateAgentConversation(conversationId, {});
+
+  return data;
+}
+
+async function getConversationMessages(conversationId) {
+  const { data } = await supabase.from('agent_conversation_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  return data || [];
+}
+
+// Conversation References
+
+async function createConversationReference(conversationId, type, url, filename, analysis) {
+  const { data } = await supabase.from('agent_conversation_references').insert({
+    conversation_id: conversationId,
+    type,
+    url,
+    filename,
+    analysis,
+  }).select('*').single();
+
+  // Update conversation updated_at
+  await updateAgentConversation(conversationId, {});
+
+  return data;
+}
+
+async function getConversationReferences(conversationId) {
+  const { data } = await supabase.from('agent_conversation_references')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  return data || [];
+}
+
+async function deleteConversationReference(referenceId) {
+  const { data } = await supabase.from('agent_conversation_references')
+    .select('conversation_id')
+    .eq('id', referenceId)
+    .single();
+
+  if (data) {
+    await supabase.from('agent_conversation_references').delete().eq('id', referenceId);
+    // Update conversation updated_at
+    await updateAgentConversation(data.conversation_id, {});
+  }
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -760,4 +855,9 @@ module.exports = {
   getMarketplaceAgents, incrementAgentDownloads,
   createShowcase, getShowcasesByAgent, getShowcase, deleteShowcase,
   reorderShowcases, countShowcases,
+  // Agent Conversations
+  createAgentConversation, getAgentConversation, getUserAgentConversations,
+  updateAgentConversation, deleteAgentConversation,
+  createConversationMessage, getConversationMessages,
+  createConversationReference, getConversationReferences, deleteConversationReference,
 };

@@ -195,6 +195,12 @@ export default function AgentDetail() {
   const [mgmtOpen, setMgmtOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedShowcase, setSelectedShowcase] = useState(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState([]);
+  const [filterByAgent, setFilterByAgent] = useState(true);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [projectIterations, setProjectIterations] = useState({});
+  const [newShowcase, setNewShowcase] = useState({ project_id: '', iteration_id: '', title: '', description: '' });
 
   useEffect(() => {
     setLoading(true);
@@ -315,6 +321,48 @@ export default function AgentDetail() {
     setShowcases(showcases.filter(s => s.id !== id));
   };
 
+  const openAddModal = async () => {
+    try {
+      const allProjects = await api('/api/projects');
+      setAvailableProjects(allProjects || []);
+
+      // Load iterations for all projects
+      const itersByProj = {};
+      await Promise.all((allProjects || []).map(async (p) => {
+        try {
+          const iters = await api(`/api/iterations/${p.id}`);
+          if (iters && iters.length > 0) itersByProj[p.id] = iters;
+        } catch (err) {
+          console.error(`Failed to load iterations for project ${p.id}:`, err);
+        }
+      }));
+      setProjectIterations(itersByProj);
+    } catch (err) {
+      console.error(err);
+    }
+    setFilterByAgent(true);
+    setSelectedProject(null);
+    setIsAddModalOpen(true);
+  };
+
+  const handleAddShowcase = async () => {
+    if (!newShowcase.project_id || !newShowcase.iteration_id || !newShowcase.title) return;
+    try {
+      await api(`/api/marketplace/${name}/showcases`, {
+        method: 'POST', body: JSON.stringify(newShowcase),
+      });
+      // Reload showcases
+      const marketplaceData = await api(`/api/marketplace/${name}`);
+      setShowcases(marketplaceData.showcases || []);
+      setIsAddModalOpen(false);
+      setSelectedProject(null);
+      setNewShowcase({ project_id: '', iteration_id: '', title: '', description: '' });
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to add showcase');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ height: 'calc(100vh - 53px)', backgroundColor: t.bg, color: t.tp, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -336,9 +384,9 @@ export default function AgentDetail() {
   const toolsList = agent.tools ? agent.tools.split(',').map(t => t.trim()).filter(Boolean) : [];
 
   return (
-    <div style={{ height: 'calc(100vh - 53px)', backgroundColor: t.bg, color: t.tp, overflowY: 'auto' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: t.bg, color: t.tp, overflowY: 'auto' }}>
       {/* Back nav */}
-      <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: `1px solid ${t.border}` }}>
         <Link to="/agents" style={{ color: t.tm, display: 'flex', textDecoration: 'none' }}><ArrowLeft size={18} /></Link>
         <span style={{ fontSize: '12px', color: t.tm }}>Agents</span>
         <span style={{ fontSize: '12px', color: t.tm }}>/</span>
@@ -346,7 +394,7 @@ export default function AgentDetail() {
       </div>
 
       {/* Header Card */}
-      <div style={{ margin: '0 24px 24px', padding: '28px', borderRadius: '12px', border: `1px solid rgba(255,255,255,0.1)`,
+      <div style={{ margin: '0', padding: '32px', borderRadius: '0', border: 'none', borderBottom: `1px solid ${t.border}`,
         background: 'rgba(26,26,27,0.8)', backdropFilter: 'blur(20px)',
         boxShadow: `0 0 40px ${t.violetG}`,
       }}>
@@ -507,11 +555,22 @@ export default function AgentDetail() {
               <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>
                 Feature projects that use this agent. Max 6 showcases.
                 <span style={{ display: 'block', marginTop: '4px', color: t.violet, fontWeight: '500' }}>
-                  💡 Drag & drop iterations from below
+                  💡 Drag & drop iterations from below or click Add Showcase
                 </span>
               </p>
             </div>
-            <span style={{ fontSize: '11px', color: t.ts }}>{showcases.length} / 6 showcases</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '11px', color: t.ts }}>{showcases.length} / 6 showcases</span>
+              {showcases.length < 6 && (
+                <button onClick={openAddModal} style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '6px 14px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+                  cursor: 'pointer', background: t.tp, color: t.bg, border: 'none',
+                }}>
+                  <Plus size={14} /> Add Showcase
+                </button>
+              )}
+            </div>
           </div>
 
           <div
@@ -726,6 +785,197 @@ export default function AgentDetail() {
           </div>
         </div>
       </div>
+
+      {/* Add Showcase Modal - Visual Selection */}
+      {isAddModalOpen && (() => {
+        const filteredProjects = filterByAgent
+          ? availableProjects.filter(p => p.agent === name)
+          : availableProjects;
+
+        const handleIterationClick = (project, iteration) => {
+          const title = iteration.title || `${project.name} v${iteration.version}`;
+          setNewShowcase({
+            project_id: project.id,
+            iteration_id: iteration.id,
+            title: title,
+            description: '',
+          });
+          setSelectedProject({ project, iteration, title });
+        };
+
+        const confirmShowcase = async () => {
+          if (!newShowcase.project_id || !newShowcase.iteration_id) return;
+          await handleAddShowcase();
+        };
+
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+            overflowY: 'auto',
+          }}>
+            <div style={{
+              background: t.surface, border: `1px solid ${t.borderS}`, borderRadius: '12px',
+              width: '100%', maxWidth: '900px', padding: '24px', maxHeight: '90vh', overflowY: 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>Add to Showcase</h3>
+                  <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>Select an iteration to feature</p>
+                </div>
+                <button onClick={() => { setIsAddModalOpen(false); setSelectedProject(null); }}
+                  style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Filter Toggle */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', padding: '4px', background: t.surfaceEl, borderRadius: '8px' }}>
+                <button
+                  onClick={() => setFilterByAgent(true)}
+                  style={{
+                    flex: 1, padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                    cursor: 'pointer', border: 'none', transition: 'all 0.2s',
+                    background: filterByAgent ? t.violet : 'transparent',
+                    color: filterByAgent ? '#fff' : t.ts,
+                  }}
+                >
+                  This Agent ({projects.length})
+                </button>
+                <button
+                  onClick={() => setFilterByAgent(false)}
+                  style={{
+                    flex: 1, padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                    cursor: 'pointer', border: 'none', transition: 'all 0.2s',
+                    background: !filterByAgent ? t.violet : 'transparent',
+                    color: !filterByAgent ? '#fff' : t.ts,
+                  }}
+                >
+                  All Projects ({availableProjects.length})
+                </button>
+              </div>
+
+              {/* Projects Grid */}
+              {filteredProjects.length === 0 ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center', color: t.tm, fontSize: '14px' }}>
+                  No projects found{filterByAgent ? ' for this agent' : ''}.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {filteredProjects.map(project => {
+                    const iters = projectIterations[project.id] || [];
+                    if (iters.length === 0) return null;
+
+                    return (
+                      <div key={project.id} style={{ marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                          <Package size={14} style={{ color: t.tm }} />
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: t.tp }}>{project.name}</span>
+                          <span style={{ fontSize: '11px', color: t.tm }}>{iters.length} version{iters.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                          {iters.map(iter => {
+                            const isSelected = selectedProject?.iteration.id === iter.id;
+                            return (
+                              <div
+                                key={iter.id}
+                                onClick={() => handleIterationClick(project, iter)}
+                                style={{
+                                  cursor: 'pointer',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  border: isSelected ? `2px solid ${t.violet}` : `1px solid ${t.border}`,
+                                  background: t.surfaceEl,
+                                  transition: 'all 0.2s',
+                                  boxShadow: isSelected ? `0 0 20px ${t.violet}40` : 'none',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) e.currentTarget.style.borderColor = t.violet;
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) e.currentTarget.style.borderColor = t.border;
+                                }}
+                              >
+                                <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#000', overflow: 'hidden' }}>
+                                  <div style={{
+                                    position: 'absolute', top: 0, left: 0, width: '450%', height: '450%',
+                                    transform: 'scale(0.222)', transformOrigin: 'top left', pointerEvents: 'none',
+                                  }}>
+                                    <iframe src={`/api/preview/${project.id}/${iter.id}`}
+                                      style={{ width: '100%', height: '100%', border: 'none' }}
+                                      title={`Preview v${iter.version}`} loading="lazy" sandbox="allow-same-origin" />
+                                  </div>
+                                  {isSelected && (
+                                    <div style={{
+                                      position: 'absolute', top: '8px', right: '8px',
+                                      background: t.violet, color: '#fff', padding: '4px 8px',
+                                      borderRadius: '100px', fontSize: '10px', fontWeight: '600',
+                                    }}>
+                                      ✓ SELECTED
+                                    </div>
+                                  )}
+                                </div>
+                                <div style={{ padding: '8px' }}>
+                                  <div style={{ fontSize: '11px', fontWeight: '600', color: t.tp, marginBottom: '2px' }}>
+                                    {iter.title || `Version ${iter.version}`}
+                                  </div>
+                                  <div style={{ fontSize: '9px', color: t.tm }}>v{iter.version}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer with title input and confirm */}
+              {selectedProject && (
+                <div style={{
+                  marginTop: '24px', padding: '16px', borderRadius: '8px',
+                  background: t.surfaceEl, border: `1px solid ${t.violet}40`,
+                }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: t.tm, marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
+                    Showcase Title
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="E.g. Dynamic Dashboard v2"
+                    value={newShowcase.title}
+                    onChange={(e) => setNewShowcase({ ...newShowcase, title: e.target.value })}
+                    style={{
+                      width: '100%', background: t.surface, border: `1px solid ${t.border}`,
+                      borderRadius: '6px', padding: '10px', color: t.tp, outline: 'none', boxSizing: 'border-box',
+                      marginBottom: '12px',
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button onClick={() => setSelectedProject(null)} style={{
+                      padding: '8px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+                      cursor: 'pointer', background: 'transparent', color: t.ts, border: `1px solid ${t.borderS}`,
+                    }}>
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmShowcase}
+                      disabled={!newShowcase.title}
+                      style={{
+                        padding: '8px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+                        cursor: 'pointer', background: t.violet, color: '#fff', border: 'none',
+                        opacity: !newShowcase.title ? 0.5 : 1,
+                      }}
+                    >
+                      Add to Showcase
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Fullscreen Preview Modal */}
       {selectedShowcase && (

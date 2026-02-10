@@ -1,10 +1,7 @@
 node_modules/
 .env
-data/platform.db
-data/platform.db-shm
-data/platform.db-wal
-data/workspaces/
-data/iterations/
+data/
+.playwright-mcp/
 client/dist/
 *.log
 .DS_Store

@@ -207,6 +207,9 @@ export default function MarketplaceDetail() {
   const [availableIterations, setAvailableIterations] = useState([]);
   const [newShowcase, setNewShowcase] = useState({ project_id: '', iteration_id: '', title: '', description: '' });
   const [isDragOver, setIsDragOver] = useState(false);
+  const [filterByAgent, setFilterByAgent] = useState(true);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [projectIterations, setProjectIterations] = useState({});
 
   // Preview modal state (ClientPreview-style)
   const [previewViewport, setPreviewViewport] = useState('desktop');
@@ -288,9 +291,23 @@ export default function MarketplaceDetail() {
     try {
       const allProjects = await api('/api/projects');
       setAvailableProjects(allProjects || []);
+
+      // Load iterations for all projects
+      const itersByProj = {};
+      await Promise.all((allProjects || []).map(async (p) => {
+        try {
+          const iters = await api(`/api/iterations/${p.id}`);
+          if (iters && iters.length > 0) itersByProj[p.id] = iters;
+        } catch (err) {
+          console.error(`Failed to load iterations for project ${p.id}:`, err);
+        }
+      }));
+      setProjectIterations(itersByProj);
     } catch (err) {
       console.error(err);
     }
+    setFilterByAgent(true);
+    setSelectedProject(null);
     setIsAddModalOpen(true);
   };
 
@@ -872,95 +889,197 @@ export default function MarketplaceDetail() {
         );
       })()}
 
-      {/* Add Showcase Modal */}
-      {isAddModalOpen && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.8)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
-        }}>
+      {/* Add Showcase Modal - Visual Selection */}
+      {isAddModalOpen && (() => {
+        const filteredProjects = filterByAgent
+          ? availableProjects.filter(p => p.agent === name)
+          : availableProjects;
+
+        const handleIterationClick = (project, iteration) => {
+          const title = iteration.title || `${project.name} v${iteration.version}`;
+          setNewShowcase({
+            project_id: project.id,
+            iteration_id: iteration.id,
+            title: title,
+            description: '',
+          });
+          setSelectedProject({ project, iteration, title });
+        };
+
+        const confirmShowcase = async () => {
+          if (!newShowcase.project_id || !newShowcase.iteration_id) return;
+          await handleAddShowcase();
+          setSelectedProject(null);
+        };
+
+        return (
           <div style={{
-            background: t.surface, border: `1px solid ${t.borderS}`, borderRadius: '12px',
-            width: '100%', maxWidth: '480px', padding: '24px',
+            position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+            overflowY: 'auto',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '700', margin: 0 }}>Add to Showcase</h3>
-              <button onClick={() => setIsAddModalOpen(false)} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: t.tm, marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
-                  Select Project
-                </label>
-                <select
-                  value={newShowcase.project_id}
-                  onChange={(e) => handleProjectSelect(e.target.value)}
-                  style={{
-                    width: '100%', background: t.surfaceEl, border: `1px solid ${t.border}`,
-                    borderRadius: '6px', padding: '10px', color: t.tp, outline: 'none', boxSizing: 'border-box',
-                  }}
-                >
-                  <option value="">Select a project...</option>
-                  {availableProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+            <div style={{
+              background: t.surface, border: `1px solid ${t.borderS}`, borderRadius: '12px',
+              width: '100%', maxWidth: '900px', padding: '24px', maxHeight: '90vh', overflowY: 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', margin: '0 0 4px 0' }}>Add to Showcase</h3>
+                  <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>Select an iteration to feature</p>
+                </div>
+                <button onClick={() => { setIsAddModalOpen(false); setSelectedProject(null); }}
+                  style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex' }}>
+                  <X size={20} />
+                </button>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: t.tm, marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
-                  Select Iteration
-                </label>
-                <select
-                  value={newShowcase.iteration_id}
-                  onChange={(e) => setNewShowcase({ ...newShowcase, iteration_id: e.target.value })}
-                  disabled={!newShowcase.project_id}
-                  style={{
-                    width: '100%', background: t.surfaceEl, border: `1px solid ${t.border}`,
-                    borderRadius: '6px', padding: '10px', color: t.tp, outline: 'none', boxSizing: 'border-box',
-                    opacity: !newShowcase.project_id ? 0.5 : 1,
-                  }}
-                >
-                  <option value="">Select iteration...</option>
-                  {availableIterations.map(i => <option key={i.id} value={i.id}>v{i.version}: {i.title || 'Untitled'}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: t.tm, marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
-                  Showcase Title
-                </label>
-                <input
-                  type="text"
-                  placeholder="E.g. Dynamic Dashboard v2"
-                  value={newShowcase.title}
-                  onChange={(e) => setNewShowcase({ ...newShowcase, title: e.target.value })}
-                  style={{
-                    width: '100%', background: t.surfaceEl, border: `1px solid ${t.border}`,
-                    borderRadius: '6px', padding: '10px', color: t.tp, outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
-                <button onClick={() => setIsAddModalOpen(false)} style={{
-                  padding: '6px 14px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
-                  cursor: 'pointer', background: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
-                }}>Cancel</button>
+              {/* Filter Toggle */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', padding: '4px', background: t.surfaceEl, borderRadius: '8px' }}>
                 <button
-                  onClick={handleAddShowcase}
-                  disabled={!newShowcase.iteration_id || !newShowcase.title}
+                  onClick={() => setFilterByAgent(true)}
                   style={{
-                    padding: '6px 14px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
-                    cursor: 'pointer', background: t.tp, color: t.bg, border: 'none',
-                    opacity: (!newShowcase.iteration_id || !newShowcase.title) ? 0.5 : 1,
+                    flex: 1, padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                    cursor: 'pointer', border: 'none', transition: 'all 0.2s',
+                    background: filterByAgent ? t.violet : 'transparent',
+                    color: filterByAgent ? '#fff' : t.ts,
                   }}
-                >Confirm Showcase</button>
+                >
+                  This Agent ({projects.length})
+                </button>
+                <button
+                  onClick={() => setFilterByAgent(false)}
+                  style={{
+                    flex: 1, padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                    cursor: 'pointer', border: 'none', transition: 'all 0.2s',
+                    background: !filterByAgent ? t.violet : 'transparent',
+                    color: !filterByAgent ? '#fff' : t.ts,
+                  }}
+                >
+                  All Projects ({availableProjects.length})
+                </button>
               </div>
+
+              {/* Projects Grid */}
+              {filteredProjects.length === 0 ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center', color: t.tm, fontSize: '14px' }}>
+                  No projects found{filterByAgent ? ' for this agent' : ''}.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  {filteredProjects.map(project => {
+                    const iters = projectIterations[project.id] || [];
+                    if (iters.length === 0) return null;
+
+                    return (
+                      <div key={project.id} style={{ marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                          <Package size={14} style={{ color: t.tm }} />
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: t.tp }}>{project.name}</span>
+                          <span style={{ fontSize: '11px', color: t.tm }}>{iters.length} version{iters.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                          {iters.map(iter => {
+                            const isSelected = selectedProject?.iteration.id === iter.id;
+                            return (
+                              <div
+                                key={iter.id}
+                                onClick={() => handleIterationClick(project, iter)}
+                                style={{
+                                  cursor: 'pointer',
+                                  borderRadius: '8px',
+                                  overflow: 'hidden',
+                                  border: isSelected ? `2px solid ${t.violet}` : `1px solid ${t.border}`,
+                                  background: t.surfaceEl,
+                                  transition: 'all 0.2s',
+                                  boxShadow: isSelected ? `0 0 20px ${t.violet}40` : 'none',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) e.currentTarget.style.borderColor = t.violet;
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) e.currentTarget.style.borderColor = t.border;
+                                }}
+                              >
+                                <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#000', overflow: 'hidden' }}>
+                                  <div style={{
+                                    position: 'absolute', top: 0, left: 0, width: '450%', height: '450%',
+                                    transform: 'scale(0.222)', transformOrigin: 'top left', pointerEvents: 'none',
+                                  }}>
+                                    <iframe src={`/api/preview/${project.id}/${iter.id}`}
+                                      style={{ width: '100%', height: '100%', border: 'none' }}
+                                      title={`Preview v${iter.version}`} loading="lazy" sandbox="allow-same-origin" />
+                                  </div>
+                                  {isSelected && (
+                                    <div style={{
+                                      position: 'absolute', top: '8px', right: '8px',
+                                      background: t.violet, color: '#fff', padding: '4px 8px',
+                                      borderRadius: '100px', fontSize: '10px', fontWeight: '600',
+                                    }}>
+                                      ✓ SELECTED
+                                    </div>
+                                  )}
+                                </div>
+                                <div style={{ padding: '8px' }}>
+                                  <div style={{ fontSize: '11px', fontWeight: '600', color: t.tp, marginBottom: '2px' }}>
+                                    {iter.title || `Version ${iter.version}`}
+                                  </div>
+                                  <div style={{ fontSize: '9px', color: t.tm }}>v{iter.version}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer with title input and confirm */}
+              {selectedProject && (
+                <div style={{
+                  marginTop: '24px', padding: '16px', borderRadius: '8px',
+                  background: t.surfaceEl, border: `1px solid ${t.violet}40`,
+                }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: t.tm, marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
+                    Showcase Title
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="E.g. Dynamic Dashboard v2"
+                    value={newShowcase.title}
+                    onChange={(e) => setNewShowcase({ ...newShowcase, title: e.target.value })}
+                    style={{
+                      width: '100%', background: t.surface, border: `1px solid ${t.border}`,
+                      borderRadius: '6px', padding: '10px', color: t.tp, outline: 'none', boxSizing: 'border-box',
+                      marginBottom: '12px',
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button onClick={() => setSelectedProject(null)} style={{
+                      padding: '8px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+                      cursor: 'pointer', background: 'transparent', color: t.ts, border: `1px solid ${t.borderS}`,
+                    }}>
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmShowcase}
+                      disabled={!newShowcase.title}
+                      style={{
+                        padding: '8px 16px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+                        cursor: 'pointer', background: t.violet, color: '#fff', border: 'none',
+                        opacity: !newShowcase.title ? 0.5 : 1,
+                      }}
+                    >
+                      Add to Showcase
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <style>{`
         select option { background: ${t.surface}; color: ${t.tp}; }
