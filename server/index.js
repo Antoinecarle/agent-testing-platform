@@ -150,16 +150,51 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   });
 
   // Scan workspace for new iterations (manual trigger)
-  app.post('/api/projects/:projectId/scan', verifyToken, (req, res) => {
+  app.post('/api/projects/:projectId/scan', verifyToken, async (req, res) => {
     try {
       if (!watcher || !watcher.scanProject) {
         return res.status(503).json({ error: 'Watcher not available' });
       }
-      const result = watcher.scanProject(req.params.projectId);
+      const result = await watcher.scanProject(req.params.projectId);
       res.json({ imported: !!result, iterationId: result || null });
     } catch (err) {
       console.error('[Scan] Error:', err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Save iteration endpoint (no auth — used by workspace agents via CLI)
+  app.post('/api/projects/:projectId/save-iteration', async (req, res) => {
+    try {
+      if (!watcher) {
+        return res.status(503).json({ ok: false, error: 'Watcher not available' });
+      }
+
+      const { projectId } = req.params;
+      const project = await db.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ ok: false, error: 'Project not found' });
+      }
+
+      // Ensure watcher is watching this project
+      watcher.watchProject(projectId);
+
+      // Try normal import first (detects new/changed files)
+      let iterationId = await watcher.importIteration(projectId);
+
+      // If nothing imported, force re-import (clears hashes)
+      if (!iterationId) {
+        iterationId = await watcher.manualImport(projectId);
+      }
+
+      if (iterationId) {
+        res.status(201).json({ ok: true, saved: true, iterationId });
+      } else {
+        res.json({ ok: true, saved: false, message: 'No new or changed HTML files found in workspace' });
+      }
+    } catch (err) {
+      console.error('[SaveIteration] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
     }
   });
 

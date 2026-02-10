@@ -66,12 +66,12 @@ router.delete('/:id', async (req, res) => {
 });
 
 // POST /api/terminal-tabs/:projectId/import — manually import index.html as iteration
-router.post('/:projectId/import', (req, res) => {
+router.post('/:projectId/import', async (req, res) => {
   try {
     if (!watcher) return res.status(503).json({ error: 'Terminal/watcher not available in this environment' });
     // Ensure watcher is running
     watcher.watchProject(req.params.projectId);
-    const iterationId = watcher.manualImport(req.params.projectId);
+    const iterationId = await watcher.manualImport(req.params.projectId);
     if (!iterationId) {
       return res.status(404).json({ error: 'No new index.html found or no changes detected' });
     }

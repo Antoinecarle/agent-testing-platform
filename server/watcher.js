@@ -115,61 +115,73 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
 
   const hash = hashContent(content);
   const hashKey = `${projectId}:${htmlPath}`;
-  if (fileHashes.get(hashKey) === hash) return null;
+  const previousHash = fileHashes.get(hashKey);
+  if (previousHash === hash) return null;
   fileHashes.set(hashKey, hash);
 
-  const project = await db.getProject(projectId);
-  if (!project) return null;
+  try {
+    const project = await db.getProject(projectId);
+    if (!project) return null;
 
-  const agentName = project.agent_name || 'unknown';
-  const id = crypto.randomUUID();
-  const version = await db.getNextVersion(projectId);
+    const agentName = project.agent_name || 'unknown';
+    const id = crypto.randomUUID();
+    const version = await db.getNextVersion(projectId);
 
-  // Determine parent
-  let parentId;
-  if (parentIdOverride !== undefined) {
-    // Explicit override (null = root, string = specific parent)
-    parentId = parentIdOverride;
-  } else {
-    // Read branch context
-    const branchCtx = readBranchContext(projectId);
-    if (branchCtx) {
-      parentId = branchCtx.parentId;
-      const ctxPath = path.join(WORKSPACES_DIR, projectId, '.branch-context.json');
-      try { fs.unlinkSync(ctxPath); } catch (_) {}
+    // Determine parent
+    let parentId;
+    if (parentIdOverride !== undefined) {
+      // Explicit override (null = root, string = specific parent)
+      parentId = parentIdOverride;
     } else {
-      // Default: chain to latest
-      const iterations = await db.getIterationsByProject(projectId);
-      parentId = iterations.length > 0 ? iterations[iterations.length - 1].id : null;
+      // Read branch context
+      const branchCtx = readBranchContext(projectId);
+      if (branchCtx) {
+        parentId = branchCtx.parentId;
+        const ctxPath = path.join(WORKSPACES_DIR, projectId, '.branch-context.json');
+        try { fs.unlinkSync(ctxPath); } catch (_) {}
+      } else {
+        // Default: chain to latest
+        const iterations = await db.getIterationsByProject(projectId);
+        parentId = iterations.length > 0 ? iterations[iterations.length - 1].id : null;
+      }
     }
+
+    // Copy HTML to iterations directory
+    const projectIterDir = path.join(ITERATIONS_DIR, projectId);
+    if (!fs.existsSync(projectIterDir)) fs.mkdirSync(projectIterDir, { recursive: true });
+
+    const iterDir = path.join(projectIterDir, id);
+    fs.mkdirSync(iterDir, { recursive: true });
+    fs.writeFileSync(path.join(iterDir, 'index.html'), content);
+    const filePath = `${projectId}/${id}/index.html`;
+
+    // Use auto-versioning V{n} as default, only override if a real title was provided
+    const title = titleOverride || `V${version}`;
+    await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
+
+    const count = await db.countIterations(projectId);
+    await db.updateProjectIterationCount(projectId, count);
+
+    console.log(`[Watcher] Imported iteration ${title} (parent: ${parentId || 'ROOT'}) for project ${project.name} (${id})`);
+
+    if (ioRef) {
+      ioRef.emit('iteration-created', {
+        projectId,
+        iteration: await db.getIteration(id),
+      });
+    }
+
+    return id;
+  } catch (err) {
+    // Rollback hash so the file will be retried on next poll
+    if (previousHash !== undefined) {
+      fileHashes.set(hashKey, previousHash);
+    } else {
+      fileHashes.delete(hashKey);
+    }
+    console.error(`[Watcher] DB error importing ${htmlPath} for project ${projectId}:`, err.message);
+    return null;
   }
-
-  // Copy HTML to iterations directory
-  const projectIterDir = path.join(ITERATIONS_DIR, projectId);
-  if (!fs.existsSync(projectIterDir)) fs.mkdirSync(projectIterDir, { recursive: true });
-
-  const iterDir = path.join(projectIterDir, id);
-  fs.mkdirSync(iterDir, { recursive: true });
-  fs.writeFileSync(path.join(iterDir, 'index.html'), content);
-  const filePath = `${projectId}/${id}/index.html`;
-
-  // Use auto-versioning V{n} as default, only override if a real title was provided
-  const title = titleOverride || `V${version}`;
-  await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
-
-  const count = await db.countIterations(projectId);
-  await db.updateProjectIterationCount(projectId, count);
-
-  console.log(`[Watcher] Imported iteration ${title} (parent: ${parentId || 'ROOT'}) for project ${project.name} (${id})`);
-
-  if (ioRef) {
-    ioRef.emit('iteration-created', {
-      projectId,
-      iteration: await db.getIteration(id),
-    });
-  }
-
-  return id;
 }
 
 /**

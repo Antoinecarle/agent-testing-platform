@@ -8,6 +8,19 @@ const AGENTS_DIR = fs.existsSync(BUNDLED_AGENTS_DIR) ? BUNDLED_AGENTS_DIR : SYST
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+const ROOT_AUTHORITY_PATH = path.join(BUNDLED_AGENTS_DIR, 'root-authority.md');
+
+/**
+ * Read root authority rules for workspace agents
+ */
+function getRootAuthority() {
+  try {
+    if (fs.existsSync(ROOT_AUTHORITY_PATH)) {
+      return fs.readFileSync(ROOT_AUTHORITY_PATH, 'utf-8');
+    }
+  } catch (_) {}
+  return '';
+}
 
 /**
  * Read the full agent .md file content
@@ -116,7 +129,10 @@ Do NOT reference any previous iteration. Create a completely fresh design from s
   // Find latest iteration for context
   const latest = iterations.length > 0 ? iterations[iterations.length - 1] : null;
 
-  const content = `# ${project.name}
+  // Inject root authority at the top
+  const rootAuthority = getRootAuthority();
+
+  const content = `${rootAuthority ? rootAuthority + '\n\n---\n\n' : ''}# ${project.name}
 
 ## Context
 
@@ -159,8 +175,8 @@ HTMLEOF
 \`\`\`
 
 **DO NOT** try to:
-- Call the platform API with curl
-- Read or write to the SQLite database
+- Call the platform API with curl or wget
+- Read or write to any database
 - Use python3 to manipulate data
 - Investigate the platform internals
 - Create iterations via any other method
@@ -171,7 +187,7 @@ The platform has an automatic file watcher that detects \`index.html\` changes a
 \`\`\`bash
 node /app/server/cli/register-iteration.js
 \`\`\`
-(It auto-detects the projectId from your current directory)
+This auto-detects the projectId from your current directory and triggers the save pipeline. This is the ONLY platform command you should run.
 
 ### Output Rules
 
