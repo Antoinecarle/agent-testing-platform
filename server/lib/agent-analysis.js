@@ -8,7 +8,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
 
 /**
- * Call GPT-5 with configurable max_completion_tokens
+ * Call GPT-5 with configurable max_completion_tokens and retry on 5xx
  */
 async function callGPT5(messages, options = {}) {
   const body = {
@@ -24,22 +24,52 @@ async function callGPT5(messages, options = {}) {
     body.response_format = { type: 'json_object' };
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const maxRetries = options.retries || 2;
+  let lastError;
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`GPT-5 API error: ${res.status} ${errorText}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120000), // 2 min timeout
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return data.choices[0].message.content;
+      }
+
+      const errorText = await res.text();
+      lastError = new Error(`GPT-5 API error: ${res.status} ${errorText}`);
+
+      // Retry on 5xx errors
+      if (res.status >= 500 && attempt < maxRetries) {
+        const delay = (attempt + 1) * 2000;
+        console.warn(`[agent-analysis] GPT-5 ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      throw lastError;
+    } catch (err) {
+      if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+        lastError = new Error(`GPT-5 API timeout after 120s`);
+        if (attempt < maxRetries) {
+          console.warn(`[agent-analysis] GPT-5 timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+      }
+      throw lastError || err;
+    }
   }
 
-  const data = await res.json();
-  return data.choices[0].message.content;
+  throw lastError;
 }
 
 /**
@@ -70,22 +100,51 @@ async function callGPT5Vision(filePath, mimeType, textPrompt, options = {}) {
     body.response_format = { type: 'json_object' };
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const maxRetries = 2;
+  let lastError;
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`GPT Vision API error: ${res.status} ${errorText}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(90000), // 90s timeout for vision
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return data.choices[0].message.content;
+      }
+
+      const errorText = await res.text();
+      lastError = new Error(`GPT Vision API error: ${res.status} ${errorText}`);
+
+      if (res.status >= 500 && attempt < maxRetries) {
+        const delay = (attempt + 1) * 2000;
+        console.warn(`[agent-analysis] GPT Vision ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      throw lastError;
+    } catch (err) {
+      if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+        lastError = new Error(`GPT Vision API timeout after 90s`);
+        if (attempt < maxRetries) {
+          console.warn(`[agent-analysis] GPT Vision timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+      }
+      throw lastError || err;
+    }
   }
 
-  const data = await res.json();
-  return data.choices[0].message.content;
+  throw lastError;
 }
 
 /**

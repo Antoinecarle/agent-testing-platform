@@ -380,8 +380,8 @@ router.post('/conversations/:id/messages', async (req, res) => {
 // ========== NEW: ANALYZE — Synthesize design brief ==========
 
 router.post('/conversations/:id/analyze', async (req, res) => {
+  const { id } = req.params;
   try {
-    const { id } = req.params;
     const conversation = await db.getAgentConversation(id);
 
     if (!conversation) {
@@ -438,8 +438,8 @@ router.get('/conversations/:id/brief', async (req, res) => {
 // ========== GENERATE — Multi-step agent file generation ==========
 
 router.post('/conversations/:id/generate', async (req, res) => {
+  const { id } = req.params;
   try {
-    const { id } = req.params;
     const conversation = await db.getAgentConversation(id);
 
     if (!conversation) {
