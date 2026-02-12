@@ -838,6 +838,125 @@ async function updateConversationGeneratedAgent(conversationId, agent, status) {
   }).eq('id', conversationId);
 }
 
+// ===================== SKILLS =====================
+
+async function createSkill(name, slug, description, prompt, category, icon, color, createdBy) {
+  const { data } = await supabase.from('skills').insert({
+    name, slug, description: description || '', prompt: prompt || '',
+    category: category || 'general', icon: icon || '', color: color || '#8B5CF6',
+    created_by: createdBy || null,
+  }).select('*').single();
+  return data;
+}
+
+async function getAllSkills() {
+  const { data: skills } = await supabase.from('skills').select('*').order('name', { ascending: true });
+  // Enrich with agent count
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
+async function getSkill(id) {
+  const { data } = await supabase.from('skills').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function getSkillBySlug(slug) {
+  const { data } = await supabase.from('skills').select('*').eq('slug', slug).single();
+  return data || null;
+}
+
+async function updateSkill(id, fields) {
+  const update = {};
+  if (fields.name !== undefined) update.name = fields.name;
+  if (fields.slug !== undefined) update.slug = fields.slug;
+  if (fields.description !== undefined) update.description = fields.description;
+  if (fields.prompt !== undefined) update.prompt = fields.prompt;
+  if (fields.category !== undefined) update.category = fields.category;
+  if (fields.icon !== undefined) update.icon = fields.icon;
+  if (fields.color !== undefined) update.color = fields.color;
+  if (Object.keys(update).length === 0) return;
+  update.updated_at = new Date().toISOString();
+  await supabase.from('skills').update(update).eq('id', id);
+}
+
+async function deleteSkill(id) {
+  await supabase.from('skills').delete().eq('id', id);
+}
+
+async function searchSkills(query) {
+  const q = `%${query}%`;
+  const { data: skills } = await supabase.from('skills').select('*')
+    .or(`name.ilike.${q},description.ilike.${q},category.ilike.${q}`)
+    .order('name', { ascending: true });
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
+async function getSkillsByCategory(category) {
+  const { data: skills } = await supabase.from('skills').select('*').eq('category', category).order('name', { ascending: true });
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
+// Agent-Skill associations
+async function assignSkillToAgent(agentName, skillId) {
+  const { data } = await supabase.from('agent_skills').insert({
+    agent_name: agentName, skill_id: skillId,
+  }).select('*').single();
+  return data;
+}
+
+async function unassignSkillFromAgent(agentName, skillId) {
+  await supabase.from('agent_skills').delete().eq('agent_name', agentName).eq('skill_id', skillId);
+}
+
+async function getAgentSkills(agentName) {
+  const { data: links } = await supabase.from('agent_skills').select('skill_id, created_at').eq('agent_name', agentName);
+  if (!links || links.length === 0) return [];
+  const skillIds = links.map(l => l.skill_id);
+  const { data: skills } = await supabase.from('skills').select('*').in('id', skillIds);
+  return skills || [];
+}
+
+async function getSkillAgents(skillId) {
+  const { data: links } = await supabase.from('agent_skills').select('agent_name, created_at').eq('skill_id', skillId);
+  if (!links || links.length === 0) return [];
+  const agentNames = links.map(l => l.agent_name);
+  const { data: agents } = await supabase.from('agents').select('name, description, model, category, rating, screenshot_path').in('name', agentNames);
+  return agents || [];
+}
+
+async function bulkAssignSkill(skillId, agentNames) {
+  const rows = agentNames.map(name => ({ agent_name: name, skill_id: skillId }));
+  await supabase.from('agent_skills').upsert(rows, { onConflict: 'agent_name,skill_id' });
+}
+
+async function bulkAssignSkillsToAgent(agentName, skillIds) {
+  const rows = skillIds.map(id => ({ agent_name: agentName, skill_id: id }));
+  await supabase.from('agent_skills').upsert(rows, { onConflict: 'agent_name,skill_id' });
+}
+
+async function getSkillStats() {
+  const { data: skills } = await supabase.from('skills').select('id, category');
+  const { data: links } = await supabase.from('agent_skills').select('skill_id, agent_name');
+  const total = (skills || []).length;
+  const byCategoryMap = {};
+  (skills || []).forEach(s => {
+    byCategoryMap[s.category || 'general'] = (byCategoryMap[s.category || 'general'] || 0) + 1;
+  });
+  const byCategory = Object.entries(byCategoryMap).map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
+  const totalAssignments = (links || []).length;
+  const uniqueAgents = new Set((links || []).map(l => l.agent_name)).size;
+  return { total, byCategory, totalAssignments, uniqueAgents };
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -886,4 +1005,9 @@ module.exports = {
   createConversationMessage, getConversationMessages,
   createConversationReference, getConversationReferences, deleteConversationReference,
   updateReferenceAnalysis, updateConversationBrief, updateConversationGeneratedAgent,
+  // Skills
+  createSkill, getAllSkills, getSkill, getSkillBySlug, updateSkill, deleteSkill,
+  searchSkills, getSkillsByCategory,
+  assignSkillToAgent, unassignSkillFromAgent, getAgentSkills, getSkillAgents,
+  bulkAssignSkill, bulkAssignSkillsToAgent, getSkillStats,
 };

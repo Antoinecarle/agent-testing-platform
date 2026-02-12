@@ -136,6 +136,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const agentCreatorRoutes = require('./routes/agent-creator');
   app.use('/api/agent-creator', verifyToken, agentCreatorRoutes);
 
+  const skillsRoutes = require('./routes/skills');
+  app.use('/api/skills', verifyToken, skillsRoutes);
+
   // Serve uploaded files for agent creator
   const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
   app.use('/uploads/agent-creator', express.static(path.join(DATA_DIR, 'agent-creator-uploads')));

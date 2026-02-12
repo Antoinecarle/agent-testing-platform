@@ -18,6 +18,7 @@ import Sessions from './pages/Sessions';
 import ClientPreview from './pages/ClientPreview';
 import Marketplace from './pages/Marketplace';
 import MarketplaceDetail from './pages/MarketplaceDetail';
+import Skills from './pages/Skills';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="agents/new" element={<AgentCreate />} />
           <Route path="agents/teams" element={<AgentTeams />} />
           <Route path="agents/stats" element={<AgentStats />} />
+          <Route path="skills" element={<Skills />} />
           <Route path="agents/:name/edit" element={<AgentEdit />} />
           <Route path="agents/:name" element={<AgentDetail />} />
           <Route path="project/:id" element={<ProjectView />} />

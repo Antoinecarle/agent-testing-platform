@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap } from 'lucide-react';
 import { api } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 
@@ -189,6 +189,11 @@ export default function AgentDetail() {
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Skills
+  const [agentSkills, setAgentSkills] = useState([]);
+  const [allSkills, setAllSkills] = useState([]);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
+
   // Showcase management
   const [showcases, setShowcases] = useState([]);
   const [iterationsByProject, setIterationsByProject] = useState({});
@@ -214,6 +219,12 @@ export default function AgentDetail() {
       setProjects(p || []);
       setCategories(c || []);
       setShowcases(marketplaceData.showcases || []);
+
+      // Load skills for this agent
+      try {
+        const skills = await api(`/api/skills/agent/${name}`);
+        setAgentSkills(skills || []);
+      } catch (err) { console.error('Failed to load agent skills:', err); }
 
       // Load iterations for all projects
       const projectsList = (p || []).slice(0, 20);
@@ -783,6 +794,133 @@ export default function AgentDetail() {
               </div>
             )}
           </div>
+
+          {/* Skills Section */}
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '14px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Zap size={14} style={{ color: t.violet }} />
+                Skills
+                <span style={{ fontSize: '10px', color: t.tm, fontWeight: '400', backgroundColor: 'rgba(255,255,255,0.04)', padding: '2px 6px', borderRadius: '4px' }}>
+                  {agentSkills.length}
+                </span>
+              </h2>
+              <button onClick={async () => {
+                try {
+                  const all = await api('/api/skills');
+                  setAllSkills(all || []);
+                  setShowSkillPicker(true);
+                } catch (e) { console.error(e); }
+              }} style={{
+                backgroundColor: t.violetM, color: t.violet, border: 'none',
+                padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+                <Plus size={12} />Add
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {agentSkills.map(skill => (
+                <div key={skill.id} style={{
+                  backgroundColor: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
+                  padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  transition: 'border-color 0.2s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = skill.color || t.violet}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: skill.color || t.violet }} />
+                    <span style={{ fontSize: '12px', fontWeight: '500' }}>{skill.name}</span>
+                    <span style={{
+                      fontSize: '9px', color: t.tm, padding: '1px 6px', borderRadius: '100px',
+                      backgroundColor: 'rgba(255,255,255,0.04)',
+                    }}>{skill.category || 'general'}</span>
+                  </div>
+                  <button onClick={async () => {
+                    try {
+                      await api(`/api/skills/${skill.id}/unassign/${name}`, { method: 'DELETE' });
+                      setAgentSkills(prev => prev.filter(s => s.id !== skill.id));
+                    } catch (e) { console.error(e); }
+                  }} style={{
+                    background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '4px', display: 'flex',
+                  }} title="Remove skill">
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+              {agentSkills.length === 0 && (
+                <div style={{
+                  padding: '24px 14px', textAlign: 'center', borderRadius: '8px',
+                  border: `1px dashed ${t.borderS}`, color: t.tm, fontSize: '11px',
+                }}>
+                  No skills assigned
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Skill Picker Modal */}
+          {showSkillPicker && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.8)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+            }} onClick={() => setShowSkillPicker(false)}>
+              <div style={{
+                background: t.surface, border: `1px solid ${t.borderS}`, borderRadius: '8px',
+                width: '400px', maxHeight: '500px', overflow: 'hidden',
+              }} onClick={e => e.stopPropagation()}>
+                <div style={{
+                  padding: '14px 16px', borderBottom: `1px solid ${t.border}`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: '600', margin: 0 }}>Add Skills</h3>
+                  <button onClick={() => setShowSkillPicker(false)}
+                    style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex' }}>
+                    <X size={16} />
+                  </button>
+                </div>
+                <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '8px' }}>
+                  {allSkills
+                    .filter(s => !agentSkills.find(as => as.id === s.id))
+                    .map(skill => (
+                      <div key={skill.id} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '10px 12px', borderRadius: '6px', cursor: 'pointer',
+                        transition: 'background-color 0.15s',
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = t.surfaceEl}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: skill.color || t.violet }} />
+                          <span style={{ fontSize: '12px', fontWeight: '500' }}>{skill.name}</span>
+                          <span style={{ fontSize: '9px', color: t.tm }}>{skill.category}</span>
+                        </div>
+                        <button onClick={async () => {
+                          try {
+                            await api(`/api/skills/${skill.id}/assign/${name}`, { method: 'POST' });
+                            setAgentSkills(prev => [...prev, skill]);
+                            setAllSkills(prev => prev.filter(s => s.id !== skill.id));
+                          } catch (e) { console.error(e); }
+                        }} style={{
+                          backgroundColor: t.violetM, color: t.violet, border: 'none', borderRadius: '4px',
+                          padding: '4px 10px', fontSize: '10px', fontWeight: '600', cursor: 'pointer',
+                        }}>
+                          Add
+                        </button>
+                      </div>
+                    ))}
+                  {allSkills.filter(s => !agentSkills.find(as => as.id === s.id)).length === 0 && (
+                    <div style={{ padding: '30px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
+                      No more skills available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
