@@ -80,6 +80,42 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   // Auth routes (no token required)
   app.use('/api/auth', authRouter);
 
+  // No-auth endpoints (must be BEFORE protected /api/projects routes)
+  // Save iteration — used by workspace agents via CLI (no token)
+  app.post('/api/projects/:projectId/save-iteration', async (req, res) => {
+    try {
+      if (!watcher) {
+        return res.status(503).json({ ok: false, error: 'Watcher not available' });
+      }
+
+      const { projectId } = req.params;
+      const project = await db.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ ok: false, error: 'Project not found' });
+      }
+
+      // Ensure watcher is watching this project
+      watcher.watchProject(projectId);
+
+      // Try normal import first (detects new/changed files)
+      let iterationId = await watcher.importIteration(projectId);
+
+      // If nothing imported, force re-import (clears hashes)
+      if (!iterationId) {
+        iterationId = await watcher.manualImport(projectId);
+      }
+
+      if (iterationId) {
+        res.status(201).json({ ok: true, saved: true, iterationId });
+      } else {
+        res.json({ ok: true, saved: false, message: 'No new or changed HTML files found in workspace' });
+      }
+    } catch (err) {
+      console.error('[SaveIteration] Error:', err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // Protected API routes
   app.use('/api/agents', verifyToken, agentsRoutes);
   app.use('/api/categories', verifyToken, categoriesRoutes);
@@ -173,41 +209,6 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     } catch (err) {
       console.error('[Scan] Error:', err.message);
       res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Save iteration endpoint (no auth — used by workspace agents via CLI)
-  app.post('/api/projects/:projectId/save-iteration', async (req, res) => {
-    try {
-      if (!watcher) {
-        return res.status(503).json({ ok: false, error: 'Watcher not available' });
-      }
-
-      const { projectId } = req.params;
-      const project = await db.getProject(projectId);
-      if (!project) {
-        return res.status(404).json({ ok: false, error: 'Project not found' });
-      }
-
-      // Ensure watcher is watching this project
-      watcher.watchProject(projectId);
-
-      // Try normal import first (detects new/changed files)
-      let iterationId = await watcher.importIteration(projectId);
-
-      // If nothing imported, force re-import (clears hashes)
-      if (!iterationId) {
-        iterationId = await watcher.manualImport(projectId);
-      }
-
-      if (iterationId) {
-        res.status(201).json({ ok: true, saved: true, iterationId });
-      } else {
-        res.json({ ok: true, saved: false, message: 'No new or changed HTML files found in workspace' });
-      }
-    } catch (err) {
-      console.error('[SaveIteration] Error:', err.message);
-      res.status(500).json({ ok: false, error: err.message });
     }
   });
 
