@@ -99,6 +99,16 @@ function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTe
         alignItems: isGrid ? 'stretch' : 'center', gap: isGrid ? '0' : '16px',
       }}
     >
+      {/* Thumbnail */}
+      {isGrid && agent.screenshot_path && (
+        <div style={{
+          marginBottom: '10px', borderRadius: '6px', overflow: 'hidden',
+          aspectRatio: '16/10', backgroundColor: '#141415',
+          border: `1px solid ${t.border}`,
+        }}>
+          <img src={agent.screenshot_path + '?t=1'} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        </div>
+      )}
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

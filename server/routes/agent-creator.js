@@ -970,6 +970,55 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
   return parts.join('\n');
 }
 
+// Reusable: generate preview image via Gemini and save to disk
+// Returns { previewUrl, filename } or null on failure
+async function generatePreviewImageFile(brief, agentContent, filenameBase) {
+  if (!GOOGLE_AI_API_KEY) {
+    console.warn('[agent-creator] GOOGLE_AI_API_KEY not configured, skipping preview');
+    return null;
+  }
+  const prompt = buildPreviewPrompt(brief, agentContent);
+  console.log(`[agent-creator] Generating preview image for ${filenameBase} (prompt ${prompt.length} chars)`);
+
+  const geminiRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GOOGLE_AI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+      }),
+      signal: AbortSignal.timeout(120000),
+    }
+  );
+
+  if (!geminiRes.ok) {
+    const errText = await geminiRes.text().catch(() => 'no body');
+    console.error(`[agent-creator] Gemini API error ${geminiRes.status}: ${errText.slice(0, 500)}`);
+    return null;
+  }
+
+  const geminiData = await geminiRes.json();
+  const geminiParts = geminiData.candidates?.[0]?.content?.parts || [];
+  const imagePart = geminiParts.find(p => p.inlineData);
+
+  if (!imagePart || !imagePart.inlineData?.data) {
+    console.error('[agent-creator] Gemini returned no image data');
+    return null;
+  }
+
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  const filename = `${filenameBase}.png`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
+  await fs.writeFile(filePath, imageBuffer);
+
+  const previewUrl = `/uploads/agent-creator/${filename}`;
+  console.log(`[agent-creator] Preview image saved: ${previewUrl} (${imageBuffer.length} bytes)`);
+  return { previewUrl, filename };
+}
+
 router.post('/conversations/:id/preview-image', async (req, res) => {
   try {
     const { id } = req.params;
@@ -990,49 +1039,12 @@ router.post('/conversations/:id/preview-image', async (req, res) => {
       return res.status(400).json({ error: 'Generate a design brief or agent first before previewing' });
     }
 
-    const prompt = buildPreviewPrompt(brief, agent);
-    console.log(`[agent-creator] Generating preview image for conversation ${id} (prompt ${prompt.length} chars)`);
-
-    // Call Gemini Image API
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GOOGLE_AI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-        }),
-        signal: AbortSignal.timeout(120000),
-      }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text().catch(() => 'no body');
-      console.error(`[agent-creator] Gemini API error ${geminiRes.status}: ${errText.slice(0, 500)}`);
-      return res.status(502).json({ error: `Gemini API error ${geminiRes.status}` });
+    const result = await generatePreviewImageFile(brief, agent, `preview-${id}`);
+    if (!result) {
+      return res.status(502).json({ error: 'Failed to generate preview image' });
     }
 
-    const geminiData = await geminiRes.json();
-    const parts = geminiData.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find(p => p.inlineData);
-
-    if (!imagePart || !imagePart.inlineData?.data) {
-      console.error('[agent-creator] Gemini returned no image data');
-      return res.status(502).json({ error: 'Gemini returned no image' });
-    }
-
-    // Decode and save PNG
-    await fs.mkdir(UPLOAD_DIR, { recursive: true });
-    const filename = `preview-${id}.png`;
-    const filePath = path.join(UPLOAD_DIR, filename);
-    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
-    await fs.writeFile(filePath, imageBuffer);
-
-    const previewUrl = `/uploads/agent-creator/${filename}`;
-    console.log(`[agent-creator] Preview image saved: ${previewUrl} (${imageBuffer.length} bytes)`);
-
-    res.json({ previewUrl });
+    res.json({ previewUrl: result.previewUrl });
   } catch (err) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
       console.error('[agent-creator] Gemini API timeout');
@@ -1210,9 +1222,23 @@ router.post('/conversations/:id/save', async (req, res) => {
 
     console.log(`[agent-creator] Saved agent: ${agentName} (${model}, ${category})`);
 
+    // Auto-generate thumbnail via Gemini (non-blocking — don't fail save if this fails)
+    let thumbnailUrl = null;
+    try {
+      const brief = conversation.design_brief || null;
+      const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`);
+      if (result) {
+        thumbnailUrl = result.previewUrl;
+        await db.updateAgentScreenshot(agentName, thumbnailUrl);
+        console.log(`[agent-creator] Thumbnail saved for agent ${agentName}: ${thumbnailUrl}`);
+      }
+    } catch (err) {
+      console.warn(`[agent-creator] Thumbnail generation failed (non-fatal):`, err.message);
+    }
+
     res.json({
       success: true,
-      agent: { name: agentName, description, model, category }
+      agent: { name: agentName, description, model, category, screenshot_path: thumbnailUrl }
     });
   } catch (err) {
     console.error('[agent-creator] Error saving agent:', err);

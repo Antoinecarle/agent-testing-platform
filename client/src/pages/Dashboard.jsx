@@ -569,6 +569,16 @@ export default function Dashboard() {
                   }}
                   onClick={() => navigate(`/agents/${agent.name}`)}
                 >
+                  {/* Agent thumbnail */}
+                  {agent.screenshot_path && (
+                    <div style={{
+                      marginBottom: '10px', borderRadius: '8px', overflow: 'hidden',
+                      aspectRatio: '16/10', backgroundColor: '#141415',
+                      border: `1px solid ${t.border}`,
+                    }}>
+                      <img src={agent.screenshot_path + '?t=1'} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    </div>
+                  )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{
                       width: '42px',

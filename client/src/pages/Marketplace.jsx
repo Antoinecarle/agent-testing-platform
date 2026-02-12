@@ -47,7 +47,10 @@ function AgentCard({ agent, onDownload, navigate }) {
         overflow: 'hidden',
         position: 'relative',
       }}>
-        {agent.featured_project_id && agent.featured_iteration_id ? (
+        {agent.screenshot_path ? (
+          <img src={agent.screenshot_path + '?t=1'} alt={agent.name}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        ) : agent.featured_project_id && agent.featured_iteration_id ? (
           <div style={{
             position: 'absolute', top: 0, left: 0, width: '400%', height: '400%',
             transform: 'scale(0.25)', transformOrigin: 'top left', pointerEvents: 'none',
