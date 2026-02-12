@@ -445,7 +445,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
         </div>
       </header>
 
-      <main style={{ flex: 1, display: 'grid', gridTemplateColumns: isPreviewOpen ? '220px 260px 1fr 420px' : '220px 260px 1fr', overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'grid', gridTemplateColumns: isPreviewOpen ? '220px 260px 1fr 420px' : '220px 260px 1fr', overflow: 'hidden', minHeight: 0 }}>
 
         {/* FAR LEFT: Conversation List */}
         <aside style={{ borderRight: `1px solid ${t.border}`, background: t.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -511,7 +511,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
         </aside>
 
         {/* LEFT: References Sidebar */}
-        <aside style={{ borderRight: `1px solid ${t.border}`, background: t.surface, display: 'flex', flexDirection: 'column', padding: '12px', gap: '12px', overflowY: 'auto' }}>
+        <aside style={{ borderRight: `1px solid ${t.border}`, background: t.surface, display: 'flex', flexDirection: 'column', padding: '12px', gap: '12px', overflowY: 'auto', minHeight: 0 }}>
           {!conversationId ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, fontSize: '12px', textAlign: 'center', padding: '20px' }}>
               Select or create a conversation to start
@@ -642,7 +642,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
         </aside>
 
         {/* CENTER: Chat */}
-        <section style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <section style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
           {!conversationId ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', color: t.tm }}>
               <Bot size={40} color={t.tm} />
