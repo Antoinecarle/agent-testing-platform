@@ -268,7 +268,7 @@ async function importIteration(projectId) {
 
   // Refresh CLAUDE.md once after all imports
   if (imported) {
-    try { generateWorkspaceContext(projectId); } catch (_) {}
+    try { await generateWorkspaceContext(projectId); } catch (_) {}
   }
 
   return imported;

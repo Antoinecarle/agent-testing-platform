@@ -67,8 +67,10 @@ function getWorkspacePath(projectId) {
   if (!IS_RAILWAY) {
     try { fs.chownSync(wsDir, TERMINAL_UID, TERMINAL_GID); } catch (_) {}
   }
-  // Generate/refresh CLAUDE.md with project context
-  try { generateWorkspaceContext(projectId); } catch (_) {}
+  // Generate/refresh CLAUDE.md with project context (async, fire & forget but log errors)
+  generateWorkspaceContext(projectId).catch(err => {
+    console.error(`[Terminal] Failed to generate workspace context for ${projectId}:`, err.message);
+  });
   return wsDir;
 }
 

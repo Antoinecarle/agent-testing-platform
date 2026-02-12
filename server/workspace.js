@@ -24,15 +24,32 @@ function getRootAuthority() {
 
 /**
  * Read the full agent .md file content
+ * Checks: bundled agents → custom-agents on volume → DB as last resort
+ * Also writes the file to disk if found in DB (self-healing)
  */
-function getAgentPrompt(agentName) {
-  // Check bundled agents first, then custom agents on persistent volume
+async function getAgentPrompt(agentName) {
+  // 1. Check bundled agents dir
   const filePath = path.join(AGENTS_DIR, `${agentName}.md`);
   if (fs.existsSync(filePath)) return fs.readFileSync(filePath, 'utf-8');
 
-  const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  // 2. Check custom-agents on persistent volume
   const customPath = path.join(DATA_DIR, 'custom-agents', `${agentName}.md`);
   if (fs.existsSync(customPath)) return fs.readFileSync(customPath, 'utf-8');
+
+  // 3. Fallback: read from DB and write to disk (self-healing)
+  try {
+    const agent = await db.getAgent(agentName);
+    if (agent && agent.full_prompt && agent.full_prompt.length > 50) {
+      // Write to custom-agents dir so it's found next time
+      const customDir = path.join(DATA_DIR, 'custom-agents');
+      if (!fs.existsSync(customDir)) fs.mkdirSync(customDir, { recursive: true });
+      fs.writeFileSync(customPath, agent.full_prompt, 'utf8');
+      console.log(`[Workspace] Self-healed agent file: ${agentName}.md from DB`);
+      return agent.full_prompt;
+    }
+  } catch (err) {
+    console.warn(`[Workspace] DB fallback failed for agent ${agentName}:`, err.message);
+  }
 
   return null;
 }
@@ -89,7 +106,7 @@ async function generateWorkspaceContext(projectId, branchContext = null) {
 
   const iterations = await db.getIterationsByProject(projectId);
   const agentName = project.agent_name || '';
-  const agentPrompt = agentName ? getAgentPrompt(agentName) : null;
+  const agentPrompt = agentName ? await getAgentPrompt(agentName) : null;
   const agentRecord = agentName ? await db.getAgent(agentName) : null;
   const agentDesc = agentRecord?.description || '';
 
@@ -256,6 +273,14 @@ To read a previous iteration for reference:
 
   const claudeMdPath = path.join(wsDir, 'CLAUDE.md');
   fs.writeFileSync(claudeMdPath, content);
+
+  // Ensure this agent's .md file exists in the workspace .claude/agents/ too
+  // so Claude CLI /agents command shows it
+  if (agentName && agentPrompt) {
+    const wsAgentsDir = path.join(wsDir, '.claude', 'agents');
+    if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
+    fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
+  }
 
   // Create .claude/settings.local.json with permissions for sub-agents
   const claudeSettingsDir = path.join(wsDir, '.claude');
