@@ -349,19 +349,20 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const references = await db.getConversationReferences(id);
     const referencesContext = buildReferencesContext(references);
 
-    // Build the upgraded system prompt
-    const systemPrompt = CONVERSATION_SYSTEM_PROMPT
-      + referencesContext
+    // Build the upgraded system prompt — cap total size to avoid context overflow
+    let systemPrompt = CONVERSATION_SYSTEM_PROMPT
+      + (referencesContext.length > 8000 ? referencesContext.slice(0, 8000) + '\n...(truncated)' : referencesContext)
       + `\n\nCurrent conversation: Creating an agent for "${conversation.name}".`;
 
     // Save user message
     await db.createConversationMessage(id, 'user', message);
 
-    // Load all messages for GPT context
-    const allMessages = await db.getConversationMessages(id);
+    // Load all messages for GPT context — keep last 20 to avoid token overflow
+    const allMessagesRaw = await db.getConversationMessages(id);
+    const allMessages = allMessagesRaw.length > 20 ? allMessagesRaw.slice(-20) : allMessagesRaw;
 
-    // Build image content parts for vision — include all uploaded images
-    const imageRefs = references.filter(r => r.type === 'image' && r.url);
+    // Build image content parts for vision — include uploaded images (max 3 to control size)
+    const imageRefs = references.filter(r => r.type === 'image' && r.url).slice(0, 3);
     const imageParts = [];
     for (const ref of imageRefs) {
       try {
@@ -372,20 +373,21 @@ router.post('/conversations/:id/messages', async (req, res) => {
         const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
         imageParts.push({
           type: 'image_url',
-          image_url: { url: `data:${mimeType};base64,${base64}` }
+          image_url: { url: `data:${mimeType};base64,${base64}`, detail: 'low' }
         });
       } catch (err) {
         console.warn(`[agent-creator] Could not load image ${ref.url}:`, err.message);
       }
     }
 
-    // Build GPT messages — first user message includes images for vision context
+    // Build GPT messages — attach images to first user message (not last, to avoid duplication per turn)
     const gptMessages = [{ role: 'system', content: systemPrompt }];
 
+    let imagesAttached = false;
     for (let i = 0; i < allMessages.length; i++) {
       const m = allMessages[i];
-      if (m.role === 'user' && i === allMessages.length - 1 && imageParts.length > 0) {
-        // Last user message: attach all images as vision content
+      if (m.role === 'user' && !imagesAttached && imageParts.length > 0) {
+        // First user message: attach images for vision context
         gptMessages.push({
           role: 'user',
           content: [
@@ -393,10 +395,13 @@ router.post('/conversations/:id/messages', async (req, res) => {
             ...imageParts,
           ],
         });
+        imagesAttached = true;
       } else {
         gptMessages.push({ role: m.role, content: m.content });
       }
     }
+
+    console.log(`[agent-creator] Chat request: ${allMessages.length} msgs, ${imageParts.length} images, system prompt ${systemPrompt.length} chars`);
 
     // Call GPT-5 with vision support (with retry + timeout)
     const body = {
@@ -455,8 +460,14 @@ router.post('/conversations/:id/messages', async (req, res) => {
           break;
         }
 
-        const errorText = await gptRes.text();
-        lastError = new Error(`GPT-5 API error: ${gptRes.status} ${errorText}`);
+        const errorText = await gptRes.text().catch(() => 'no body');
+        console.error(`[agent-creator] GPT-5 HTTP ${gptRes.status}: ${errorText.slice(0, 500)}`);
+        lastError = new Error(`GPT-5 API error ${gptRes.status}: ${errorText.slice(0, 200)}`);
+
+        // 400 = bad request (payload too large, invalid format) — don't retry
+        if (gptRes.status === 400) {
+          throw lastError;
+        }
 
         if (gptRes.status >= 500 && attempt < maxRetries) {
           const delay = (attempt + 1) * 2000;
@@ -477,7 +488,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
         throw lastError || err;
       }
     }
-    if (!assistantResponse) throw lastError || new Error('GPT-5 returned no response');
+    if (!assistantResponse) {
+      console.error(`[agent-creator] No assistant response after all retries. lastError:`, lastError?.message);
+      throw lastError || new Error('GPT-5 returned no response after retries');
+    }
 
     // Save assistant response
     const assistantMessage = await db.createConversationMessage(id, 'assistant', assistantResponse);
