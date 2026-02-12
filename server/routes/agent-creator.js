@@ -55,52 +55,107 @@ const upload = multer({
 function buildReferencesContext(references) {
   if (!references || references.length === 0) return '';
 
-  let ctx = '\n\n## Reference Analyses\n';
+  let ctx = '\n\n## Reference Analyses (Structured CSS Data)\n';
   references.forEach((ref, idx) => {
     if (ref.type === 'image') {
-      const structured = ref.structured_analysis;
-      if (structured) {
+      const s = ref.structured_analysis;
+      if (s) {
         ctx += `\n### Image ${idx + 1}: ${ref.filename || 'screenshot'}\n`;
-        if (structured.colors) {
-          ctx += `- **Colors**: Background ${structured.colors.dominantBackground || '?'}, Accent ${structured.colors.primaryAccent || '?'}, Mood: ${structured.colors.mood || '?'}\n`;
-        }
-        if (structured.typography) {
-          ctx += `- **Typography**: Display "${structured.typography.displayFont || '?'}", Body "${structured.typography.bodyFont || '?'}", Style: ${structured.typography.headlineStyle || '?'}\n`;
-        }
-        if (structured.layout) {
-          ctx += `- **Layout**: ${structured.layout.primaryLayout || '?'}, Cards: ${structured.layout.cardStyle || '?'}, Radius: ${structured.layout.borderRadius || '?'}\n`;
-        }
-        if (structured.components) {
-          ctx += `- **Aesthetic**: ${structured.components.overallAesthetic || '?'}\n`;
-          if (structured.components.components) {
-            const names = structured.components.components.map(c => c.type).join(', ');
-            ctx += `- **Components**: ${names}\n`;
-          }
+        // Pass the full structured JSON — the conversation prompt knows how to use it
+        // Truncate to avoid exceeding context, but keep the richest data
+        const jsonStr = JSON.stringify(s, null, 1);
+        if (jsonStr.length > 6000) {
+          // Summarize the key CSS values instead of dumping everything
+          ctx += formatStructuredAnalysis(s);
+        } else {
+          ctx += '```json\n' + jsonStr + '\n```\n';
         }
       } else if (ref.analysis) {
         ctx += `\n### Image ${idx + 1}: ${ref.filename}\n${ref.analysis}\n`;
       }
     } else if (ref.type === 'url') {
-      const structured = ref.structured_analysis;
-      if (structured && structured.gptAnalysis) {
-        const gpt = structured.gptAnalysis;
+      const s = ref.structured_analysis;
+      if (s) {
         ctx += `\n### URL ${idx + 1}: ${ref.url}\n`;
-        ctx += `- **Site**: ${gpt.siteName || structured.extracted?.title || '?'}\n`;
-        ctx += `- **Style**: ${gpt.designStyle || '?'}\n`;
-        if (gpt.colorScheme) {
-          ctx += `- **Colors**: Primary ${gpt.colorScheme.primary || '?'}, BG ${gpt.colorScheme.background || '?'}, Accent ${gpt.colorScheme.accent || '?'}\n`;
+        const jsonStr = JSON.stringify(s, null, 1);
+        if (jsonStr.length > 4000) {
+          ctx += formatURLAnalysis(s);
+        } else {
+          ctx += '```json\n' + jsonStr + '\n```\n';
         }
-        if (gpt.typography) {
-          ctx += `- **Fonts**: Heading "${gpt.typography.headingFont || '?'}", Body "${gpt.typography.bodyFont || '?'}"\n`;
-        }
-        ctx += `- **Mood**: ${gpt.overallMood || '?'}\n`;
       } else if (ref.analysis) {
-        const analysis = typeof ref.analysis === 'string' ? JSON.parse(ref.analysis) : ref.analysis;
-        ctx += `\n### URL ${idx + 1}: ${ref.url}\nTitle: ${analysis.title}\n`;
+        try {
+          const analysis = typeof ref.analysis === 'string' ? JSON.parse(ref.analysis) : ref.analysis;
+          ctx += `\n### URL ${idx + 1}: ${ref.url}\nTitle: ${analysis.title}\n`;
+        } catch (_) {
+          ctx += `\n### URL ${idx + 1}: ${ref.url}\n${ref.analysis}\n`;
+        }
       }
     }
   });
   return ctx;
+}
+
+function formatStructuredAnalysis(s) {
+  let out = '';
+  const c = s.colors;
+  if (c) {
+    out += '**Colors**:\n';
+    if (c.backgroundLayers) out += `- Background layers: ${JSON.stringify(c.backgroundLayers)}\n`;
+    if (c.backgroundGradients) out += `- Gradients: ${JSON.stringify(c.backgroundGradients)}\n`;
+    if (c.accentColors) out += `- Accents: ${JSON.stringify(c.accentColors)}\n`;
+    if (c.textColors) out += `- Text colors: ${JSON.stringify(c.textColors)}\n`;
+    if (c.borderColors) out += `- Borders: ${JSON.stringify(c.borderColors)}\n`;
+    if (c.shadows) out += `- Shadows: ${JSON.stringify(c.shadows)}\n`;
+    if (c.effects) out += `- Effects: ${JSON.stringify(c.effects)}\n`;
+  }
+  const t = s.typography;
+  if (t) {
+    out += '**Typography**:\n';
+    if (t.fontFamilies) out += `- Fonts: ${JSON.stringify(t.fontFamilies)}\n`;
+    if (t.typeScale) out += `- Scale: ${JSON.stringify(t.typeScale)}\n`;
+    if (t.typographyRules) out += `- Rules: ${JSON.stringify(t.typographyRules)}\n`;
+  }
+  const l = s.layout;
+  if (l) {
+    out += '**Layout**:\n';
+    if (l.pageStructure) out += `- Structure: ${l.pageStructure}\n`;
+    if (l.spacingSystem) out += `- Spacing: ${JSON.stringify(l.spacingSystem)}\n`;
+    if (l.borderRadius) out += `- Radius: ${JSON.stringify(l.borderRadius)}\n`;
+    if (l.gridSystem) out += `- Grid: ${JSON.stringify(l.gridSystem)}\n`;
+  }
+  const comp = s.components;
+  if (comp) {
+    out += '**Components**:\n';
+    if (comp.componentList) {
+      for (const c of comp.componentList.slice(0, 10)) {
+        out += `- ${c.name}: ${JSON.stringify(c.cssDetails || c.description || '')}\n`;
+      }
+    } else if (comp.components) {
+      for (const c of comp.components.slice(0, 10)) {
+        out += `- ${c.type || c.name}: ${JSON.stringify(c.cssDetails || c.description || '')}\n`;
+      }
+    }
+    if (comp.microInteractions) out += `- Micro-interactions: ${JSON.stringify(comp.microInteractions)}\n`;
+    if (comp.designInfluences) out += `- Design influences: ${JSON.stringify(comp.designInfluences)}\n`;
+  }
+  return out;
+}
+
+function formatURLAnalysis(s) {
+  let out = '';
+  if (s.extracted) {
+    const e = s.extracted;
+    if (e.title) out += `- **Title**: ${e.title}\n`;
+    if (e.cssVariableCount > 0) out += `- **CSS vars**: ${e.cssVariableCount} variables\n`;
+    if (e.fonts?.length) out += `- **Fonts**: ${e.fonts.join(', ')}\n`;
+    if (e.googleFonts?.length) out += `- **Google Fonts**: ${e.googleFonts.join(', ')}\n`;
+    if (e.colors?.length) out += `- **Colors**: ${e.colors.slice(0, 20).join(', ')}\n`;
+  }
+  if (s.gptAnalysis) {
+    out += `- **GPT Analysis**: ${JSON.stringify(s.gptAnalysis)}\n`;
+  }
+  return out;
 }
 
 // ========== ROUTES ==========
@@ -347,7 +402,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const body = {
       model: GPT5_MODEL,
       messages: gptMessages,
-      max_completion_tokens: 2000,
+      max_completion_tokens: 3000,
     };
 
     let assistantResponse;
@@ -367,7 +422,36 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
         if (gptRes.ok) {
           const gptData = await gptRes.json();
-          assistantResponse = gptData.choices[0].message.content;
+          const choice = gptData.choices && gptData.choices[0];
+          console.log(`[agent-creator] GPT-5 response: choices=${gptData.choices?.length}, finish_reason=${choice?.finish_reason}, content_length=${choice?.message?.content?.length || 0}, usage=${JSON.stringify(gptData.usage || {})}`);
+          if (!choice || !choice.message) {
+            lastError = new Error('GPT-5 returned empty choices');
+            if (attempt < maxRetries) {
+              console.warn(`[agent-creator] GPT-5 empty choices, retrying (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
+            break;
+          }
+          // Handle refusal (content filter)
+          if (choice.message.refusal) {
+            lastError = new Error(`GPT-5 refused: ${choice.message.refusal}`);
+            break;
+          }
+          assistantResponse = choice.message.content;
+          if (!assistantResponse && choice.finish_reason === 'length') {
+            lastError = new Error('GPT-5 response was cut off (token limit). Try a shorter message.');
+            break;
+          }
+          if (!assistantResponse) {
+            lastError = new Error('GPT-5 returned null content');
+            if (attempt < maxRetries) {
+              console.warn(`[agent-creator] GPT-5 null content, retrying (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
+            break;
+          }
           break;
         }
 
