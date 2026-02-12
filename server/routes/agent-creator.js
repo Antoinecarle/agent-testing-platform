@@ -717,54 +717,244 @@ router.post('/conversations/:id/refine', async (req, res) => {
 
 // ========== PREVIEW IMAGE — Gemini Image Generation ==========
 
-function buildPreviewPrompt(designBrief, generatedAgent) {
-  let prompt = 'Generate a high-fidelity UI screenshot/mockup of a modern landing page. Desktop view, 1440x900 resolution.\n\n';
+function extractAgentSection(agentMd, sectionPattern) {
+  const regex = new RegExp(`(## [^\\n]*${sectionPattern}[^\\n]*\\n)([\\s\\S]*?)(?=\\n## |$)`, 'i');
+  const match = agentMd.match(regex);
+  return match ? match[2].trim() : null;
+}
 
+function extractAllCssVars(text) {
+  const vars = [];
+  const regex = /--([\w-]+)\s*:\s*([^;\n]+)/g;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    vars.push(`--${m[1]}: ${m[2].trim()}`);
+  }
+  return vars;
+}
+
+function extractHexColors(text) {
+  return [...new Set((text.match(/#[0-9a-fA-F]{3,8}\b/g) || []))];
+}
+
+function extractRgbaColors(text) {
+  return [...new Set((text.match(/rgba?\s*\([^)]+\)/g) || []))];
+}
+
+function buildPreviewPrompt(designBrief, generatedAgent) {
+  const parts = [];
+
+  parts.push(`You are a UI mockup generator. Create a STUNNING, pixel-perfect, photorealistic screenshot of a complete landing page as it would appear in a web browser. Desktop view, 1440x900 resolution. This must look like a real website screenshot — not a wireframe, not a sketch. Every detail matters.`);
+
+  // ===== EXTRACT FROM GENERATED AGENT (.md) — PRIMARY SOURCE =====
+  if (generatedAgent) {
+    // 1. Identity / Design DNA
+    const identity = extractAgentSection(generatedAgent, '(?:identity|design dna|core identity|your design)');
+    if (identity) {
+      parts.push(`\n## DESIGN IDENTITY\n${identity.slice(0, 800)}`);
+    }
+
+    // 2. Color System — FULL extraction
+    const colorSection = extractAgentSection(generatedAgent, 'color');
+    if (colorSection) {
+      const cssVars = extractAllCssVars(colorSection);
+      const hexCols = extractHexColors(colorSection);
+      const rgbaCols = extractRgbaColors(colorSection);
+      parts.push(`\n## COLOR SYSTEM (use these EXACT colors)`);
+      if (cssVars.length > 0) parts.push(`CSS Variables:\n${cssVars.join('\n')}`);
+      if (hexCols.length > 0) parts.push(`Hex palette: ${hexCols.join(', ')}`);
+      if (rgbaCols.length > 0) parts.push(`RGBA values: ${rgbaCols.join(', ')}`);
+      // Include gradients and special effects mentioned
+      const gradients = colorSection.match(/(?:linear-gradient|radial-gradient|conic-gradient)\s*\([^)]+\)/g);
+      if (gradients) parts.push(`Gradients: ${[...new Set(gradients)].join(' | ')}`);
+      // Include raw section for context (shadows, overlays, etc.)
+      const colorExtra = colorSection.replace(/```[\s\S]*?```/g, '').slice(0, 600);
+      if (colorExtra.length > 50) parts.push(`Color details:\n${colorExtra}`);
+    }
+
+    // 3. Typography — FULL extraction
+    const typoSection = extractAgentSection(generatedAgent, 'typo');
+    if (typoSection) {
+      parts.push(`\n## TYPOGRAPHY (use these EXACT fonts and sizes)`);
+      // Extract font families
+      const fontFamilies = typoSection.match(/font-family\s*:\s*([^;\n]+)/gi);
+      if (fontFamilies) parts.push(`Font families: ${[...new Set(fontFamilies)].join(' | ')}`);
+      // Extract font sizes
+      const fontSizes = typoSection.match(/font-size\s*:\s*([^;\n]+)/gi);
+      if (fontSizes) parts.push(`Font sizes: ${[...new Set(fontSizes)].join(', ')}`);
+      // Extract font weights
+      const fontWeights = typoSection.match(/font-weight\s*:\s*([^;\n]+)/gi);
+      if (fontWeights) parts.push(`Font weights: ${[...new Set(fontWeights)].join(', ')}`);
+      // Extract line heights, letter spacing
+      const lineHeights = typoSection.match(/line-height\s*:\s*([^;\n]+)/gi);
+      if (lineHeights) parts.push(`Line heights: ${[...new Set(lineHeights)].join(', ')}`);
+      const letterSpacing = typoSection.match(/letter-spacing\s*:\s*([^;\n]+)/gi);
+      if (letterSpacing) parts.push(`Letter spacing: ${[...new Set(letterSpacing)].join(', ')}`);
+      // Include full typography rules
+      parts.push(`Typography specs:\n${typoSection.slice(0, 800)}`);
+    }
+
+    // 4. Layout Architecture — FULL extraction
+    const layoutSection = extractAgentSection(generatedAgent, 'layout');
+    if (layoutSection) {
+      parts.push(`\n## LAYOUT ARCHITECTURE`);
+      // Extract spacing/padding values
+      const spacingVals = extractAllCssVars(layoutSection);
+      if (spacingVals.length > 0) parts.push(`Layout variables:\n${spacingVals.join('\n')}`);
+      // Extract max-width, grid, gap values
+      const maxWidths = layoutSection.match(/max-width\s*:\s*([^;\n]+)/gi);
+      if (maxWidths) parts.push(`Max widths: ${[...new Set(maxWidths)].join(', ')}`);
+      const gaps = layoutSection.match(/gap\s*:\s*([^;\n]+)/gi);
+      if (gaps) parts.push(`Gaps: ${[...new Set(gaps)].join(', ')}`);
+      const borderRadius = layoutSection.match(/border-radius\s*:\s*([^;\n]+)/gi);
+      if (borderRadius) parts.push(`Border radius: ${[...new Set(borderRadius)].join(', ')}`);
+      // Include ASCII wireframes if present (visual layout)
+      const asciiBlocks = layoutSection.match(/```[\s\S]*?```/g);
+      if (asciiBlocks) {
+        parts.push(`Layout wireframes:\n${asciiBlocks.slice(0, 3).join('\n')}`);
+      }
+      parts.push(`Layout details:\n${layoutSection.replace(/```[\s\S]*?```/g, '[wireframe]').slice(0, 600)}`);
+    }
+
+    // 5. Core UI Components — FULL extraction
+    const compSection = extractAgentSection(generatedAgent, '(?:component|ui component|core ui)');
+    if (compSection) {
+      parts.push(`\n## UI COMPONENTS (render ALL of these)`);
+      // Extract individual component subsections (### headers)
+      const componentNames = compSection.match(/^###\s+(.+)$/gm);
+      if (componentNames) parts.push(`Components to show: ${componentNames.map(h => h.replace('### ', '')).join(', ')}`);
+      // Include component details (CSS, structure)
+      parts.push(`Component specifications:\n${compSection.slice(0, 1500)}`);
+    }
+
+    // 6. Animation Patterns — extract visual effects
+    const animSection = extractAgentSection(generatedAgent, 'animat');
+    if (animSection) {
+      parts.push(`\n## VISUAL EFFECTS & ANIMATIONS`);
+      // Extract transitions, transforms, effects
+      const transitions = animSection.match(/transition\s*:\s*([^;\n]+)/gi);
+      if (transitions) parts.push(`Transitions: ${[...new Set(transitions)].join(', ')}`);
+      const transforms = animSection.match(/transform\s*:\s*([^;\n]+)/gi);
+      if (transforms) parts.push(`Transforms: ${[...new Set(transforms)].join(', ')}`);
+      const boxShadows = animSection.match(/box-shadow\s*:\s*([^;\n]+)/gi);
+      if (boxShadows) parts.push(`Shadows: ${[...new Set(boxShadows)].join(' | ')}`);
+      parts.push(`Animation details:\n${animSection.slice(0, 500)}`);
+    }
+
+    // 7. Style Injection — global CSS patterns
+    const styleSection = extractAgentSection(generatedAgent, '(?:style inject|injection)');
+    if (styleSection) {
+      // Extract code blocks (actual CSS)
+      const codeBlocks = styleSection.match(/```(?:css)?\s*([\s\S]*?)```/g);
+      if (codeBlocks) {
+        parts.push(`\n## GLOBAL CSS STYLES\n${codeBlocks.slice(0, 3).join('\n').slice(0, 800)}`);
+      }
+    }
+
+    // 8. Section Templates — what sections to render
+    const templateSection = extractAgentSection(generatedAgent, '(?:section template|template)');
+    if (templateSection) {
+      parts.push(`\n## PAGE SECTIONS TO RENDER`);
+      const sectionNames = templateSection.match(/^###\s+(.+)$/gm);
+      if (sectionNames) parts.push(`Sections: ${sectionNames.map(h => h.replace('### ', '')).join(', ')}`);
+      // Include section structure details
+      parts.push(`Section details:\n${templateSection.slice(0, 1000)}`);
+    }
+
+    // 9. Extract ALL remaining CSS vars and colors from the entire .md
+    const allCssVars = extractAllCssVars(generatedAgent);
+    const allHex = extractHexColors(generatedAgent);
+    const allRgba = extractRgbaColors(generatedAgent);
+    const allShadows = [...new Set((generatedAgent.match(/box-shadow\s*:\s*([^;\n]+)/gi) || []))];
+    const allBackdrops = [...new Set((generatedAgent.match(/backdrop-filter\s*:\s*([^;\n]+)/gi) || []))];
+
+    if (allCssVars.length > 0 || allHex.length > 0) {
+      parts.push(`\n## COMPLETE DESIGN TOKENS`);
+      if (allCssVars.length > 0) parts.push(`All CSS variables (${allCssVars.length}):\n${allCssVars.slice(0, 60).join('\n')}`);
+      if (allHex.length > 0) parts.push(`All hex colors: ${allHex.join(', ')}`);
+      if (allRgba.length > 0) parts.push(`All rgba: ${allRgba.slice(0, 20).join(', ')}`);
+      if (allShadows.length > 0) parts.push(`All shadows: ${allShadows.join(' | ')}`);
+      if (allBackdrops.length > 0) parts.push(`Backdrop effects: ${allBackdrops.join(', ')}`);
+    }
+
+    // 10. Frontmatter metadata
+    const nameMatch = generatedAgent.match(/^name:\s*(.+)$/m);
+    const descMatch = generatedAgent.match(/^description:\s*["']?(.+?)["']?$/m);
+    if (nameMatch) parts.push(`\nAgent name: ${nameMatch[1].trim()}`);
+    if (descMatch) parts.push(`Agent description: ${descMatch[1].trim()}`);
+  }
+
+  // ===== SUPPLEMENT FROM DESIGN BRIEF =====
   if (designBrief) {
+    parts.push(`\n## DESIGN BRIEF CONTEXT`);
+
     const colors = designBrief.colorSystem;
     if (colors) {
       const vars = colors.cssVariables || {};
-      const colorList = Object.entries(vars).slice(0, 12).map(([k, v]) => `${k}: ${v}`).join(', ');
-      if (colorList) prompt += `Colors: ${colorList}\n`;
-      if (colors.darkMode !== undefined) prompt += `Theme: ${colors.darkMode ? 'dark' : 'light'}\n`;
+      const allVars = Object.entries(vars).map(([k, v]) => `${k}: ${v}`);
+      if (allVars.length > 0) parts.push(`Brief CSS variables:\n${allVars.join('\n')}`);
+      if (colors.darkMode !== undefined) parts.push(`Theme mode: ${colors.darkMode ? 'DARK theme (dark backgrounds, light text)' : 'LIGHT theme (light backgrounds, dark text)'}`);
+      if (colors.gradients) parts.push(`Brief gradients: ${JSON.stringify(colors.gradients)}`);
+      if (colors.shadows) parts.push(`Brief shadows: ${JSON.stringify(colors.shadows)}`);
+      if (colors.effects) parts.push(`Brief effects: ${JSON.stringify(colors.effects)}`);
     }
+
     const typo = designBrief.typographySystem;
     if (typo) {
-      if (typo.displayFont) prompt += `Display font: ${typo.displayFont}\n`;
-      if (typo.bodyFont) prompt += `Body font: ${typo.bodyFont}\n`;
+      parts.push(`Brief typography:`);
+      if (typo.displayFont) parts.push(`- Display: ${typo.displayFont}`);
+      if (typo.bodyFont) parts.push(`- Body: ${typo.bodyFont}`);
+      if (typo.monoFont) parts.push(`- Mono: ${typo.monoFont}`);
+      if (typo.typeScale) parts.push(`- Scale: ${JSON.stringify(typo.typeScale)}`);
+      if (typo.fontWeights) parts.push(`- Weights: ${JSON.stringify(typo.fontWeights)}`);
     }
+
     const layout = designBrief.layoutArchitecture;
     if (layout) {
-      if (layout.primaryLayout) prompt += `Layout: ${layout.primaryLayout}\n`;
-      if (layout.sectionCount) prompt += `Sections: ${layout.sectionCount}\n`;
+      parts.push(`Brief layout:`);
+      if (layout.primaryLayout) parts.push(`- Primary: ${layout.primaryLayout}`);
+      if (layout.sectionCount) parts.push(`- Section count: ${layout.sectionCount}`);
+      if (layout.spacing) parts.push(`- Spacing: ${JSON.stringify(layout.spacing)}`);
+      if (layout.borderRadius) parts.push(`- Border radius: ${JSON.stringify(layout.borderRadius)}`);
+      if (layout.gridSystem) parts.push(`- Grid: ${JSON.stringify(layout.gridSystem)}`);
     }
+
     const components = designBrief.componentInventory;
     if (components && components.length > 0) {
-      prompt += `Key components: ${components.map(c => c.name || c.type).join(', ')}\n`;
+      parts.push(`Brief components:`);
+      for (const comp of components.slice(0, 15)) {
+        const desc = comp.cssDetails ? JSON.stringify(comp.cssDetails) : (comp.description || '');
+        parts.push(`- ${comp.name || comp.type}: ${desc}`);
+      }
     }
+
     const identity = designBrief.agentIdentity;
     if (identity) {
-      if (identity.aesthetic) prompt += `Aesthetic: ${identity.aesthetic}\n`;
-      if (identity.mood) prompt += `Mood: ${identity.mood}\n`;
+      if (identity.aesthetic) parts.push(`Aesthetic: ${identity.aesthetic}`);
+      if (identity.mood) parts.push(`Mood: ${identity.mood}`);
+      if (identity.role) parts.push(`Role: ${identity.role}`);
+      if (identity.influences) parts.push(`Influences: ${JSON.stringify(identity.influences)}`);
+    }
+
+    if (designBrief.microInteractions) {
+      parts.push(`Micro-interactions: ${JSON.stringify(designBrief.microInteractions)}`);
     }
   }
 
-  if (generatedAgent) {
-    // Extract key design sections from agent markdown
-    const colorMatch = generatedAgent.match(/## .*Color.*\n([\s\S]*?)(?=\n## )/i);
-    if (colorMatch) {
-      const colorSnippet = colorMatch[1].slice(0, 400);
-      prompt += `\nColor system from agent:\n${colorSnippet}\n`;
-    }
-    const compMatch = generatedAgent.match(/## .*Component.*\n([\s\S]*?)(?=\n## )/i);
-    if (compMatch) {
-      const compSnippet = compMatch[1].slice(0, 300);
-      prompt += `\nComponents from agent:\n${compSnippet}\n`;
-    }
-  }
+  // ===== RENDERING INSTRUCTIONS =====
+  parts.push(`\n## RENDERING INSTRUCTIONS
+- Create a PHOTOREALISTIC browser screenshot, not a wireframe or sketch
+- Show a COMPLETE landing page: navigation bar, hero section with headline + CTA, feature sections, cards/grids, testimonials or social proof, and footer
+- Use the EXACT colors, fonts, spacing, and border-radius specified above
+- Apply the shadows, gradients, and backdrop effects specified
+- If dark theme: use dark backgrounds (#0a0a0a-#1a1a1a range), light text, subtle borders
+- If light theme: use white/cream backgrounds, dark text, soft shadows
+- Include realistic placeholder text (not lorem ipsum — real headlines and descriptions)
+- Show realistic UI elements: buttons with hover states, input fields, cards with subtle shadows
+- The design should feel premium, modern, and production-ready
+- Resolution: 1440x900 desktop viewport`);
 
-  prompt += '\nStyle: professional web design, pixel-perfect UI, realistic browser mockup with content. Show a complete landing page with hero section, navigation, content sections, and footer.';
-  return prompt;
+  return parts.join('\n');
 }
 
 router.post('/conversations/:id/preview-image', async (req, res) => {
