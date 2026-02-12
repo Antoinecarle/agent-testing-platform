@@ -21,6 +21,7 @@ const {
 
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
 
 // Multer setup for image uploads
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
@@ -407,7 +408,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const body = {
       model: GPT5_MODEL,
       messages: gptMessages,
-      max_completion_tokens: 3000,
+      max_completion_tokens: 16000,
     };
 
     let assistantResponse;
@@ -422,7 +423,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
             'Authorization': `Bearer ${OPENAI_API_KEY}`,
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(120000),
+          signal: AbortSignal.timeout(180000),
         });
 
         if (gptRes.ok) {
@@ -444,8 +445,12 @@ router.post('/conversations/:id/messages', async (req, res) => {
             break;
           }
           assistantResponse = choice.message.content;
+          // If response was cut off but we have partial content, use it anyway
+          if (assistantResponse && choice.finish_reason === 'length') {
+            console.warn(`[agent-creator] GPT-5 response truncated at token limit but returning partial content (${assistantResponse.length} chars)`);
+          }
           if (!assistantResponse && choice.finish_reason === 'length') {
-            lastError = new Error('GPT-5 response was cut off (token limit). Try a shorter message.');
+            lastError = new Error('GPT-5 response was cut off (token limit) with no content.');
             break;
           }
           if (!assistantResponse) {
@@ -478,7 +483,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
         throw lastError;
       } catch (err) {
         if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-          lastError = new Error('GPT-5 API timeout after 120s');
+          lastError = new Error('GPT-5 API timeout after 180s');
           if (attempt < maxRetries) {
             console.warn(`[agent-creator] Chat GPT-5 timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
             await new Promise(r => setTimeout(r, 2000));
@@ -628,7 +633,7 @@ Do NOT copy the reference example content — use it only as a format guide.`;
         { role: 'system', content: GENERATION_SYSTEM_PROMPT },
         { role: 'user', content: generationUserPrompt },
       ],
-      { max_completion_tokens: 16000 }
+      { max_completion_tokens: 32000 }
     );
 
     // Validate quality
@@ -692,7 +697,7 @@ router.post('/conversations/:id/refine', async (req, res) => {
         { role: 'system', content: 'You are refining a section of an AI agent configuration file. Output ONLY the refined section content with its ## header. No explanations.' },
         { role: 'user', content: refinementPrompt },
       ],
-      { max_completion_tokens: 4000 }
+      { max_completion_tokens: 12000 }
     );
 
     // Replace the section in the full agent
@@ -706,6 +711,131 @@ router.post('/conversations/:id/refine', async (req, res) => {
     res.json({ agentFile: updatedAgent, refinedSection: section, validation });
   } catch (err) {
     console.error('[agent-creator] Error refining:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== PREVIEW IMAGE — Gemini Image Generation ==========
+
+function buildPreviewPrompt(designBrief, generatedAgent) {
+  let prompt = 'Generate a high-fidelity UI screenshot/mockup of a modern landing page. Desktop view, 1440x900 resolution.\n\n';
+
+  if (designBrief) {
+    const colors = designBrief.colorSystem;
+    if (colors) {
+      const vars = colors.cssVariables || {};
+      const colorList = Object.entries(vars).slice(0, 12).map(([k, v]) => `${k}: ${v}`).join(', ');
+      if (colorList) prompt += `Colors: ${colorList}\n`;
+      if (colors.darkMode !== undefined) prompt += `Theme: ${colors.darkMode ? 'dark' : 'light'}\n`;
+    }
+    const typo = designBrief.typographySystem;
+    if (typo) {
+      if (typo.displayFont) prompt += `Display font: ${typo.displayFont}\n`;
+      if (typo.bodyFont) prompt += `Body font: ${typo.bodyFont}\n`;
+    }
+    const layout = designBrief.layoutArchitecture;
+    if (layout) {
+      if (layout.primaryLayout) prompt += `Layout: ${layout.primaryLayout}\n`;
+      if (layout.sectionCount) prompt += `Sections: ${layout.sectionCount}\n`;
+    }
+    const components = designBrief.componentInventory;
+    if (components && components.length > 0) {
+      prompt += `Key components: ${components.map(c => c.name || c.type).join(', ')}\n`;
+    }
+    const identity = designBrief.agentIdentity;
+    if (identity) {
+      if (identity.aesthetic) prompt += `Aesthetic: ${identity.aesthetic}\n`;
+      if (identity.mood) prompt += `Mood: ${identity.mood}\n`;
+    }
+  }
+
+  if (generatedAgent) {
+    // Extract key design sections from agent markdown
+    const colorMatch = generatedAgent.match(/## .*Color.*\n([\s\S]*?)(?=\n## )/i);
+    if (colorMatch) {
+      const colorSnippet = colorMatch[1].slice(0, 400);
+      prompt += `\nColor system from agent:\n${colorSnippet}\n`;
+    }
+    const compMatch = generatedAgent.match(/## .*Component.*\n([\s\S]*?)(?=\n## )/i);
+    if (compMatch) {
+      const compSnippet = compMatch[1].slice(0, 300);
+      prompt += `\nComponents from agent:\n${compSnippet}\n`;
+    }
+  }
+
+  prompt += '\nStyle: professional web design, pixel-perfect UI, realistic browser mockup with content. Show a complete landing page with hero section, navigation, content sections, and footer.';
+  return prompt;
+}
+
+router.post('/conversations/:id/preview-image', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    if (!GOOGLE_AI_API_KEY) {
+      return res.status(500).json({ error: 'GOOGLE_AI_API_KEY not configured' });
+    }
+
+    const brief = conversation.design_brief || null;
+    const agent = conversation.generated_agent || null;
+
+    if (!brief && !agent) {
+      return res.status(400).json({ error: 'Generate a design brief or agent first before previewing' });
+    }
+
+    const prompt = buildPreviewPrompt(brief, agent);
+    console.log(`[agent-creator] Generating preview image for conversation ${id} (prompt ${prompt.length} chars)`);
+
+    // Call Gemini Image API
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+        }),
+        signal: AbortSignal.timeout(120000),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text().catch(() => 'no body');
+      console.error(`[agent-creator] Gemini API error ${geminiRes.status}: ${errText.slice(0, 500)}`);
+      return res.status(502).json({ error: `Gemini API error ${geminiRes.status}` });
+    }
+
+    const geminiData = await geminiRes.json();
+    const parts = geminiData.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData);
+
+    if (!imagePart || !imagePart.inlineData?.data) {
+      console.error('[agent-creator] Gemini returned no image data');
+      return res.status(502).json({ error: 'Gemini returned no image' });
+    }
+
+    // Decode and save PNG
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    const filename = `preview-${id}.png`;
+    const filePath = path.join(UPLOAD_DIR, filename);
+    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
+    await fs.writeFile(filePath, imageBuffer);
+
+    const previewUrl = `/uploads/agent-creator/${filename}`;
+    console.log(`[agent-creator] Preview image saved: ${previewUrl} (${imageBuffer.length} bytes)`);
+
+    res.json({ previewUrl });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      console.error('[agent-creator] Gemini API timeout');
+      return res.status(504).json({ error: 'Gemini API timeout' });
+    }
+    console.error('[agent-creator] Error generating preview image:', err);
     res.status(500).json({ error: err.message });
   }
 });

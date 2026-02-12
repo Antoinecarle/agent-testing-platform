@@ -36,12 +36,16 @@ async function callGPT5(messages, options = {}) {
           'Authorization': `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120000), // 2 min timeout
+        signal: AbortSignal.timeout(180000), // 3 min timeout
       });
 
       if (res.ok) {
         const data = await res.json();
-        return data.choices[0].message.content;
+        const choice = data.choices && data.choices[0];
+        if (choice && choice.finish_reason === 'length' && choice.message?.content) {
+          console.warn(`[agent-analysis] GPT-5 response truncated at token limit but returning partial content (${choice.message.content.length} chars)`);
+        }
+        return choice?.message?.content || '';
       }
 
       const errorText = await res.text();
@@ -375,7 +379,7 @@ async function synthesizeDesignBrief(references, messages) {
       { role: 'system', content: 'You are a design system architect. Synthesize reference analyses into a comprehensive Design Brief. Respond ONLY with valid JSON.' },
       { role: 'user', content: prompt }
     ],
-    { max_completion_tokens: 6000, responseFormat: 'json' }
+    { max_completion_tokens: 12000, responseFormat: 'json' }
   );
 
   return JSON.parse(result);
