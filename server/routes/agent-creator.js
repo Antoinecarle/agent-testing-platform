@@ -624,7 +624,20 @@ ${AGENT_EXAMPLE_ABBREVIATED}
 
 Now generate the complete agent file. It MUST be 600-900 lines with ALL 10 sections.
 Every CSS value, every color, every spacing token must be specific to the design brief above.
-Do NOT copy the reference example content — use it only as a format guide.`;
+Do NOT copy the reference example content — use it only as a format guide.
+
+CRITICAL — Use these EXACT ## section headers in this EXACT order:
+## Your Design DNA
+## Color System
+## Typography
+## Layout Architecture
+## Core UI Components
+## Animation Patterns
+## Style Injection Pattern
+## Section Templates
+## Responsive & Quality
+
+Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if you use different names.`;
 
     console.log(`[agent-creator] Generating agent for ${derivedName} (conversation ${id})`);
 

@@ -309,11 +309,30 @@ Primary action button used for CTAs.
 - The file should read like a complete design system specification
 - Someone should be able to code a pixel-perfect page from this file WITHOUT any other reference
 
+### MANDATORY SECTION HEADERS — USE THESE EXACT NAMES
+
+You MUST use these EXACT ## headers in this EXACT order. Do NOT rename, rephrase, or skip any:
+
+\`\`\`
+## Your Design DNA
+## Color System
+## Typography
+## Layout Architecture
+## Core UI Components
+## Animation Patterns
+## Style Injection Pattern
+## Section Templates
+## Responsive & Quality
+\`\`\`
+
+Any deviation from these exact header names will cause validation failure. Do NOT use alternative names like "Design Identity", "Visual Identity", "Colors", "Type System", "Components", "Animations", "Templates", "Quality Checklist" etc. Use the EXACT names listed above.
+
 ### What NOT to do
 - Don't produce generic agents — every value must come from the Design Brief
 - Don't use placeholder values or vague descriptions
 - Don't write components with just names and no CSS details
-- Don't reuse the reference example's colors/fonts — derive everything from the brief`;
+- Don't reuse the reference example's colors/fonts — derive everything from the brief
+- Don't rename or rephrase the section headers — use the EXACT names specified above`;
 
 // ========== PIXEL-PERFECT IMAGE ANALYSIS PROMPTS ==========
 
@@ -721,15 +740,15 @@ function validateAgentQuality(content) {
   // Check section presence
   const sectionChecks = [
     { name: 'Frontmatter', pattern: /^---/, required: true },
-    { name: 'Identity / Design DNA', pattern: /##.*(?:identity|design dna|your design|core identity)/i, required: true },
-    { name: 'Color System', pattern: /##.*color/i, required: true },
-    { name: 'Typography', pattern: /##.*typo/i, required: true },
-    { name: 'Layout Architecture', pattern: /##.*layout/i, required: true },
-    { name: 'Core UI Components', pattern: /##.*(?:component|ui component|core ui)/i, required: true },
-    { name: 'Animation Patterns', pattern: /##.*animat/i, required: true },
-    { name: 'Style Injection', pattern: /##.*(?:style inject|injection)/i, required: false },
-    { name: 'Section Templates', pattern: /##.*(?:section template|template)/i, required: true },
-    { name: 'Responsive / Quality', pattern: /##.*(?:responsive|quality|checklist)/i, required: true },
+    { name: 'Identity / Design DNA', pattern: /##.*(?:identity|design dna|your design|core identity|visual identity|dna|aesthetic|design philosophy)/i, required: true },
+    { name: 'Color System', pattern: /##.*(?:color|colour|palette)/i, required: true },
+    { name: 'Typography', pattern: /##.*(?:typo|font|type system|type scale)/i, required: true },
+    { name: 'Layout Architecture', pattern: /##.*(?:layout|spacing|grid|architecture)/i, required: true },
+    { name: 'Core UI Components', pattern: /##.*(?:component|ui component|core ui|ui element)/i, required: true },
+    { name: 'Animation Patterns', pattern: /##.*(?:animat|motion|transition|interaction)/i, required: true },
+    { name: 'Style Injection', pattern: /##.*(?:style inject|injection|ensure.*style)/i, required: false },
+    { name: 'Section Templates', pattern: /##.*(?:section template|template|page section|section layout)/i, required: true },
+    { name: 'Responsive / Quality', pattern: /##.*(?:responsive|quality|checklist|breakpoint|mobile)/i, required: true },
   ];
 
   const sections = sectionChecks.map(check => {
