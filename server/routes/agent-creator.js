@@ -20,6 +20,7 @@ const {
 } = require('../lib/agent-templates');
 
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // Multer setup for image uploads
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
@@ -250,7 +251,30 @@ router.post('/conversations/:id/urls', async (req, res) => {
   }
 });
 
-// ========== CONVERSATION MESSAGES (upgraded system prompt) ==========
+// ========== UPDATE CONVERSATION (rename etc.) ==========
+
+router.put('/conversations/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+
+    const updated = await db.updateAgentConversation(id, updates);
+    res.json({ conversation: updated });
+  } catch (err) {
+    console.error('[agent-creator] Error updating conversation:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== CONVERSATION MESSAGES (with Vision — images sent to GPT-5) ==========
 
 router.post('/conversations/:id/messages', async (req, res) => {
   try {
@@ -279,13 +303,69 @@ router.post('/conversations/:id/messages', async (req, res) => {
     await db.createConversationMessage(id, 'user', message);
 
     // Load all messages for GPT context
-    const messages = await db.getConversationMessages(id);
-    const gptMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map(m => ({ role: m.role, content: m.content })),
-    ];
+    const allMessages = await db.getConversationMessages(id);
 
-    const assistantResponse = await callGPT5(gptMessages, { max_completion_tokens: 2000 });
+    // Build image content parts for vision — include all uploaded images
+    const imageRefs = references.filter(r => r.type === 'image' && r.url);
+    const imageParts = [];
+    for (const ref of imageRefs) {
+      try {
+        const filePath = path.join(UPLOAD_DIR, path.basename(ref.url));
+        const imageBuffer = await fs.readFile(filePath);
+        const base64 = imageBuffer.toString('base64');
+        const ext = path.extname(ref.filename || ref.url).toLowerCase().replace('.', '');
+        const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        imageParts.push({
+          type: 'image_url',
+          image_url: { url: `data:${mimeType};base64,${base64}` }
+        });
+      } catch (err) {
+        console.warn(`[agent-creator] Could not load image ${ref.url}:`, err.message);
+      }
+    }
+
+    // Build GPT messages — first user message includes images for vision context
+    const gptMessages = [{ role: 'system', content: systemPrompt }];
+
+    for (let i = 0; i < allMessages.length; i++) {
+      const m = allMessages[i];
+      if (m.role === 'user' && i === allMessages.length - 1 && imageParts.length > 0) {
+        // Last user message: attach all images as vision content
+        gptMessages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: m.content },
+            ...imageParts,
+          ],
+        });
+      } else {
+        gptMessages.push({ role: m.role, content: m.content });
+      }
+    }
+
+    // Call GPT-5 with vision support
+    const body = {
+      model: GPT5_MODEL,
+      messages: gptMessages,
+      max_completion_tokens: 2000,
+    };
+
+    const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!gptRes.ok) {
+      const errorText = await gptRes.text();
+      throw new Error(`GPT-5 API error: ${gptRes.status} ${errorText}`);
+    }
+
+    const gptData = await gptRes.json();
+    const assistantResponse = gptData.choices[0].message.content;
 
     // Save assistant response
     const assistantMessage = await db.createConversationMessage(id, 'assistant', assistantResponse);
