@@ -112,7 +112,7 @@ async function callGPT5Vision(filePath, mimeType, textPrompt, options = {}) {
           'Authorization': `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(90000), // 90s timeout for vision
+        signal: AbortSignal.timeout(120000), // 2 min timeout for vision (detailed analysis)
       });
 
       if (res.ok) {
@@ -133,7 +133,7 @@ async function callGPT5Vision(filePath, mimeType, textPrompt, options = {}) {
       throw lastError;
     } catch (err) {
       if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-        lastError = new Error(`GPT Vision API timeout after 90s`);
+        lastError = new Error(`GPT Vision API timeout after 120s`);
         if (attempt < maxRetries) {
           console.warn(`[agent-analysis] GPT Vision timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise(r => setTimeout(r, 2000));
@@ -249,7 +249,7 @@ async function deepAnalyzeURL(url) {
         { role: 'system', content: 'You are a design system analyst. Respond ONLY with valid JSON.' },
         { role: 'user', content: prompt }
       ],
-      { max_completion_tokens: 2000, responseFormat: 'json' }
+      { max_completion_tokens: 3000, responseFormat: 'json' }
     );
     gptAnalysis = JSON.parse(result);
   } catch (err) {
@@ -266,22 +266,22 @@ async function deepAnalyzeURL(url) {
  * @returns {{ colors: object, typography: object, layout: object, components: object, summary: string }}
  */
 async function deepAnalyzeImage(filePath, mimeType) {
-  // Run 4 analyses in parallel
+  // Run 4 analyses in parallel — 3000 tokens each for pixel-perfect detail
   const [colorsRaw, typographyRaw, layoutRaw, componentsRaw] = await Promise.all([
     callGPT5Vision(filePath, mimeType, IMAGE_ANALYSIS_PROMPTS.colors, {
-      max_completion_tokens: 1500,
+      max_completion_tokens: 3000,
       responseFormat: 'json',
     }).catch(err => JSON.stringify({ error: err.message })),
     callGPT5Vision(filePath, mimeType, IMAGE_ANALYSIS_PROMPTS.typography, {
-      max_completion_tokens: 1500,
+      max_completion_tokens: 3000,
       responseFormat: 'json',
     }).catch(err => JSON.stringify({ error: err.message })),
     callGPT5Vision(filePath, mimeType, IMAGE_ANALYSIS_PROMPTS.layout, {
-      max_completion_tokens: 1500,
+      max_completion_tokens: 3000,
       responseFormat: 'json',
     }).catch(err => JSON.stringify({ error: err.message })),
     callGPT5Vision(filePath, mimeType, IMAGE_ANALYSIS_PROMPTS.components, {
-      max_completion_tokens: 1500,
+      max_completion_tokens: 3000,
       responseFormat: 'json',
     }).catch(err => JSON.stringify({ error: err.message })),
   ]);
@@ -301,15 +301,39 @@ async function deepAnalyzeImage(filePath, mimeType) {
   const layout = parseJSON(layoutRaw, 'layout');
   const components = parseJSON(componentsRaw, 'components');
 
-  // Build a human-readable summary from structured data
+  // Build a human-readable summary from structured data (handles both old and new field names)
   const summaryParts = [];
-  if (colors.dominantBackground) summaryParts.push(`Background: ${colors.dominantBackground} (${colors.mood || 'unknown'} mood)`);
-  if (colors.primaryAccent) summaryParts.push(`Primary accent: ${colors.primaryAccent}`);
-  if (typography.displayFont) summaryParts.push(`Display font: ${typography.displayFont}`);
-  if (typography.bodyFont) summaryParts.push(`Body font: ${typography.bodyFont}`);
-  if (layout.primaryLayout) summaryParts.push(`Layout: ${layout.primaryLayout}`);
-  if (layout.cardStyle) summaryParts.push(`Card style: ${layout.cardStyle}`);
-  if (components.overallAesthetic) summaryParts.push(`Aesthetic: ${components.overallAesthetic}`);
+  // Colors
+  const bgLayers = colors.backgroundLayers;
+  if (bgLayers && Array.isArray(bgLayers) && bgLayers.length > 0) {
+    summaryParts.push(`Background: ${bgLayers[0]}`);
+  } else if (colors.dominantBackground) {
+    summaryParts.push(`Background: ${colors.dominantBackground}`);
+  }
+  if (colors.colorStrategy) summaryParts.push(`Color strategy: ${colors.colorStrategy}`);
+  const accents = colors.accentColors;
+  if (accents && typeof accents === 'object') {
+    const primary = accents.primary || accents.primaryAccent;
+    if (primary) summaryParts.push(`Primary accent: ${primary}`);
+  } else if (colors.primaryAccent) {
+    summaryParts.push(`Primary accent: ${colors.primaryAccent}`);
+  }
+  // Typography
+  const fonts = typography.fontFamilies;
+  if (fonts && typeof fonts === 'object') {
+    if (fonts.display) summaryParts.push(`Display: ${fonts.display}`);
+    if (fonts.body) summaryParts.push(`Body: ${fonts.body}`);
+  } else {
+    if (typography.displayFont) summaryParts.push(`Display: ${typography.displayFont}`);
+    if (typography.bodyFont) summaryParts.push(`Body: ${typography.bodyFont}`);
+  }
+  // Layout
+  const pageStructure = layout.pageStructure;
+  if (pageStructure) summaryParts.push(`Layout: ${pageStructure}`);
+  else if (layout.primaryLayout) summaryParts.push(`Layout: ${layout.primaryLayout}`);
+  // Components aesthetic
+  if (components.designInfluences) summaryParts.push(`Influences: ${Array.isArray(components.designInfluences) ? components.designInfluences.join(', ') : components.designInfluences}`);
+  else if (components.overallAesthetic) summaryParts.push(`Aesthetic: ${components.overallAesthetic}`);
 
   const summary = summaryParts.join(' | ');
 
@@ -351,7 +375,7 @@ async function synthesizeDesignBrief(references, messages) {
       { role: 'system', content: 'You are a design system architect. Synthesize reference analyses into a comprehensive Design Brief. Respond ONLY with valid JSON.' },
       { role: 'user', content: prompt }
     ],
-    { max_completion_tokens: 4000, responseFormat: 'json' }
+    { max_completion_tokens: 6000, responseFormat: 'json' }
   );
 
   return JSON.parse(result);

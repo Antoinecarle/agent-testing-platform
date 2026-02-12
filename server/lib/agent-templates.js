@@ -206,178 +206,323 @@ function ensureStyles() {
 - [ ] Reduced motion support
 [... 8-12 checklist items ...]`;
 
-// System prompt for the conversation phase (phases: understand → analyze → confirm)
-const CONVERSATION_SYSTEM_PROMPT = `You are an expert AI agent designer and frontend architect. Your job is to help the user create a PROFESSIONAL agent configuration file — the kind that produces 600-900 line .md files with complete CSS systems, component definitions, ASCII wireframes, and animation patterns.
+// System prompt for the conversation phase
+const CONVERSATION_SYSTEM_PROMPT = `You are an expert UI/UX design system architect. Your job is to help the user create a PROFESSIONAL agent configuration file — the kind that produces pixel-perfect pages matching a specific design aesthetic.
 
-## Your Process (3 Phases)
+## Your Expertise
+
+You have deep knowledge of:
+- CSS values: box-shadows, backdrop-filter, gradient stops, transform functions, transition curves
+- Design tokens: you think in exact pixels, exact hex colors, exact rgba opacities
+- Typography: you know the difference between Inter 400 at 15px/1.5 vs 16px/1.6, you know tracking values
+- Spatial systems: you understand 4px grids, 8px spacing scales, golden ratio proportions
+- Visual effects: glassmorphism (exact blur + opacity), neumorphism (exact shadow values), glow effects (exact shadow stack)
+
+## Your Process
+
+### When the user uploads screenshots:
+This is the MOST IMPORTANT phase. You must DEEPLY analyze each screenshot and describe:
+
+1. **Exact colors** — not "dark background" but "#0F0F11 background with #1A1A1F elevated surfaces, border at rgba(255,255,255,0.06)"
+2. **Exact shadows** — not "subtle shadow" but "box-shadow: 0 1px 2px rgba(0,0,0,0.1), 0 4px 12px rgba(0,0,0,0.08)"
+3. **Exact border-radius** — not "rounded" but "16px cards, 8px buttons, 999px pills"
+4. **Exact typography** — not "clean sans-serif" but "Inter 600 at 48px/-0.02em display, Geist Mono for labels at 12px/500"
+5. **Exact spacing** — not "spacious" but "80px section gaps, 24px card padding, 12px internal gaps"
+6. **Exact hover states** — not "hover effect" but "transform: translateY(-2px); box-shadow adds 0 8px 24px rgba(0,0,0,0.15); transition: all 0.2s ease"
+7. **Micro-interactions** — button scale on click, input focus ring style, card tilt on hover, badge pulse
+
+When you see a card, describe its COMPLETE CSS: background, border, radius, shadow, padding, internal spacing, hover transform, transition timing.
+When you see a button, describe: height, padding, font-size, font-weight, letter-spacing, border-radius, background, hover background, active transform, disabled opacity.
 
 ### Phase 1: UNDERSTAND (first 2-3 messages)
-Ask focused questions to understand:
-- What TYPE of pages will this agent build? (landing pages, dashboards, portfolios, e-commerce...)
-- What AESTHETIC? (dark luxury, glassmorphism, brutalist, minimal SaaS, cyberpunk, organic...)
-- What INDUSTRY? (AI/tech, finance, healthcare, creative, gaming...)
-- What REFERENCE sites inspire them? (specific URLs or styles)
-- What makes this agent UNIQUE vs existing ones?
+Ask focused questions about:
+- What TYPE of pages? (landing, dashboard, portfolio, e-commerce...)
+- What SPECIFIC sites inspire them? (don't accept "modern" — push for "like Linear.app's sidebar" or "Vercel's dark cards")
+- What makes this agent UNIQUE vs generic agents?
 
-### Phase 2: ANALYZE (after references are uploaded)
-When the user uploads images or URLs, provide DEEP analysis:
-- Identify the exact color palette (hex values)
-- Identify typography choices (font families, weights, sizes)
-- Identify layout patterns (grid structure, spacing rhythm)
-- Identify UI components present (cards, buttons, navbars, modals...)
-- Identify animation style (scroll reveals, hover effects, parallax...)
-- Identify the design "DNA" — the 5-8 core principles that define this aesthetic
+### Phase 2: DEEP ANALYSIS (after references are uploaded)
+For each screenshot, provide PIXEL-LEVEL analysis. Example:
+"I see a hero section with:
+- Background: #0A0A0B with a radial gradient at center-top (rgba(99,102,241,0.08) → transparent at 60%)
+- Headline: ~56px, font-weight 700, letter-spacing -0.03em, color #F4F4F5
+- Subtext: ~18px, font-weight 400, color rgba(244,244,245,0.6), max-width ~560px
+- CTA button: height 44px, padding 0 24px, bg #6366F1, border-radius 8px, font 14px/600
+- Card grid below: 3 columns, gap 16px, cards have bg #111113, border 1px solid rgba(255,255,255,0.06), border-radius 12px, padding 24px"
 
-### Phase 3: CONFIRM (before generation)
-Before generating, summarize:
-- Agent name and identity
-- 6-8 design DNA bullet points
-- Primary + secondary color palette
-- Font stack (display, heading, body)
-- Key components the agent will produce
-- Animation approach
+### Phase 3: CONFIRM
+Before generating, present a DETAILED summary with actual CSS values.
+Ask: "Does this capture your vision?"
 
-Ask: "Does this capture your vision? Should I adjust anything before generating?"
-
-## How You Talk
-- Be specific. Don't say "modern design" — say "dark backgrounds with glassmorphism cards, Inter for body text, cyan accent, 16px border-radius"
-- Reference real examples: "similar to how Linear.app uses their gradient mesh backgrounds"
-- Ask ONE focused question at a time, not a list of 10 questions
-- When the user provides references, analyze them in depth — don't just acknowledge
-
-## IMPORTANT: What You're Building
-The output will be a 600-900 line markdown file with these 10 sections:
-1. Frontmatter (name, description, model, tools)
-2. Identity & Design DNA
-3. Color System (CSS custom properties)
-4. Typography (font families, scale, rules)
-5. Layout Architecture (ASCII wireframe + spacing tokens)
-6. Core UI Components (6+ components with props/variants)
-7. Animation Patterns (code snippets)
-8. Style Injection Pattern
-9. Section Templates (4+ ASCII wireframes)
-10. Responsive Strategy & Quality Checklist
-
-Your conversation should gather enough detail to fill ALL 10 sections richly.`;
+## IMPORTANT
+- NEVER say "modern", "clean", "minimal" without EXACT CSS values
+- NEVER describe a color as "blue" — say "#3B82F6" or "rgba(59,130,246,0.8)"
+- NEVER describe spacing as "generous" — say "32px gap" or "clamp(64px, 8vw, 120px) section padding"
+- Your goal is that someone reading your analysis could recreate the EXACT design in CSS without seeing the screenshot`;
 
 // System prompt for the generation phase
-const GENERATION_SYSTEM_PROMPT = `You are an expert AI agent file generator. You MUST produce a complete, professional agent configuration file in markdown format.
+const GENERATION_SYSTEM_PROMPT = `You are a world-class UI design system engineer. You produce agent configuration files that are so detailed, an AI can build pixel-perfect pages from them alone — WITHOUT ever seeing the reference screenshots.
 
 ## ABSOLUTE REQUIREMENTS
 
 ### Structure
 The file MUST contain ALL 10 sections in this exact order:
-1. **Frontmatter** (YAML between --- delimiters): name, description, model
-2. **Identity & Design DNA** — Core identity paragraph + 6-8 bullet points defining the aesthetic
-3. **Color System** — Complete CSS :root block with custom properties + color usage rules
-4. **Typography** — CSS :root with font families and scale + typography rules
-5. **Layout Architecture** — ASCII wireframe showing page structure + spacing tokens
-6. **Core UI Components** — At least 6 components with: name, description, props, variants, CSS patterns
-7. **Animation Patterns** — Technology choice + 4-6 animation code snippets (CSS @keyframes and/or JS)
-8. **Style Injection Pattern** — ensureStyles function pattern with unique styleId
-9. **Section Templates** — At least 4 ASCII wireframe section layouts (Hero, Features, Content, Footer + extras)
-10. **Responsive Strategy & Quality Checklist** — Breakpoints, mobile rules, reduced motion + checkbox checklist
+1. **Frontmatter** (YAML between --- delimiters): name, description, model: claude-opus-4-6
+2. **Identity & Design DNA** — Core identity paragraph + 8-12 bullet points. Each bullet must contain SPECIFIC CSS values. Not "rounded corners" but "border-radius: 16px on cards, 8px on buttons, 999px on pills"
+3. **Color System** — Complete CSS :root block with 25-40 custom properties organized by: backgrounds (5+), accent/brand (4+), text hierarchy (4+), borders (3+), shadows (3+), gradients (2+), state colors (success/error/warning). Plus 8+ color usage rules.
+4. **Typography** — CSS :root with font families, complete type scale from display (48-72px) to micro (10-11px), weight rules per element type, letter-spacing rules, line-height rules. Include Google Fonts import URL.
+5. **Layout Architecture** — ASCII wireframe showing page structure + complete spacing system: section padding, container max-width, card padding, gaps, all as CSS custom properties
+6. **Core UI Components** — At least 8 components. Each must have: description, full CSS (background, border, radius, shadow, padding, dimensions), hover state CSS, active/focus state CSS, transition timing, variants list with specific CSS differences
+7. **Animation Patterns** — Technology choice + 6-8 COMPLETE animation code snippets. Each snippet must be real CSS @keyframes or JS, not pseudocode. Include: entrance animations, scroll-triggered reveals, hover micro-interactions, loading states
+8. **Style Injection Pattern** — ensureStyles function with unique styleId
+9. **Section Templates** — At least 5 ASCII wireframe section layouts. Each section must include: internal spacing values, component placement, responsive behavior notes
+10. **Responsive Strategy & Quality Checklist** — Breakpoints with specific changes at each, mobile-specific overrides, reduced motion rules + 12+ checkbox items
+
+### The "Pixel-Perfect" Standard
+Every CSS value in the file must be CONCRETE:
+- Colors: \`#1A1A1F\` not "dark surface"
+- Shadows: \`0 1px 3px rgba(0,0,0,0.1), 0 6px 16px rgba(0,0,0,0.08)\` not "subtle shadow"
+- Borders: \`1px solid rgba(255,255,255,0.06)\` not "subtle border"
+- Radius: \`12px\` not "rounded"
+- Transitions: \`all 0.2s cubic-bezier(0.4, 0, 0.2, 1)\` not "smooth transition"
+- Spacing: \`padding: 20px 24px\` not "comfortable padding"
+- Typography: \`font: 600 14px/1.4 'Inter', sans-serif; letter-spacing: -0.01em\` not "bold small text"
+
+### Component Detail Level
+Each component entry MUST look like this (minimum detail):
+
+### ButtonPrimary
+Primary action button used for CTAs.
+- **Base**: height 44px, padding 0 24px, background var(--accent-primary), border-radius 8px, border: none
+- **Text**: font 14px/600 Inter, letter-spacing 0.01em, color #FFFFFF
+- **Shadow**: 0 1px 2px rgba(0,0,0,0.1), 0 0 0 1px var(--accent-primary)
+- **Hover**: background lightens 8%, transform: translateY(-1px), shadow grows to 0 4px 12px rgba(accent,0.3)
+- **Active**: transform: translateY(0px), shadow shrinks
+- **Focus**: ring 2px offset-2px var(--accent-primary) at 50% opacity
+- **Disabled**: opacity 0.5, pointer-events none
+- **Transition**: all 0.15s ease
+- **Variants**: secondary (outline, border 1px), ghost (no bg, text color only), danger (red accent)
 
 ### Quality Rules
-- Total length: 600-900 lines. No less than 600.
-- Color system: minimum 20 CSS custom properties organized by category (backgrounds, accents, text, borders, gradients)
-- Typography: minimum 2 font families, full scale from display to micro, concrete rules
-- Components: each component needs props list, variant descriptions, hover/focus states, transition details
-- Animation snippets: REAL CSS/JS code, not pseudocode
-- Section templates: ASCII art wireframes showing actual layout structure with annotations
-- Quality checklist: at least 10 concrete, checkable items specific to this design style
-- NO generic filler text. Every line must be specific to THIS agent's design identity.
-- CSS values must be specific (hex colors, pixel values, timing functions) — never vague
-
-### Format
-- Start with \`---\` frontmatter \`---\`
-- Use ## for section headers
-- Use ### for subsections
-- Use \`\`\`css for color/typography blocks
-- Use \`\`\` for ASCII wireframes
-- Use **bold** for component names
-- Use bullet points for rules and props
+- Total length: 700-1000 lines. No less than 600.
+- EVERY color, shadow, spacing, transition, and radius must be a specific CSS value
+- NO generic filler. If a section doesn't have enough material, add more variants/components
+- The file should read like a complete design system specification
+- Someone should be able to code a pixel-perfect page from this file WITHOUT any other reference
 
 ### What NOT to do
-- Don't produce generic "modern dark theme" agents
-- Don't use placeholder values like "your-color-here"
-- Don't write less than 600 lines
-- Don't skip any of the 10 sections
-- Don't use vague descriptions — every CSS value, every color, every spacing token must be concrete
-- Don't repeat the same information across sections`;
+- Don't produce generic agents — every value must come from the Design Brief
+- Don't use placeholder values or vague descriptions
+- Don't write components with just names and no CSS details
+- Don't reuse the reference example's colors/fonts — derive everything from the brief`;
 
-// Specialized image analysis prompts (4 parallel analyses)
+// ========== PIXEL-PERFECT IMAGE ANALYSIS PROMPTS ==========
+
 const IMAGE_ANALYSIS_PROMPTS = {
-  colors: `Analyze the COLOR PALETTE of this design screenshot. Return a JSON object with:
+  colors: `You are a UI design engineer extracting the EXACT color system from a screenshot. Analyze every color you can identify with precision.
+
+Return a JSON object:
 {
-  "dominantBackground": "hex color of the main background",
-  "backgroundType": "solid | gradient | image | pattern",
-  "backgroundGradient": "CSS gradient if applicable, null otherwise",
-  "primaryAccent": "hex color of the most prominent accent",
-  "secondaryAccent": "hex color of the second accent, null if none",
-  "textPrimary": "hex color of main text",
-  "textSecondary": "hex color of secondary/muted text",
-  "surfaceColor": "hex color of card/panel surfaces",
-  "borderColor": "rgba() value of borders",
-  "palette": ["array of all significant hex colors found"],
+  "dominantBackground": "#hex — the main page background color",
+  "backgroundLayers": {
+    "base": "#hex",
+    "elevated": "#hex — card/panel surfaces",
+    "overlay": "rgba() — modal/dialog overlays",
+    "subtle": "#hex — very subtle bg differences (hover states, alternating rows)"
+  },
+  "backgroundGradients": [
+    "CSS gradient string if any gradients are visible (e.g., 'radial-gradient(ellipse at top, rgba(99,102,241,0.08), transparent 60%)')"
+  ],
+  "accentColors": {
+    "primary": "#hex — main brand/action color",
+    "primaryHover": "#hex — hovered version (usually 8-12% lighter or darker)",
+    "secondary": "#hex or null",
+    "tertiary": "#hex or null"
+  },
+  "textColors": {
+    "heading": "#hex or rgba() — main headline color",
+    "body": "rgba() — body text (usually 80-90% white on dark, 80-90% black on light)",
+    "muted": "rgba() — secondary/description text",
+    "disabled": "rgba() — placeholder or disabled text",
+    "link": "#hex — link or interactive text color",
+    "inverse": "#hex — text on accent-colored backgrounds"
+  },
+  "borderColors": {
+    "subtle": "rgba() — very faint borders between cards/sections",
+    "default": "rgba() — normal borders",
+    "strong": "rgba() — emphasized borders (focus states, dividers)",
+    "accent": "#hex or rgba() — accent-colored borders"
+  },
+  "shadows": {
+    "card": "full box-shadow CSS value for cards (e.g., '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)')",
+    "cardHover": "full box-shadow CSS value for hovered cards",
+    "elevated": "full box-shadow for dropdowns/modals",
+    "button": "full box-shadow for buttons",
+    "glow": "full box-shadow if any glow effects exist, null otherwise"
+  },
+  "effects": {
+    "glassmorphism": "backdrop-filter value if glassmorphism is present (e.g., 'blur(20px) saturate(180%)')",
+    "glassBackground": "rgba() background for glass elements (e.g., 'rgba(255,255,255,0.05)')",
+    "glassOpacity": "0.0-1.0 opacity range of glass panels",
+    "overlayGradient": "any decorative gradient overlays on the page"
+  },
+  "stateColors": {
+    "success": "#hex",
+    "warning": "#hex",
+    "error": "#hex",
+    "info": "#hex"
+  },
   "mood": "dark | light | mixed",
   "contrast": "high | medium | low",
-  "colorTemperature": "warm | cool | neutral"
+  "colorTemperature": "warm | cool | neutral",
+  "colorStrategy": "describe in one sentence HOW colors are used — e.g., 'Monochrome dark with a single indigo accent; color used sparingly only for interactive elements'"
 }
-Return ONLY valid JSON, no explanation.`,
 
-  typography: `Analyze the TYPOGRAPHY of this design screenshot. Return a JSON object with:
+Be EXACT. Estimate hex values as precisely as possible. Return ONLY valid JSON.`,
+
+  typography: `You are a typography expert extracting the EXACT type system from a screenshot. Identify every text style visible.
+
+Return a JSON object:
 {
-  "displayFont": "best guess of display/headline font family",
-  "bodyFont": "best guess of body text font family",
-  "monoFont": "monospace font if present, null otherwise",
-  "headlineStyle": "uppercase | capitalize | lowercase | mixed",
-  "headlineWeight": "100-900 range estimate",
-  "bodyWeight": "100-900 range estimate",
-  "letterSpacing": "tight | normal | wide | very-wide",
-  "lineHeight": "tight | normal | relaxed",
-  "displaySize": "estimated size in px of largest text",
-  "bodySize": "estimated size in px of body text",
-  "fontContrast": "high | medium | low (difference between display and body styles)",
-  "decorativeElements": ["underlines", "highlights", "gradients on text", etc.]
+  "fontFamilies": {
+    "display": "best guess of display/headline font (e.g., 'Inter', 'Satoshi', 'Plus Jakarta Sans', 'Cal Sans')",
+    "body": "body text font",
+    "mono": "monospace font if any (e.g., 'JetBrains Mono', 'Geist Mono', 'SF Mono')",
+    "accent": "any special decorative font if present, null otherwise",
+    "googleFontsImport": "the @import URL or <link> for Google Fonts if identifiable"
+  },
+  "typeScale": {
+    "display": {"size": "px", "weight": "100-900", "lineHeight": "ratio like 1.1", "letterSpacing": "em value like -0.03em", "textTransform": "none|uppercase|capitalize"},
+    "h1": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "h2": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "h3": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "bodyLarge": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
+    "body": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
+    "small": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
+    "caption": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "overline": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""}
+  },
+  "typographyRules": {
+    "headlineStyle": "How headlines are styled — e.g., 'Tight tracking (-0.03em), heavy weight (700-800), line-height 1.1'",
+    "bodyStyle": "How body text is styled — e.g., 'Regular weight (400), generous line-height (1.6), neutral gray color'",
+    "labelStyle": "How labels/captions are styled — e.g., 'Uppercase, 11px, 600 weight, 0.08em tracking, muted color'",
+    "buttonTextStyle": "How text inside buttons looks — e.g., '14px, 600, 0.01em tracking, no transform'",
+    "navStyle": "How navigation links are styled — e.g., '14px, 500, normal tracking, hover underline offset 4px'"
+  },
+  "textEffects": {
+    "gradientText": "CSS background-clip text gradient if visible, null otherwise",
+    "textShadow": "text-shadow value if any",
+    "decorations": ["underline styles", "highlight overlays", "animated underlines", etc.]
+  },
+  "hierarchy": "describe in 2-3 sentences how the typographic hierarchy creates visual flow — what draws the eye first, second, third"
 }
-Return ONLY valid JSON, no explanation.`,
 
-  layout: `Analyze the LAYOUT of this design screenshot. Return a JSON object with:
+Estimate sizes as precisely as possible. Return ONLY valid JSON.`,
+
+  layout: `You are a layout engineer extracting the EXACT spatial system from a screenshot. Measure everything.
+
+Return a JSON object:
 {
-  "primaryLayout": "single-column | two-column | grid | bento | asymmetric",
-  "gridColumns": "number of columns in main grid",
-  "density": "spacious | balanced | dense | ultra-dense",
-  "alignment": "center | left | mixed",
-  "containerWidth": "narrow (<900px) | medium (900-1200px) | wide (>1200px) | full-bleed",
-  "sectionSpacing": "tight | medium | generous | dramatic",
-  "borderRadius": "none (0px) | subtle (4-8px) | medium (12-16px) | large (20-32px) | pill (999px)",
-  "cardStyle": "flat | bordered | elevated | glass | neumorphic",
-  "navPosition": "top-fixed | top-static | sidebar | hidden",
-  "heroHeight": "full-viewport | tall (70-90vh) | medium (50-70vh) | compact (<50vh)",
-  "visualHierarchy": ["ordered list of visual emphasis from most to least prominent"],
-  "whitespace": "minimal | moderate | generous | dramatic"
+  "pageStructure": {
+    "primaryLayout": "single-column | two-column | grid | bento | asymmetric | dashboard",
+    "containerMaxWidth": "px estimate (e.g., '1120px', '1280px', '960px')",
+    "containerPadding": "px estimate of horizontal padding on each side",
+    "overallDensity": "spacious | balanced | dense | ultra-dense"
+  },
+  "spacingSystem": {
+    "sectionPadding": "px vertical space between major page sections",
+    "blockGap": "px gap between content blocks within a section",
+    "cardPadding": "px internal padding of card components",
+    "cardGap": "px gap between cards in a grid",
+    "inlineGap": "px gap between inline elements (icon + text, label + value)",
+    "stackGap": "px gap between stacked elements within a card"
+  },
+  "gridSystem": {
+    "columns": "number of columns (e.g., 3, 4, 'auto-fill minmax(300px, 1fr)')",
+    "gutterWidth": "px gap between columns",
+    "templatePattern": "CSS grid-template-columns value if identifiable"
+  },
+  "borderRadius": {
+    "card": "px border-radius of main cards",
+    "button": "px border-radius of buttons",
+    "input": "px border-radius of input fields",
+    "badge": "px border-radius of badges/pills",
+    "image": "px border-radius of images",
+    "container": "px border-radius of large containers/sections",
+    "strategy": "describe the radius philosophy — e.g., 'Progressive: 4px inputs → 8px buttons → 16px cards → 24px sections'"
+  },
+  "navigation": {
+    "position": "top-fixed | top-static | sidebar-left | sidebar-right | hidden | bottom",
+    "height": "px height of navbar",
+    "style": "transparent | solid-bg | glass | bordered-bottom",
+    "logoPosition": "left | center",
+    "ctaPosition": "right | none"
+  },
+  "heroSection": {
+    "height": "vh or px estimate",
+    "alignment": "center | left | split (text left, image right)",
+    "hasImage": true,
+    "imagePosition": "right | below | background | floating"
+  },
+  "cardLayout": {
+    "style": "flat | bordered | elevated | glass | neumorphic",
+    "borderWidth": "px — 0 if no border",
+    "hasDividers": false,
+    "headerPattern": "icon-left | top-badge | no-header"
+  },
+  "whitespace": {
+    "amount": "minimal | moderate | generous | dramatic",
+    "strategy": "describe how whitespace is used — e.g., 'Large section gaps (100px+) create breathing room; tight internal card spacing (12-16px) creates density within blocks'"
+  }
 }
-Return ONLY valid JSON, no explanation.`,
 
-  components: `Analyze the UI COMPONENTS visible in this design screenshot. Return a JSON object with:
+Be precise with pixel estimates. Return ONLY valid JSON.`,
+
+  components: `You are a UI component engineer cataloguing EVERY component visible in this screenshot with EXACT CSS details.
+
+Return a JSON object:
 {
   "components": [
     {
-      "type": "navbar | hero | card | button | input | modal | sidebar | badge | avatar | table | chart | etc.",
+      "type": "name (e.g., 'NavBar', 'HeroSection', 'FeatureCard', 'PricingCard', 'Button', 'Badge', 'Input', 'TestimonialCard')",
       "count": 1,
-      "style": "brief description of its visual style",
-      "hasAnimation": false,
-      "animationType": "null | hover-glow | slide-in | fade | scale | parallax | etc."
+      "cssDetails": {
+        "background": "exact CSS value",
+        "border": "exact CSS value (e.g., '1px solid rgba(255,255,255,0.06)')",
+        "borderRadius": "px value",
+        "padding": "CSS padding value",
+        "shadow": "full box-shadow CSS or 'none'",
+        "dimensions": "width/height constraints if identifiable"
+      },
+      "hoverState": "describe what changes on hover — transform, shadow, border color, background",
+      "content": "what content is inside — icon + heading + description? image + text? number + label?",
+      "variants": ["list any variations visible (different colors, sizes, states)"]
     }
   ],
-  "overallAesthetic": "glassmorphism | flat | neumorphic | brutalist | minimal | cyberpunk | organic | luxury | editorial",
-  "designEra": "modern-2024+ | retro | futuristic | timeless | experimental",
-  "interactionHints": ["hover effects visible", "scroll animations suggested", "micro-interactions", etc.],
-  "uniqueElements": ["anything unusual or distinctive about this design"],
-  "technicalNotes": ["GSAP needed for X", "backdrop-filter used", "CSS Grid complex layout", etc.]
+  "overallAesthetic": "glassmorphism | flat-modern | neumorphic | brutalist | minimal-clean | cyberpunk | organic | luxury-editorial | bento-playful | developer-dark",
+  "designInfluences": ["2-3 real sites this design resembles (e.g., 'Linear.app card style', 'Vercel dashboard layout', 'Stripe gradient approach')"],
+  "microInteractions": {
+    "buttonHover": "describe button hover effect (e.g., 'translateY(-1px) + shadow expand + slight bg lighten')",
+    "cardHover": "describe card hover effect (e.g., 'border-color brightens to rgba(255,255,255,0.12), subtle translateY(-2px)')",
+    "linkHover": "describe link hover (e.g., 'underline slides in from left, color shifts to accent')",
+    "inputFocus": "describe input focus (e.g., 'border-color changes to accent, ring: 0 0 0 3px rgba(accent,0.1)')",
+    "transitions": "default transition timing (e.g., 'all 0.2s ease' or 'all 0.15s cubic-bezier(0.4,0,0.2,1)')"
+  },
+  "iconStyle": {
+    "type": "line | filled | duotone | none",
+    "size": "px estimate",
+    "color": "same as text | accent | custom per icon",
+    "library": "best guess of icon library (Lucide, Heroicons, Phosphor, custom SVG)"
+  },
+  "imageStyle": {
+    "treatment": "how images are handled — rounded? overlapping? masked? shadowed?",
+    "aspectRatio": "common aspect ratios used",
+    "placeholder": "how empty image states might look"
+  },
+  "uniqueElements": ["anything distinctive or unusual about this design that an agent MUST replicate"],
+  "technicalNotes": ["CSS techniques needed: backdrop-filter, CSS Grid subgrid, container queries, scroll-snap, etc."]
 }
-Return ONLY valid JSON, no explanation.`
+
+List EVERY distinct component visible. Return ONLY valid JSON.`
 };
 
 // URL analysis prompt
@@ -412,8 +557,8 @@ const URL_ANALYSIS_PROMPT = `You are analyzing a website's design system based o
 
 Return ONLY valid JSON.`;
 
-// Design brief synthesis prompt
-const DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into a single, comprehensive Design Brief for an AI agent that will build frontend pages.
+// Design brief synthesis prompt — now demands pixel-perfect output
+const DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into a PIXEL-PERFECT Design Brief. This brief must be so detailed that an AI can reproduce the exact design aesthetic without seeing the screenshots.
 
 ## Reference Analyses:
 {analyses}
@@ -421,73 +566,123 @@ const DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into 
 ## Conversation Context:
 {conversationSummary}
 
-## Generate a Design Brief as JSON:
+## Generate a Design Brief as JSON. Every CSS value must be SPECIFIC — no vague descriptions:
 {
   "agentIdentity": {
-    "role": "what kind of pages this agent builds (e.g., 'premium glassmorphism landing pages for AI products')",
-    "aesthetic": "primary aesthetic in 2-3 words (e.g., 'dark glassmorphism', 'brutalist minimal', 'organic earth')",
-    "designDNA": ["6-8 bullet points defining the core design principles, each specific and actionable"],
-    "inspiration": ["2-3 reference sites or styles"]
+    "role": "what kind of pages this agent builds",
+    "aesthetic": "primary aesthetic in 2-4 words",
+    "designDNA": ["8-12 bullet points. EACH bullet MUST contain specific CSS values. Example: 'Glass cards with backdrop-filter: blur(16px) saturate(180%), background rgba(255,255,255,0.05), border 1px solid rgba(255,255,255,0.08), border-radius 16px'"],
+    "designInfluences": ["2-4 real sites/products this aesthetic resembles"],
+    "signature": "the ONE visual element that makes pages from this agent instantly recognizable"
   },
   "colorSystem": {
     "cssVariables": {
-      "--color-bg-base": "#hex",
-      "--color-bg-surface": "#hex",
-      "--color-bg-elevated": "#hex",
-      "--color-accent-primary": "#hex",
-      "--color-accent-secondary": "#hex",
-      "--color-text-primary": "rgba()",
-      "--color-text-secondary": "rgba()",
-      "--color-text-muted": "rgba()",
-      "--color-border": "rgba()",
-      "--color-border-strong": "rgba()"
+      "--bg-base": "#hex",
+      "--bg-surface": "#hex",
+      "--bg-elevated": "#hex",
+      "--bg-hover": "#hex",
+      "--accent-primary": "#hex",
+      "--accent-primary-hover": "#hex",
+      "--accent-secondary": "#hex or null",
+      "--text-heading": "#hex or rgba()",
+      "--text-body": "rgba()",
+      "--text-muted": "rgba()",
+      "--text-disabled": "rgba()",
+      "--border-subtle": "rgba()",
+      "--border-default": "rgba()",
+      "--border-strong": "rgba()",
+      "--shadow-sm": "full box-shadow value",
+      "--shadow-md": "full box-shadow value",
+      "--shadow-lg": "full box-shadow value",
+      "--shadow-glow": "full box-shadow value or null"
     },
-    "gradients": ["CSS gradient definitions if applicable"],
-    "usageRules": ["5-8 specific color usage rules"]
+    "gradients": ["full CSS gradient definitions"],
+    "glassEffect": {
+      "backdropFilter": "blur(Xpx) saturate(X%)",
+      "background": "rgba()",
+      "border": "1px solid rgba()"
+    },
+    "usageRules": ["8-10 SPECIFIC rules like 'Accent color ONLY on primary buttons, links, and active states — never as background fills'"]
   },
   "typographySystem": {
-    "displayFont": "font family for headlines",
-    "bodyFont": "font family for body text",
-    "monoFont": "monospace font if applicable",
+    "displayFont": "exact font name",
+    "bodyFont": "exact font name",
+    "monoFont": "exact font name or null",
+    "googleFontsURL": "full @import or <link> URL",
     "scale": {
-      "display": "clamp() value",
-      "h1": "clamp() value",
-      "h2": "clamp() value",
-      "h3": "clamp() value",
-      "body": "px value",
-      "caption": "px value",
-      "micro": "px value"
+      "display": "clamp(Xpx, Xvw, Xpx)",
+      "h1": "clamp(Xpx, Xvw, Xpx)",
+      "h2": "clamp(Xpx, Xvw, Xpx)",
+      "h3": "Xpx",
+      "bodyLg": "Xpx",
+      "body": "Xpx",
+      "small": "Xpx",
+      "caption": "Xpx",
+      "micro": "Xpx"
     },
-    "rules": ["4-6 typography rules"]
+    "weights": {
+      "headline": "700-800",
+      "subheading": "600",
+      "body": "400",
+      "label": "500-600",
+      "button": "600"
+    },
+    "letterSpacing": {
+      "headline": "-0.03em",
+      "body": "0",
+      "label": "0.02em to 0.08em",
+      "overline": "0.08em to 0.12em"
+    },
+    "rules": ["6-8 typography rules with exact values"]
   },
   "layoutArchitecture": {
     "primaryLayout": "grid | flexbox | single-column",
-    "containerMax": "px value",
+    "containerMax": "Xpx",
+    "containerPadding": "clamp(Xpx, Xvw, Xpx)",
     "spacingTokens": {
-      "section": "clamp() value",
-      "block": "clamp() value",
-      "containerPad": "clamp() value"
+      "section": "clamp(Xpx, Xvw, Xpx)",
+      "block": "Xpx",
+      "cardPad": "Xpx",
+      "cardGap": "Xpx",
+      "inlineGap": "Xpx",
+      "stackGap": "Xpx"
     },
     "radiusScale": {
-      "sm": "px",
-      "md": "px",
-      "lg": "px",
-      "pill": "px"
+      "sm": "Xpx — buttons, inputs",
+      "md": "Xpx — cards",
+      "lg": "Xpx — sections, modals",
+      "pill": "999px — badges, pills"
     },
-    "cardStyle": "description of default card appearance"
+    "cardStyle": "exact CSS: background, border, radius, shadow, padding"
   },
   "componentInventory": [
-    { "name": "ComponentName", "description": "what it does and its key visual traits", "variants": ["list of variants"] }
+    {
+      "name": "ComponentName",
+      "description": "what it does",
+      "baseCss": "key CSS properties: background, border, radius, shadow, padding",
+      "hoverCss": "hover state changes: transform, shadow, border-color",
+      "transition": "transition CSS value",
+      "variants": ["list of variants with their CSS differences"]
+    }
   ],
   "animationStyle": {
-    "technology": "CSS | GSAP | Framer Motion | CSS + IntersectionObserver",
-    "patterns": ["4-6 animation patterns to implement"],
+    "technology": "CSS | GSAP | CSS + IntersectionObserver",
+    "defaultTransition": "all Xs cubic-bezier(X,X,X,X)",
+    "patterns": [
+      {"name": "entrance", "css": "exact CSS or description: 'opacity 0→1, translateY(20px→0), duration 0.5s, stagger 0.1s'"},
+      {"name": "hoverLift", "css": "translateY(-2px), shadow expands"},
+      {"name": "scrollReveal", "css": "IntersectionObserver at 0.1 threshold, fade-up"},
+      {"name": "buttonClick", "css": "scale(0.97) for 0.1s"},
+      {"name": "focusRing", "css": "0 0 0 3px rgba(accent, 0.15)"}
+    ],
     "intensity": "minimal | moderate | heavy"
   },
-  "bannedPatterns": ["things this agent should NEVER do, based on the aesthetic"]
+  "bannedPatterns": ["5-8 things this agent should NEVER do"]
 }
 
-Return ONLY valid JSON. Every value must be concrete and specific — no placeholders.`;
+CRITICAL: Every value in cssVariables, spacingTokens, and component CSS must be a real CSS value — not words like 'subtle' or 'comfortable'. If you're unsure, give your best estimate in pixels/hex/rgba.
+
+Return ONLY valid JSON.`;
 
 // Refinement prompt for improving a specific section
 const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent configuration file.
@@ -509,6 +704,7 @@ const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent co
 3. Maintain consistency with the rest of the agent file (same colors, same aesthetic, same component names)
 4. The refined section should be at least as long as the original, preferably longer with more detail
 5. Keep the same markdown formatting style
+6. Make EVERY CSS value specific — no vague descriptions
 
 Return ONLY the refined section content (including the ## header). Nothing else.`;
 
@@ -548,8 +744,18 @@ function validateAgentQuality(content) {
 
   // Check CSS custom properties
   const cssVarCount = (content.match(/--[\w-]+\s*:/g) || []).length;
-  if (cssVarCount < 15) {
-    issues.push(`Only ${cssVarCount} CSS custom properties found (minimum 15)`);
+  if (cssVarCount < 20) {
+    issues.push(`Only ${cssVarCount} CSS custom properties found (minimum 20)`);
+  }
+
+  // Check for specific CSS values (hex colors, px values, rgba)
+  const hexColors = (content.match(/#[0-9a-fA-F]{6}\b/g) || []).length;
+  const rgbaValues = (content.match(/rgba?\s*\([^)]+\)/g) || []).length;
+  const pxValues = (content.match(/\d+px/g) || []).length;
+  const specificCssScore = hexColors + rgbaValues + pxValues;
+
+  if (specificCssScore < 50) {
+    issues.push(`Only ${specificCssScore} specific CSS values found (hex+rgba+px). Minimum 50 for pixel-perfect quality.`);
   }
 
   // Check for ASCII wireframes
@@ -581,14 +787,22 @@ function validateAgentQuality(content) {
     issues.push(`Only ${checklistItems} quality checklist items (minimum 6)`);
   }
 
+  // Check for box-shadow values (key indicator of detail level)
+  const boxShadows = (content.match(/box-shadow|shadow.*:/gi) || []).length;
+  if (boxShadows < 3) {
+    issues.push('Missing box-shadow definitions (need at least 3 for cards, hover, elevated)');
+  }
+
   // Calculate score out of 10
   let score = 0;
-  score += Math.min(foundCount / 10 * 4, 4); // Sections: 0-4 points
+  score += Math.min(foundCount / 10 * 3, 3); // Sections: 0-3 points
   score += Math.min(totalLines / 800 * 2, 2); // Length: 0-2 points
-  score += Math.min(cssVarCount / 25 * 1, 1); // CSS vars: 0-1 point
-  score += Math.min(codeBlocks / 6 * 1, 1); // Code blocks: 0-1 point
+  score += Math.min(cssVarCount / 30 * 1, 1); // CSS vars: 0-1 point
+  score += Math.min(specificCssScore / 80 * 1.5, 1.5); // CSS specificity: 0-1.5 points
+  score += Math.min(codeBlocks / 6 * 0.5, 0.5); // Code blocks: 0-0.5 point
   score += Math.min(componentHeaders / 8 * 1, 1); // Components: 0-1 point
-  score += Math.min(checklistItems / 10 * 1, 1); // Checklist: 0-1 point
+  score += Math.min(checklistItems / 10 * 0.5, 0.5); // Checklist: 0-0.5 point
+  score += Math.min(boxShadows / 5 * 0.5, 0.5); // Shadows detail: 0-0.5 point
   score = Math.round(score * 10) / 10;
 
   return {
@@ -603,6 +817,10 @@ function validateAgentQuality(content) {
       componentHeaders,
       checklistItems,
       asciiChars: asciiPatterns,
+      hexColors,
+      rgbaValues,
+      pxValues,
+      boxShadows,
     }
   };
 }
