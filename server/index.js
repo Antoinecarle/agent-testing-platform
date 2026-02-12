@@ -61,8 +61,11 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   // Clean slate for terminal sessions on startup
   initSessions();
 
-  // Sync agents from filesystem
+  // Sync agents from filesystem + restore custom agents from DB to filesystem + user homes
   agentsRoutes.ensureSynced();
+  agentsRoutes.syncCustomAgentsFromDB().then(n => {
+    if (n > 0) console.log(`[Startup] Restored ${n} custom agents from DB to filesystem`);
+  }).catch(err => console.error('[Startup] Custom agent sync failed:', err.message));
 
   const app = express();
   const server = http.createServer(app);

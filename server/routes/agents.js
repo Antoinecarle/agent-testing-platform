@@ -3,8 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
+const { ensureUserHome, USERS_DIR } = require('../user-home');
 
 const router = express.Router();
+
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
 
 // Use project-bundled agents as primary, fallback to system ~/.claude/agents
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
@@ -150,12 +154,81 @@ router.get('/', async (req, res) => {
 router.post('/sync', async (req, res) => {
   try {
     const synced = await syncAgents();
+    // Also sync custom agents from DB to filesystem
+    await syncCustomAgentsFromDB();
     res.json({ synced: synced.length, agents: synced });
   } catch (err) {
     console.error('[Agents] Sync error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+/**
+ * Sync custom/manual agents FROM DB TO filesystem + all user homes
+ * This ensures agents created via Agent Creator survive redeploys
+ * and are available to Claude CLI in all user terminals.
+ */
+async function syncCustomAgentsFromDB() {
+  try {
+    const allAgents = await db.getAllAgents();
+    const manualAgents = allAgents.filter(a => a.source === 'manual' && a.full_prompt);
+
+    if (manualAgents.length === 0) return 0;
+
+    // Ensure custom-agents dir exists
+    if (!fs.existsSync(CUSTOM_AGENTS_DIR)) {
+      fs.mkdirSync(CUSTOM_AGENTS_DIR, { recursive: true });
+    }
+
+    let written = 0;
+    for (const agent of manualAgents) {
+      const fileName = `${agent.name}.md`;
+      const filePath = path.join(CUSTOM_AGENTS_DIR, fileName);
+
+      // Write to custom-agents dir (persistent volume)
+      const content = agent.full_prompt;
+      if (!content || content.length < 50) continue;
+
+      // Always write (overwrite) to ensure latest version
+      fs.writeFileSync(filePath, content, 'utf8');
+      written++;
+
+      // Also write to bundled agents dir (for workspace.js fallback)
+      try {
+        const bundledPath = path.join(BUNDLED_AGENTS_DIR, fileName);
+        fs.writeFileSync(bundledPath, content, 'utf8');
+      } catch (_) {}
+    }
+
+    // Copy to ALL existing user homes
+    if (fs.existsSync(USERS_DIR)) {
+      const userDirs = fs.readdirSync(USERS_DIR).filter(d => {
+        try { return fs.statSync(path.join(USERS_DIR, d)).isDirectory(); }
+        catch (_) { return false; }
+      });
+
+      for (const userId of userDirs) {
+        const userAgentsDir = path.join(USERS_DIR, userId, '.claude', 'agents');
+        if (!fs.existsSync(userAgentsDir)) {
+          fs.mkdirSync(userAgentsDir, { recursive: true });
+        }
+        for (const agent of manualAgents) {
+          if (!agent.full_prompt || agent.full_prompt.length < 50) continue;
+          const dest = path.join(userAgentsDir, `${agent.name}.md`);
+          fs.writeFileSync(dest, agent.full_prompt, 'utf8');
+        }
+      }
+      console.log(`[Agents] Synced ${written} custom agents to ${userDirs.length} user home(s)`);
+    } else {
+      console.log(`[Agents] Synced ${written} custom agents to filesystem`);
+    }
+
+    return written;
+  } catch (err) {
+    console.error('[Agents] syncCustomAgentsFromDB error:', err.message);
+    return 0;
+  }
+}
 
 // POST /api/agents/ai-generate — generate agent config using ChatGPT
 router.post('/ai-generate', async (req, res) => {
@@ -603,3 +676,4 @@ function ensureSynced() {
 module.exports = router;
 module.exports.syncAgents = syncAgents;
 module.exports.ensureSynced = ensureSynced;
+module.exports.syncCustomAgentsFromDB = syncCustomAgentsFromDB;
