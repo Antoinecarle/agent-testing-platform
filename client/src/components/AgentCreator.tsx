@@ -107,19 +107,29 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load conversations on mount
-  useEffect(() => { loadConversations(); }, []);
+  // Load conversations on mount + auto-select last active
+  useEffect(() => {
+    loadConversations().then((convs) => {
+      if (!convs || convs.length === 0) return;
+      const savedId = localStorage.getItem('atp-agent-creator-conv');
+      const target = savedId ? convs.find((c: Conversation) => c.id === savedId) : null;
+      selectConversation(target || convs[0]);
+    });
+  }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => {
     if (editingConvName && convNameInputRef.current) convNameInputRef.current.focus();
   }, [editingConvName]);
 
-  const loadConversations = async () => {
+  const loadConversations = async (): Promise<Conversation[]> => {
     try {
       const result = await api('/api/agent-creator/conversations');
-      setConversations(result.conversations || []);
+      const convs = result.conversations || [];
+      setConversations(convs);
+      return convs;
     } catch (err: any) {
       console.error('Failed to load conversations:', err);
+      return [];
     }
   };
 
@@ -140,6 +150,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
   const selectConversation = async (conv: Conversation) => {
     setConversationId(conv.id);
     setConvName(conv.name);
+    localStorage.setItem('atp-agent-creator-conv', conv.id);
     setEditingConvName(false);
     setDesignBrief(null);
     setGeneratedAgent('');
@@ -161,6 +172,9 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
       if (c.generated_agent) {
         setGeneratedAgent(c.generated_agent);
         setIsPreviewOpen(true);
+        // Restore agent name from frontmatter
+        const nameMatch = c.generated_agent.match(/^name:\s*(.+)$/m);
+        if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
       }
     } catch (err: any) {
       console.error('Failed to load conversation:', err);
@@ -194,6 +208,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
         setReferences([]);
         setDesignBrief(null);
         setGeneratedAgent('');
+        localStorage.removeItem('atp-agent-creator-conv');
       }
     } catch (err: any) {
       console.error('Failed to delete conversation:', err);
@@ -470,6 +485,18 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
                       </span>
                       {conv.generation_status === 'complete' && (
                         <span style={{ fontSize: '9px', color: t.success, padding: '0 4px', background: 'rgba(34,197,94,0.1)', borderRadius: '3px' }}>generated</span>
+                      )}
+                      {conv.generation_status === 'analyzing' && (
+                        <span style={{ fontSize: '9px', color: t.cyan, padding: '0 4px', background: 'rgba(6,182,212,0.1)', borderRadius: '3px' }}>analyzing</span>
+                      )}
+                      {conv.generation_status === 'briefing' && (
+                        <span style={{ fontSize: '9px', color: t.cyan, padding: '0 4px', background: 'rgba(6,182,212,0.1)', borderRadius: '3px' }}>briefing</span>
+                      )}
+                      {conv.generation_status === 'generating' && (
+                        <span style={{ fontSize: '9px', color: t.warning, padding: '0 4px', background: 'rgba(245,158,11,0.1)', borderRadius: '3px' }}>generating</span>
+                      )}
+                      {conv.generation_status === 'error' && (
+                        <span style={{ fontSize: '9px', color: t.danger, padding: '0 4px', background: 'rgba(239,68,68,0.1)', borderRadius: '3px' }}>error</span>
                       )}
                     </div>
                   </div>

@@ -343,29 +343,57 @@ router.post('/conversations/:id/messages', async (req, res) => {
       }
     }
 
-    // Call GPT-5 with vision support
+    // Call GPT-5 with vision support (with retry + timeout)
     const body = {
       model: GPT5_MODEL,
       messages: gptMessages,
       max_completion_tokens: 2000,
     };
 
-    const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
+    let assistantResponse;
+    const maxRetries = 2;
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(120000),
+        });
 
-    if (!gptRes.ok) {
-      const errorText = await gptRes.text();
-      throw new Error(`GPT-5 API error: ${gptRes.status} ${errorText}`);
+        if (gptRes.ok) {
+          const gptData = await gptRes.json();
+          assistantResponse = gptData.choices[0].message.content;
+          break;
+        }
+
+        const errorText = await gptRes.text();
+        lastError = new Error(`GPT-5 API error: ${gptRes.status} ${errorText}`);
+
+        if (gptRes.status >= 500 && attempt < maxRetries) {
+          const delay = (attempt + 1) * 2000;
+          console.warn(`[agent-creator] Chat GPT-5 ${gptRes.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw lastError;
+      } catch (err) {
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+          lastError = new Error('GPT-5 API timeout after 120s');
+          if (attempt < maxRetries) {
+            console.warn(`[agent-creator] Chat GPT-5 timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+        }
+        throw lastError || err;
+      }
     }
-
-    const gptData = await gptRes.json();
-    const assistantResponse = gptData.choices[0].message.content;
+    if (!assistantResponse) throw lastError || new Error('GPT-5 returned no response');
 
     // Save assistant response
     const assistantMessage = await db.createConversationMessage(id, 'assistant', assistantResponse);

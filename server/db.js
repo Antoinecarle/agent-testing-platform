@@ -742,10 +742,11 @@ async function getUserAgentConversations(userId) {
 }
 
 async function updateAgentConversation(conversationId, updates) {
-  await supabase.from('agent_conversations').update({
+  const { data } = await supabase.from('agent_conversations').update({
     ...updates,
     updated_at: new Date().toISOString(),
-  }).eq('id', conversationId);
+  }).eq('id', conversationId).select('*').single();
+  return data || null;
 }
 
 async function deleteAgentConversation(conversationId) {
