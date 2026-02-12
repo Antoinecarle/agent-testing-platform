@@ -1,5 +1,5 @@
-// Agent Creator Routes
-// Handles GPT-5 conversations, image/URL analysis, and agent file generation
+// Agent Creator Routes — V2
+// Deep analysis, design briefs, multi-step generation for 600-900 line agents
 
 const express = require('express');
 const router = express.Router();
@@ -7,10 +7,19 @@ const crypto = require('crypto');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
+const db = require('../db');
 
-// OpenAI GPT-5 client
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GPT5_MODEL = 'gpt-5-mini-2025-08-07'; // MANDATORY per CLAUDE.md
+// Import analysis and template modules
+const { deepAnalyzeURL, deepAnalyzeImage, synthesizeDesignBrief, callGPT5 } = require('../lib/agent-analysis');
+const {
+  CONVERSATION_SYSTEM_PROMPT,
+  GENERATION_SYSTEM_PROMPT,
+  AGENT_EXAMPLE_ABBREVIATED,
+  REFINEMENT_PROMPT,
+  validateAgentQuality,
+} = require('../lib/agent-templates');
+
+const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
 
 // Multer setup for image uploads
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
@@ -29,7 +38,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
     if (allowedTypes.includes(file.mimetype)) {
@@ -40,95 +49,60 @@ const upload = multer({
   }
 });
 
-// Helper: Call GPT-5
-async function callGPT5(messages, responseFormat = null) {
-  const body = {
-    model: GPT5_MODEL,
-    messages,
-  };
+// ========== HELPER: Build references context for conversation ==========
 
-  if (responseFormat === 'json') {
-    body.response_format = { type: 'json_object' };
-  }
+function buildReferencesContext(references) {
+  if (!references || references.length === 0) return '';
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`GPT-5 API error: ${res.status} ${errorText}`);
-  }
-
-  const data = await res.json();
-  return data.choices[0].message.content;
-}
-
-// Helper: Analyze image with GPT-5 Vision (base64)
-async function analyzeImageBase64(filePath, mimeType, prompt = 'Describe this design in detail, including colors, layout, typography, and style.') {
-  const imageBuffer = await fs.readFile(filePath);
-  const base64 = imageBuffer.toString('base64');
-  const dataUrl = `data:${mimeType};base64,${base64}`;
-
-  const messages = [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: dataUrl } }
-      ]
+  let ctx = '\n\n## Reference Analyses\n';
+  references.forEach((ref, idx) => {
+    if (ref.type === 'image') {
+      const structured = ref.structured_analysis;
+      if (structured) {
+        ctx += `\n### Image ${idx + 1}: ${ref.filename || 'screenshot'}\n`;
+        if (structured.colors) {
+          ctx += `- **Colors**: Background ${structured.colors.dominantBackground || '?'}, Accent ${structured.colors.primaryAccent || '?'}, Mood: ${structured.colors.mood || '?'}\n`;
+        }
+        if (structured.typography) {
+          ctx += `- **Typography**: Display "${structured.typography.displayFont || '?'}", Body "${structured.typography.bodyFont || '?'}", Style: ${structured.typography.headlineStyle || '?'}\n`;
+        }
+        if (structured.layout) {
+          ctx += `- **Layout**: ${structured.layout.primaryLayout || '?'}, Cards: ${structured.layout.cardStyle || '?'}, Radius: ${structured.layout.borderRadius || '?'}\n`;
+        }
+        if (structured.components) {
+          ctx += `- **Aesthetic**: ${structured.components.overallAesthetic || '?'}\n`;
+          if (structured.components.components) {
+            const names = structured.components.components.map(c => c.type).join(', ');
+            ctx += `- **Components**: ${names}\n`;
+          }
+        }
+      } else if (ref.analysis) {
+        ctx += `\n### Image ${idx + 1}: ${ref.filename}\n${ref.analysis}\n`;
+      }
+    } else if (ref.type === 'url') {
+      const structured = ref.structured_analysis;
+      if (structured && structured.gptAnalysis) {
+        const gpt = structured.gptAnalysis;
+        ctx += `\n### URL ${idx + 1}: ${ref.url}\n`;
+        ctx += `- **Site**: ${gpt.siteName || structured.extracted?.title || '?'}\n`;
+        ctx += `- **Style**: ${gpt.designStyle || '?'}\n`;
+        if (gpt.colorScheme) {
+          ctx += `- **Colors**: Primary ${gpt.colorScheme.primary || '?'}, BG ${gpt.colorScheme.background || '?'}, Accent ${gpt.colorScheme.accent || '?'}\n`;
+        }
+        if (gpt.typography) {
+          ctx += `- **Fonts**: Heading "${gpt.typography.headingFont || '?'}", Body "${gpt.typography.bodyFont || '?'}"\n`;
+        }
+        ctx += `- **Mood**: ${gpt.overallMood || '?'}\n`;
+      } else if (ref.analysis) {
+        const analysis = typeof ref.analysis === 'string' ? JSON.parse(ref.analysis) : ref.analysis;
+        ctx += `\n### URL ${idx + 1}: ${ref.url}\nTitle: ${analysis.title}\n`;
+      }
     }
-  ];
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: GPT5_MODEL,
-      messages,
-      max_completion_tokens: 1000,
-    }),
   });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`GPT Vision API error: ${res.status} ${errorText}`);
-  }
-
-  const data = await res.json();
-  return data.choices[0].message.content;
-}
-
-// Helper: Fetch and analyze URL
-async function analyzeURL(url) {
-  try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const html = await res.text();
-
-    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-    const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
-
-    const title = titleMatch ? titleMatch[1] : 'No title';
-    const description = descMatch ? descMatch[1] : 'No description';
-
-    return { title, description, url, type: 'webpage' };
-  } catch (err) {
-    return { title: 'Error loading URL', description: err.message, url, type: 'error' };
-  }
+  return ctx;
 }
 
 // ========== ROUTES ==========
-// Note: verifyToken is applied at the mount level in index.js
-
-const db = require('../db');
 
 // List user's conversations
 router.get('/conversations', async (req, res) => {
@@ -147,9 +121,7 @@ router.post('/conversations', async (req, res) => {
   try {
     const { name } = req.body;
     const userId = req.user.userId || req.user.id;
-
     const conversation = await db.createAgentConversation(userId, name || 'New Agent');
-
     res.json({ conversation });
   } catch (err) {
     console.error('[agent-creator] Error creating conversation:', err);
@@ -157,7 +129,7 @@ router.post('/conversations', async (req, res) => {
   }
 });
 
-// Get conversation by ID (with messages and references)
+// Get conversation by ID (with messages, references, brief, generated agent)
 router.get('/conversations/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -167,7 +139,6 @@ router.get('/conversations/:id', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Load messages and references
     const messages = await db.getConversationMessages(id);
     const references = await db.getConversationReferences(id);
 
@@ -175,7 +146,7 @@ router.get('/conversations/:id', async (req, res) => {
       conversation: {
         ...conversation,
         messages,
-        references
+        references,
       }
     });
   } catch (err) {
@@ -184,7 +155,8 @@ router.get('/conversations/:id', async (req, res) => {
   }
 });
 
-// Upload and analyze image (uses base64 for GPT Vision)
+// ========== DEEP IMAGE UPLOAD + ANALYSIS ==========
+
 router.post('/conversations/:id/images', upload.single('image'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -202,25 +174,37 @@ router.post('/conversations/:id/images', upload.single('image'), async (req, res
     const filePath = req.file.path;
     const mimeType = req.file.mimetype;
 
-    // Analyze image with GPT Vision using base64
-    const analysis = await analyzeImageBase64(filePath, mimeType);
+    // Deep analysis: 4 parallel GPT-5 Vision calls (colors, typography, layout, components)
+    console.log(`[agent-creator] Deep analyzing image: ${req.file.originalname}`);
+    const structuredAnalysis = await deepAnalyzeImage(filePath, mimeType);
 
+    // Create reference with both human-readable summary and structured JSON
     const reference = await db.createConversationReference(
       id,
       'image',
       imageUrl,
       req.file.originalname,
-      analysis
+      structuredAnalysis.summary || 'Deep analysis completed'
     );
 
-    res.json({ reference });
+    // Store structured analysis separately
+    await db.updateReferenceAnalysis(reference.id, structuredAnalysis);
+
+    // Return reference with structured analysis attached
+    res.json({
+      reference: {
+        ...reference,
+        structured_analysis: structuredAnalysis,
+      }
+    });
   } catch (err) {
     console.error('[agent-creator] Error uploading image:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Add URL reference
+// ========== DEEP URL ANALYSIS ==========
+
 router.post('/conversations/:id/urls', async (req, res) => {
   try {
     const { id } = req.params;
@@ -235,24 +219,39 @@ router.post('/conversations/:id/urls', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const analysis = await analyzeURL(url);
+    // Deep URL analysis: fetch HTML, extract CSS/fonts/colors, GPT analysis
+    console.log(`[agent-creator] Deep analyzing URL: ${url}`);
+    const structuredAnalysis = await deepAnalyzeURL(url);
+
+    const summary = structuredAnalysis.gptAnalysis
+      ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.designStyle || 'analyzed'}`
+      : JSON.stringify({ title: structuredAnalysis.extracted?.title || 'Unknown', url });
 
     const reference = await db.createConversationReference(
       id,
       'url',
       url,
       null,
-      JSON.stringify(analysis)
+      summary
     );
 
-    res.json({ reference });
+    // Store structured analysis
+    await db.updateReferenceAnalysis(reference.id, structuredAnalysis);
+
+    res.json({
+      reference: {
+        ...reference,
+        structured_analysis: structuredAnalysis,
+      }
+    });
   } catch (err) {
     console.error('[agent-creator] Error adding URL:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Send message to GPT-5
+// ========== CONVERSATION MESSAGES (upgraded system prompt) ==========
+
 router.post('/conversations/:id/messages', async (req, res) => {
   try {
     const { id } = req.params;
@@ -267,56 +266,26 @@ router.post('/conversations/:id/messages', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Load references
+    // Load references with structured analysis
     const references = await db.getConversationReferences(id);
+    const referencesContext = buildReferencesContext(references);
 
-    // Build context from references
-    let referencesContext = '';
-    if (references.length > 0) {
-      referencesContext = '\n\nReferences provided by the user:\n';
-      references.forEach((ref, idx) => {
-        if (ref.type === 'image') {
-          referencesContext += `\n[Image ${idx + 1}]: ${ref.filename}\nAnalysis: ${ref.analysis}\n`;
-        } else if (ref.type === 'url') {
-          const analysis = typeof ref.analysis === 'string' ? JSON.parse(ref.analysis) : ref.analysis;
-          referencesContext += `\n[URL ${idx + 1}]: ${ref.url}\nTitle: ${analysis.title}\nDescription: ${analysis.description}\n`;
-        }
-      });
-    }
+    // Build the upgraded system prompt
+    const systemPrompt = CONVERSATION_SYSTEM_PROMPT
+      + referencesContext
+      + `\n\nCurrent conversation: Creating an agent for "${conversation.name}".`;
 
-    const systemPrompt = `You are an expert AI agent designer. Your goal is to help the user create a specialized AI agent configuration file in markdown format.
-
-An agent file has this structure:
-
----
-name: agent-name
-description: "Brief description of the agent's purpose"
-model: claude-opus-4-6
----
-[Agent system prompt goes here - this is the full instruction set for the agent]
-
-Guidelines:
-1. Ask clarifying questions to understand the agent's purpose
-2. Use references (images, URLs) to inform design decisions
-3. Be specific about colors, typography, layout patterns
-4. Generate complete, production-ready agent prompts
-5. Follow the format exactly
-
-${referencesContext}
-
-Current conversation goal: Create an agent configuration for "${conversation.name}".`;
-
-    // Add user message to database
+    // Save user message
     await db.createConversationMessage(id, 'user', message);
 
-    // Load all messages for GPT-5 context
+    // Load all messages for GPT context
     const messages = await db.getConversationMessages(id);
     const gptMessages = [
       { role: 'system', content: systemPrompt },
       ...messages.map(m => ({ role: m.role, content: m.content })),
     ];
 
-    const assistantResponse = await callGPT5(gptMessages);
+    const assistantResponse = await callGPT5(gptMessages, { max_completion_tokens: 2000 });
 
     // Save assistant response
     const assistantMessage = await db.createConversationMessage(id, 'assistant', assistantResponse);
@@ -328,7 +297,66 @@ Current conversation goal: Create an agent configuration for "${conversation.nam
   }
 });
 
-// Generate final agent file
+// ========== NEW: ANALYZE — Synthesize design brief ==========
+
+router.post('/conversations/:id/analyze', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Update status
+    await db.updateConversationGeneratedAgent(id, null, 'analyzing');
+
+    // Load references and messages
+    const references = await db.getConversationReferences(id);
+    const messages = await db.getConversationMessages(id);
+
+    if (references.length === 0 && messages.length < 2) {
+      return res.status(400).json({ error: 'Add at least one reference or chat about the design before analyzing' });
+    }
+
+    console.log(`[agent-creator] Synthesizing design brief for conversation ${id} (${references.length} refs, ${messages.length} msgs)`);
+
+    // Synthesize design brief from all analyses + conversation
+    const brief = await synthesizeDesignBrief(references, messages);
+
+    // Store brief
+    await db.updateConversationBrief(id, brief);
+    await db.updateConversationGeneratedAgent(id, null, 'briefing');
+
+    console.log(`[agent-creator] Design brief generated for conversation ${id}`);
+
+    res.json({ brief });
+  } catch (err) {
+    console.error('[agent-creator] Error analyzing:', err);
+    await db.updateConversationGeneratedAgent(id, null, 'error').catch(() => {});
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get design brief
+router.get('/conversations/:id/brief', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.json({ brief: conversation.design_brief || null });
+  } catch (err) {
+    console.error('[agent-creator] Error fetching brief:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== GENERATE — Multi-step agent file generation ==========
+
 router.post('/conversations/:id/generate', async (req, res) => {
   try {
     const { id } = req.params;
@@ -340,45 +368,144 @@ router.post('/conversations/:id/generate', async (req, res) => {
 
     const messages = await db.getConversationMessages(id);
     const references = await db.getConversationReferences(id);
+    let brief = conversation.design_brief;
 
-    const referencesContext = references.map((ref, idx) => {
-      if (ref.type === 'image') {
-        return `Image ${idx + 1}: ${ref.analysis}`;
-      } else {
-        const analysis = typeof ref.analysis === 'string' ? JSON.parse(ref.analysis) : ref.analysis;
-        return `URL ${idx + 1}: ${ref.url} - ${analysis.title}`;
-      }
-    }).join('\n');
+    // Auto-analyze if no brief exists
+    if (!brief) {
+      console.log(`[agent-creator] No brief found, auto-analyzing...`);
+      brief = await synthesizeDesignBrief(references, messages);
+      await db.updateConversationBrief(id, brief);
+    }
 
-    const generationPrompt = `Based on our conversation, generate a complete agent configuration file.
+    await db.updateConversationGeneratedAgent(id, null, 'generating');
 
-Conversation summary:
-${messages.map(m => `${m.role}: ${m.content}`).join('\n\n')}
+    // Build conversation summary (not raw dump — summarize for token efficiency)
+    const recentMessages = messages.slice(-12);
+    const conversationSummary = recentMessages.map(m => {
+      const content = m.content.length > 600 ? m.content.slice(0, 600) + '...' : m.content;
+      return `${m.role}: ${content}`;
+    }).join('\n\n');
 
-References:
-${referencesContext}
+    // Derive agent name from brief or conversation
+    const derivedName = brief.agentIdentity?.aesthetic
+      ? brief.agentIdentity.aesthetic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      : conversation.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-Generate a complete markdown agent file with:
-1. Frontmatter (name, description, model)
-2. Full system prompt (detailed instructions)
+    // Build the generation prompt
+    const generationUserPrompt = `Create a complete, production-ready agent configuration file.
 
-Output ONLY the markdown file content, nothing else.`;
+## Design Brief
+${JSON.stringify(brief, null, 2)}
 
-    const gptMessages = [
-      { role: 'system', content: 'You are an expert AI agent file generator. Output ONLY the markdown content, no explanations.' },
-      { role: 'user', content: generationPrompt },
-    ];
+## Conversation Context
+${conversationSummary}
 
-    const agentFile = await callGPT5(gptMessages);
+## Requirements
+- Agent name: ${derivedName}
+- Target aesthetic: ${brief.agentIdentity?.aesthetic || 'professional'}
+- Primary use case: ${brief.agentIdentity?.role || 'frontend page builder'}
+- Model: claude-opus-4-6
 
-    res.json({ agentFile });
+## Reference Example (showing expected FORMAT and DEPTH — your content must be DIFFERENT)
+${AGENT_EXAMPLE_ABBREVIATED}
+
+## END OF REFERENCE
+
+Now generate the complete agent file. It MUST be 600-900 lines with ALL 10 sections.
+Every CSS value, every color, every spacing token must be specific to the design brief above.
+Do NOT copy the reference example content — use it only as a format guide.`;
+
+    console.log(`[agent-creator] Generating agent for ${derivedName} (conversation ${id})`);
+
+    const agentFile = await callGPT5(
+      [
+        { role: 'system', content: GENERATION_SYSTEM_PROMPT },
+        { role: 'user', content: generationUserPrompt },
+      ],
+      { max_completion_tokens: 16000 }
+    );
+
+    // Validate quality
+    const validation = validateAgentQuality(agentFile);
+
+    // Store generated agent
+    await db.updateConversationGeneratedAgent(id, agentFile, 'complete');
+
+    console.log(`[agent-creator] Agent generated: ${validation.totalLines} lines, score ${validation.score}/10`);
+
+    res.json({ agentFile, validation });
   } catch (err) {
-    console.error('[agent-creator] Error generating agent:', err);
+    console.error('[agent-creator] Error generating:', err);
+    await db.updateConversationGeneratedAgent(id, null, 'error').catch(() => {});
     res.status(500).json({ error: err.message });
   }
 });
 
-// Delete reference
+// ========== NEW: REFINE — Improve a specific section ==========
+
+router.post('/conversations/:id/refine', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { section, feedback } = req.body;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    if (!section || !feedback) {
+      return res.status(400).json({ error: 'section and feedback are required' });
+    }
+
+    const currentAgent = conversation.generated_agent;
+    if (!currentAgent) {
+      return res.status(400).json({ error: 'No generated agent to refine. Generate first.' });
+    }
+
+    // Extract the target section
+    const sectionRegex = new RegExp(`(## .*${section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?)(?=\\n## |$)`, 'i');
+    const sectionMatch = currentAgent.match(sectionRegex);
+
+    if (!sectionMatch) {
+      return res.status(400).json({ error: `Section "${section}" not found in the generated agent` });
+    }
+
+    const sectionContent = sectionMatch[1];
+
+    // Build refinement prompt
+    const refinementPrompt = REFINEMENT_PROMPT
+      .replace('{fullAgent}', currentAgent.slice(0, 2000) + '\n...[truncated]...')
+      .replace('{sectionName}', section)
+      .replace('{sectionContent}', sectionContent)
+      .replace('{feedback}', feedback);
+
+    console.log(`[agent-creator] Refining section "${section}" for conversation ${id}`);
+
+    const refinedSection = await callGPT5(
+      [
+        { role: 'system', content: 'You are refining a section of an AI agent configuration file. Output ONLY the refined section content with its ## header. No explanations.' },
+        { role: 'user', content: refinementPrompt },
+      ],
+      { max_completion_tokens: 4000 }
+    );
+
+    // Replace the section in the full agent
+    const updatedAgent = currentAgent.replace(sectionMatch[1], refinedSection.trim() + '\n\n');
+
+    // Store updated agent
+    await db.updateConversationGeneratedAgent(id, updatedAgent, 'complete');
+
+    const validation = validateAgentQuality(updatedAgent);
+
+    res.json({ agentFile: updatedAgent, refinedSection: section, validation });
+  } catch (err) {
+    console.error('[agent-creator] Error refining:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== DELETE REFERENCE ==========
+
 router.delete('/conversations/:id/references/:refId', async (req, res) => {
   try {
     const { id, refId } = req.params;
@@ -413,7 +540,8 @@ router.delete('/conversations/:id/references/:refId', async (req, res) => {
   }
 });
 
-// Delete conversation
+// ========== DELETE CONVERSATION ==========
+
 router.delete('/conversations/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -432,7 +560,8 @@ router.delete('/conversations/:id', async (req, res) => {
   }
 });
 
-// Save generated agent to library
+// ========== SAVE AGENT — Parse all frontmatter fields ==========
+
 router.post('/conversations/:id/save', async (req, res) => {
   try {
     const { id } = req.params;
@@ -447,7 +576,7 @@ router.post('/conversations/:id/save', async (req, res) => {
       return res.status(400).json({ error: 'Agent content is required' });
     }
 
-    // Parse frontmatter from markdown
+    // Parse frontmatter
     const frontmatterMatch = agentContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
 
     if (!frontmatterMatch) {
@@ -456,9 +585,14 @@ router.post('/conversations/:id/save', async (req, res) => {
 
     const [, frontmatter, prompt] = frontmatterMatch;
 
+    // Parse all frontmatter fields
     const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
     const descriptionMatch = frontmatter.match(/^description:\s*["']?(.+?)["']?$/m);
     const modelMatch = frontmatter.match(/^model:\s*(.+)$/m);
+    const toolsMatch = frontmatter.match(/^tools:\s*\[?(.+?)\]?$/m);
+    const maxTurnsMatch = frontmatter.match(/^max_turns:\s*(\d+)$/m);
+    const memoryMatch = frontmatter.match(/^memory:\s*(.+)$/m);
+    const permissionMatch = frontmatter.match(/^permission_mode:\s*(.+)$/m);
 
     if (!nameMatch) {
       return res.status(400).json({ error: 'Agent name is required in frontmatter' });
@@ -466,9 +600,21 @@ router.post('/conversations/:id/save', async (req, res) => {
 
     const agentName = nameMatch[1].trim();
     const description = descriptionMatch ? descriptionMatch[1].trim() : '';
-    const model = modelMatch ? modelMatch[1].trim() : 'claude-sonnet-4-5';
+    const model = modelMatch ? modelMatch[1].trim() : 'claude-opus-4-6';
+    const tools = toolsMatch ? toolsMatch[1].trim() : 'Read,Write,Edit,Bash,Grep,Glob,WebFetch,WebSearch';
+    const maxTurns = maxTurnsMatch ? parseInt(maxTurnsMatch[1]) : 0;
+    const memory = memoryMatch ? memoryMatch[1].trim() : 'true';
+    const permissionMode = permissionMatch ? permissionMatch[1].trim() : 'default';
 
-    // Create agent file in bundled agents directory
+    // Detect category from content
+    const lowerContent = (description + ' ' + prompt.slice(0, 500)).toLowerCase();
+    let category = 'Custom';
+    if (lowerContent.includes('landing page') || lowerContent.includes('marketing')) category = 'Landing Pages';
+    else if (lowerContent.includes('dashboard') || lowerContent.includes('saas')) category = 'SaaS';
+    else if (lowerContent.includes('portfolio') || lowerContent.includes('creative')) category = 'Creative';
+    else if (lowerContent.includes('e-commerce') || lowerContent.includes('shop')) category = 'E-Commerce';
+
+    // Write agent .md file
     const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
     await fs.mkdir(BUNDLED_AGENTS_DIR, { recursive: true });
 
@@ -480,21 +626,21 @@ router.post('/conversations/:id/save', async (req, res) => {
       agentName,
       description,
       model,
-      'Custom',
+      category,
       description,
       prompt,
-      'Read,Write,Edit,Bash,Grep,Glob',
-      0,
-      'true',
-      'default',
+      tools,
+      maxTurns,
+      memory,
+      permissionMode,
       conversation.user_id
     );
 
-    console.log(`[agent-creator] Saved agent: ${agentName}`);
+    console.log(`[agent-creator] Saved agent: ${agentName} (${model}, ${category})`);
 
     res.json({
       success: true,
-      agent: { name: agentName, description, model }
+      agent: { name: agentName, description, model, category }
     });
   } catch (err) {
     console.error('[agent-creator] Error saving agent:', err);

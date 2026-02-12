@@ -813,6 +813,30 @@ async function deleteConversationReference(referenceId) {
   }
 }
 
+// Update reference with structured analysis JSON
+async function updateReferenceAnalysis(referenceId, structuredAnalysis) {
+  await supabase.from('agent_conversation_references').update({
+    structured_analysis: structuredAnalysis,
+  }).eq('id', referenceId);
+}
+
+// Store design brief on conversation
+async function updateConversationBrief(conversationId, brief) {
+  await supabase.from('agent_conversations').update({
+    design_brief: brief,
+    updated_at: new Date().toISOString(),
+  }).eq('id', conversationId);
+}
+
+// Store generated agent and generation status
+async function updateConversationGeneratedAgent(conversationId, agent, status) {
+  await supabase.from('agent_conversations').update({
+    generated_agent: agent || null,
+    generation_status: status || 'completed',
+    updated_at: new Date().toISOString(),
+  }).eq('id', conversationId);
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -860,4 +884,5 @@ module.exports = {
   updateAgentConversation, deleteAgentConversation,
   createConversationMessage, getConversationMessages,
   createConversationReference, getConversationReferences, deleteConversationReference,
+  updateReferenceAnalysis, updateConversationBrief, updateConversationGeneratedAgent,
 };
