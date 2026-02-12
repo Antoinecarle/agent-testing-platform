@@ -17,34 +17,53 @@ function ensureUserHome(userId) {
     fs.mkdirSync(userClaudeDir, { recursive: true });
   }
 
-  // Copy agents from bundled/system dir to user's .claude/agents/
+  // Copy agents from bundled/system dir + custom-agents to user's .claude/agents/
   // Use direct copy instead of symlinks (more reliable across volume mounts)
-  if (fs.existsSync(AGENTS_SOURCE)) {
-    // Remove stale symlink if present (from old code)
-    try {
-      if (fs.lstatSync(userAgentsLink).isSymbolicLink()) {
-        fs.unlinkSync(userAgentsLink);
-      }
-    } catch (_) {}
 
-    // Create agents directory and copy files
-    if (!fs.existsSync(userAgentsLink)) {
-      fs.mkdirSync(userAgentsLink, { recursive: true });
+  // Remove stale symlink if present (from old code)
+  try {
+    if (fs.lstatSync(userAgentsLink).isSymbolicLink()) {
+      fs.unlinkSync(userAgentsLink);
     }
-    try {
-      const agentFiles = fs.readdirSync(AGENTS_SOURCE).filter(f => f.endsWith('.md'));
-      let copied = 0;
+  } catch (_) {}
+
+  // Create agents directory
+  if (!fs.existsSync(userAgentsLink)) {
+    fs.mkdirSync(userAgentsLink, { recursive: true });
+  }
+
+  // Collect agent files from multiple sources
+  const agentSources = [];
+  if (fs.existsSync(AGENTS_SOURCE)) agentSources.push(AGENTS_SOURCE);
+  // Also load custom agents from persistent volume (created via Agent Creator)
+  const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
+  if (fs.existsSync(CUSTOM_AGENTS_DIR)) agentSources.push(CUSTOM_AGENTS_DIR);
+
+  try {
+    let copied = 0;
+    for (const sourceDir of agentSources) {
+      const agentFiles = fs.readdirSync(sourceDir).filter(f => f.endsWith('.md'));
       for (const file of agentFiles) {
+        const src = path.join(sourceDir, file);
         const dest = path.join(userAgentsLink, file);
-        if (!fs.existsSync(dest)) {
-          fs.copyFileSync(path.join(AGENTS_SOURCE, file), dest);
+        // Always copy if source is newer or dest doesn't exist
+        let shouldCopy = !fs.existsSync(dest);
+        if (!shouldCopy) {
+          try {
+            const srcMtime = fs.statSync(src).mtimeMs;
+            const destMtime = fs.statSync(dest).mtimeMs;
+            shouldCopy = srcMtime > destMtime;
+          } catch (_) { shouldCopy = true; }
+        }
+        if (shouldCopy) {
+          fs.copyFileSync(src, dest);
           copied++;
         }
       }
-      if (copied > 0) console.log(`[UserHome] Copied ${copied} agents to ${userId}`);
-    } catch (err) {
-      console.warn(`[UserHome] Failed to copy agents for ${userId}:`, err.message);
     }
+    if (copied > 0) console.log(`[UserHome] Copied ${copied} agents to ${userId}`);
+  } catch (err) {
+    console.warn(`[UserHome] Failed to copy agents for ${userId}:`, err.message);
   }
 
   // Create permissive settings.json so agents can write files

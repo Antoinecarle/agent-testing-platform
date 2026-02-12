@@ -73,39 +73,52 @@ function parseAgentFile(filePath) {
   return { name, description, model, category, promptPreview, fullPrompt, tools, maxTurns, memory, permissionMode };
 }
 
-// Sync agents from filesystem to DB
+// Sync agents from filesystem to DB (bundled + custom-agents from persistent volume)
 async function syncAgents() {
-  console.log(`[Agents] Syncing from: ${AGENTS_DIR} (exists: ${fs.existsSync(AGENTS_DIR)})`);
-  if (!fs.existsSync(AGENTS_DIR)) return [];
+  const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+  const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
 
-  const files = fs.readdirSync(AGENTS_DIR).filter(f => f.endsWith('.md'));
-  console.log(`[Agents] Found ${files.length} agent files`);
+  // Collect .md files from both bundled and custom agents dirs
+  const agentDirs = [];
+  if (fs.existsSync(AGENTS_DIR)) agentDirs.push({ dir: AGENTS_DIR, source: 'filesystem' });
+  if (fs.existsSync(CUSTOM_AGENTS_DIR)) agentDirs.push({ dir: CUSTOM_AGENTS_DIR, source: 'manual' });
+
+  console.log(`[Agents] Syncing from ${agentDirs.length} source(s): ${agentDirs.map(d => d.dir).join(', ')}`);
+
   const synced = [];
 
-  for (const file of files) {
-    try {
-      const filePath = path.join(AGENTS_DIR, file);
-      const parsed = parseAgentFile(filePath);
-      const existing = await db.getAgent(parsed.name);
+  for (const { dir, source } of agentDirs) {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+    console.log(`[Agents] Found ${files.length} agent files in ${dir}`);
 
-      await db.upsertAgent(
-        parsed.name,
-        parsed.description,
-        parsed.model,
-        parsed.category,
-        parsed.promptPreview,
-        existing ? existing.screenshot_path : '',
-        existing ? existing.rating : 0,
-        parsed.fullPrompt,
-        'filesystem',
-        parsed.tools,
-        parsed.maxTurns,
-        parsed.memory,
-        parsed.permissionMode
-      );
-      synced.push(parsed.name);
-    } catch (err) {
-      console.error(`[Agents] Error parsing ${file}:`, err.message);
+    for (const file of files) {
+      try {
+        const filePath = path.join(dir, file);
+        const parsed = parseAgentFile(filePath);
+        const existing = await db.getAgent(parsed.name);
+
+        // For custom agents, preserve their source as 'manual'
+        const agentSource = source === 'manual' ? 'manual' : 'filesystem';
+
+        await db.upsertAgent(
+          parsed.name,
+          parsed.description,
+          parsed.model,
+          parsed.category,
+          parsed.promptPreview,
+          existing ? existing.screenshot_path : '',
+          existing ? existing.rating : 0,
+          parsed.fullPrompt,
+          agentSource,
+          parsed.tools,
+          parsed.maxTurns,
+          parsed.memory,
+          parsed.permissionMode
+        );
+        synced.push(parsed.name);
+      } catch (err) {
+        console.error(`[Agents] Error parsing ${file}:`, err.message);
+      }
     }
   }
 

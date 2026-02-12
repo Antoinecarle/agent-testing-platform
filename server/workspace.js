@@ -26,9 +26,15 @@ function getRootAuthority() {
  * Read the full agent .md file content
  */
 function getAgentPrompt(agentName) {
+  // Check bundled agents first, then custom agents on persistent volume
   const filePath = path.join(AGENTS_DIR, `${agentName}.md`);
-  if (!fs.existsSync(filePath)) return null;
-  return fs.readFileSync(filePath, 'utf-8');
+  if (fs.existsSync(filePath)) return fs.readFileSync(filePath, 'utf-8');
+
+  const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  const customPath = path.join(DATA_DIR, 'custom-agents', `${agentName}.md`);
+  if (fs.existsSync(customPath)) return fs.readFileSync(customPath, 'utf-8');
+
+  return null;
 }
 
 /**

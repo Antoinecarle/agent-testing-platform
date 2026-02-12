@@ -722,27 +722,60 @@ router.post('/conversations/:id/save', async (req, res) => {
     else if (lowerContent.includes('portfolio') || lowerContent.includes('creative')) category = 'Creative';
     else if (lowerContent.includes('e-commerce') || lowerContent.includes('shop')) category = 'E-Commerce';
 
-    // Write agent .md file
+    // Write agent .md file to BOTH bundled dir AND persistent DATA_DIR
     const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+    const PERSISTENT_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
     await fs.mkdir(BUNDLED_AGENTS_DIR, { recursive: true });
+    await fs.mkdir(PERSISTENT_AGENTS_DIR, { recursive: true });
 
+    // Save to bundled agents (works at runtime, lost on redeploy)
     const agentFilePath = path.join(BUNDLED_AGENTS_DIR, `${agentName}.md`);
     await fs.writeFile(agentFilePath, agentContent, 'utf8');
 
-    // Create agent in database
-    await db.createAgentManual(
-      agentName,
-      description,
-      model,
-      category,
-      description,
-      prompt,
-      tools,
-      maxTurns,
-      memory,
-      permissionMode,
-      conversation.user_id
-    );
+    // Save to persistent volume (survives redeploys on Railway)
+    const persistentPath = path.join(PERSISTENT_AGENTS_DIR, `${agentName}.md`);
+    await fs.writeFile(persistentPath, agentContent, 'utf8');
+
+    // Copy to current user's .claude/agents/ so Claude CLI sees it immediately
+    const userId = req.user.userId || req.user.id;
+    const userAgentsDir = path.join(DATA_DIR, 'users', userId, '.claude', 'agents');
+    try {
+      await fs.mkdir(userAgentsDir, { recursive: true });
+      await fs.writeFile(path.join(userAgentsDir, `${agentName}.md`), agentContent, 'utf8');
+      console.log(`[agent-creator] Copied agent to user ${userId} .claude/agents/`);
+    } catch (err) {
+      console.warn(`[agent-creator] Could not copy agent to user home:`, err.message);
+    }
+
+    // Upsert in database (handles both create and update)
+    const existing = await db.getAgent(agentName);
+    if (existing) {
+      await db.updateAgent(agentName, {
+        description,
+        model,
+        category,
+        prompt_preview: description,
+        full_prompt: agentContent,
+        tools,
+        max_turns: maxTurns,
+        memory,
+        permission_mode: permissionMode,
+      });
+    } else {
+      await db.createAgentManual(
+        agentName,
+        description,
+        model,
+        category,
+        description,
+        agentContent,
+        tools,
+        maxTurns,
+        memory,
+        permissionMode,
+        userId
+      );
+    }
 
     console.log(`[agent-creator] Saved agent: ${agentName} (${model}, ${category})`);
 
