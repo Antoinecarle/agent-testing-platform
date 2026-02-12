@@ -7,7 +7,7 @@ import {
   UploadCloud, Link as LinkIcon, Send, X, FileCode, Plus,
   Trash2, Bot, User, Sparkles, Zap, CheckCircle, AlertTriangle,
   RefreshCw, ChevronDown, ChevronRight, Palette, Type, Layout,
-  Layers, Save, MessageSquare, Edit3, Check, Clock
+  Layers, Save, MessageSquare, Edit3, Check, Clock, Image, Maximize2
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -101,6 +101,11 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
   const [refineFeedback, setRefineFeedback] = useState('');
   const [isRefining, setIsRefining] = useState(false);
 
+  // Preview image
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+
   // Agent name editing (for save)
   const [agentNameOverride, setAgentNameOverride] = useState('');
 
@@ -158,6 +163,8 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
     setIsPreviewOpen(false);
     setRefineSection(null);
     setAgentNameOverride('');
+    setPreviewImageUrl(null);
+    setShowImageModal(false);
 
     // Load full conversation data
     try {
@@ -176,6 +183,11 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
         const nameMatch = c.generated_agent.match(/^name:\s*(.+)$/m);
         if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
       }
+      // Check for existing preview image (convention: preview-{id}.png)
+      const previewCheckUrl = `/uploads/agent-creator/preview-${conv.id}.png`;
+      fetch(previewCheckUrl, { method: 'HEAD' }).then(r => {
+        if (r.ok) setPreviewImageUrl(previewCheckUrl + '?t=' + Date.now());
+      }).catch(() => {});
     } catch (err: any) {
       console.error('Failed to load conversation:', err);
       setMessages([WELCOME_MSG]);
@@ -349,6 +361,20 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
       console.error('Failed to refine:', err);
     } finally {
       setIsRefining(false);
+    }
+  };
+
+  const generatePreviewImage = async () => {
+    if (!conversationId || isGeneratingPreview) return;
+    setIsGeneratingPreview(true);
+    try {
+      const result = await api(`/api/agent-creator/conversations/${conversationId}/preview-image`, { method: 'POST' });
+      setPreviewImageUrl(result.previewUrl + '?t=' + Date.now());
+    } catch (err: any) {
+      console.error('Failed to generate preview:', err);
+      alert(`Preview failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsGeneratingPreview(false);
     }
   };
 
@@ -743,7 +769,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
                     </div>
                   )}
                 </div>
-                {/* Agent name editor */}
+                {/* Agent name editor + preview button */}
                 {generatedAgent && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '10px', color: t.tm, flexShrink: 0 }}>Name:</span>
@@ -751,6 +777,18 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
                       placeholder="agent-name"
                       style={{ flex: 1, background: t.bg, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', color: t.tp, fontSize: '12px', fontWeight: 600, fontFamily: t.mono, outline: 'none' }}
                     />
+                    <button onClick={generatePreviewImage} disabled={isGeneratingPreview}
+                      title={previewImageUrl ? 'Regenerate Preview' : 'Generate Preview'}
+                      style={{
+                        padding: '4px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 600, cursor: isGeneratingPreview ? 'not-allowed' : 'pointer',
+                        background: isGeneratingPreview ? t.surfaceEl : 'rgba(6,182,212,0.12)',
+                        color: isGeneratingPreview ? t.tm : t.cyan,
+                        border: `1px solid ${isGeneratingPreview ? t.border : 'rgba(6,182,212,0.25)'}`,
+                        display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0,
+                      }}>
+                      {isGeneratingPreview ? <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <Image size={10} />}
+                      {isGeneratingPreview ? 'Generating...' : previewImageUrl ? 'Regen' : 'Preview'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -786,6 +824,23 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
                       style={{ padding: '5px 10px', borderRadius: '4px', background: t.violet, border: 'none', color: 'white', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}>
                       {isRefining ? '...' : 'Refine'}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview Image */}
+              {previewImageUrl && (
+                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}`, background: t.bg }}>
+                  <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: `1px solid ${t.border}`, cursor: 'pointer' }}
+                    onClick={() => setShowImageModal(true)}>
+                    <img src={previewImageUrl} alt="Preview mockup"
+                      style={{ width: '100%', height: 'auto', display: 'block' }} />
+                    <div style={{
+                      position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.7)', borderRadius: '4px',
+                      padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '3px', color: 'white', fontSize: '9px',
+                    }}>
+                      <Maximize2 size={9} /> Fullscreen
+                    </div>
                   </div>
                 </div>
               )}
@@ -829,6 +884,27 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Fullscreen Image Modal */}
+      <AnimatePresence>
+        {showImageModal && previewImageUrl && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setShowImageModal(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.9)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            }}>
+            <button onClick={() => setShowImageModal(false)}
+              style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <X size={18} color="white" />
+            </button>
+            <img src={previewImageUrl} alt="Preview fullscreen"
+              onClick={e => e.stopPropagation()}
+              style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain', borderRadius: '8px', cursor: 'default' }} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
