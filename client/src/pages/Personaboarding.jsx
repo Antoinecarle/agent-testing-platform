@@ -183,6 +183,7 @@ export default function Personaboarding() {
   const [autonomy, setAutonomy] = useState(null);
   const [gptData, setGptData] = useState(null);
   const [aiNarrative, setAiNarrative] = useState('');
+  const [customSkills, setCustomSkills] = useState([]);
   const [createdSkills, setCreatedSkills] = useState([]);
   const [createdAgent, setCreatedAgent] = useState(null);
   const [constellationReady, setConstellationReady] = useState(false);
@@ -337,11 +338,12 @@ export default function Personaboarding() {
         }),
       });
       setCreatedAgent(res.agent);
-      // Build skill objects with colors from the role skills data
+      // Build skill objects with colors from role skills + custom skills
       const roleSkills = allRoles.find(r => r.id === role.id)?.skills || [];
       const skillsWithMeta = selectedSkills.map(name => {
         const meta = roleSkills.find(s => s.name === name);
-        return { name, color: meta?.color || t.violet, category: meta?.category || '' };
+        const custom = customSkills.find(s => s.name === name);
+        return { name, color: meta?.color || custom?.color || t.violet, category: meta?.category || custom?.category || '' };
       });
       setCreatedSkills(skillsWithMeta);
       setSuccess(true);
@@ -427,22 +429,16 @@ export default function Personaboarding() {
         if (skills.length === 0) return <LoadingText text="Chargement des compétences..." />;
         return (
           <div style={{ marginTop: '20px', ...fadeIn }}>
-            {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-              {skills.map(skill => (
-                <Chip
-                  key={skill.name} label={skill.name} subtitle={skill.description}
-                  multi selected={selectedSkills.includes(skill.name)}
-                  color={skill.color}
-                  onClick={() => {
-                    setSelectedSkills(prev =>
-                      prev.includes(skill.name) ? prev.filter(s => s !== skill.name) : [...prev, skill.name]
-                    );
-                  }}
-                />
-              ))}
+            <div style={{
+              fontSize: '12px', color: t.ts, marginBottom: '16px', lineHeight: '1.6',
+              padding: '12px 16px', backgroundColor: t.surface, borderRadius: '8px',
+              border: `1px solid ${t.border}`,
+            }}>
+              Cliquez sur les nodes dans la constellation pour connecter des compétences à {displayName}.
+              Vous pouvez aussi créer vos propres skills.
             </div>
-            <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label="Valider la maîtrise" />
+            {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
+            <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label={`Valider ${selectedSkills.length} compétence${selectedSkills.length > 1 ? 's' : ''}`} />
           </div>
         );
 
@@ -743,7 +739,7 @@ export default function Personaboarding() {
           pointerEvents: 'none', filter: 'blur(40px)',
         }} />
 
-        {/* Flow Graph or Constellation */}
+        {/* Flow Graph / Interactive Constellation / Final Constellation */}
         <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {success && createdSkills.length > 0 ? (
             <SkillConstellation
@@ -752,13 +748,34 @@ export default function Personaboarding() {
               skills={createdSkills}
               onComplete={() => setConstellationReady(true)}
             />
+          ) : step === 2 && !typing && skills.length > 0 ? (
+            <InteractiveConstellation
+              agentName={displayName}
+              roleLabel={role?.label || ''}
+              skills={skills}
+              selectedSkills={selectedSkills}
+              customSkills={customSkills}
+              onToggleSkill={(name) => {
+                setSelectedSkills(prev =>
+                  prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
+                );
+              }}
+              onAddCustomSkill={(skill) => {
+                setCustomSkills(prev => [...prev, skill]);
+                setSelectedSkills(prev => [...prev, skill.name]);
+              }}
+              onRemoveCustomSkill={(name) => {
+                setCustomSkills(prev => prev.filter(s => s.name !== name));
+                setSelectedSkills(prev => prev.filter(s => s !== name));
+              }}
+            />
           ) : (
             <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
           )}
         </div>
 
         {/* Step counter */}
-        {!success && (
+        {!success && step !== 2 && (
           <div style={{
             position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
             fontSize: '11px', color: t.tm, fontFamily: t.mono,
@@ -907,7 +924,185 @@ function FlowGraphWithValues({ currentStep, nodeValues }) {
   );
 }
 
-// ── Skill Constellation ─────────────────────────────────────────────────
+// ── Interactive Constellation (Step 2 — skill selection) ────────────────
+function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills, customSkills, onToggleSkill, onAddCustomSkill, onRemoveCustomSkill }) {
+  const [newSkillName, setNewSkillName] = useState('');
+  const [hovered, setHovered] = useState(null);
+  const SIZE = 420;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const ORBIT = 148;
+
+  // Merge role skills + custom skills
+  const allSkills = [
+    ...skills.map(s => ({ ...s, custom: false })),
+    ...customSkills.map(s => ({ ...s, custom: true })),
+  ];
+  const count = allSkills.length;
+
+  // Position nodes in orbit
+  const nodes = allSkills.map((skill, i) => {
+    const angle = ((i * 360) / Math.max(count, 1) - 90) * (Math.PI / 180);
+    const x = CX + ORBIT * Math.cos(angle);
+    const y = CY + ORBIT * Math.sin(angle);
+    const cpAngle = angle + 0.2;
+    const cpR = ORBIT * 0.45;
+    const cpx = CX + cpR * Math.cos(cpAngle);
+    const cpy = CY + cpR * Math.sin(cpAngle);
+    const path = `M ${CX} ${CY} Q ${cpx} ${cpy} ${x} ${y}`;
+    const isSelected = selectedSkills.includes(skill.name);
+    return { ...skill, x, y, path, isSelected, index: i };
+  });
+
+  function handleAddCustom() {
+    const name = newSkillName.trim();
+    if (!name) return;
+    if (allSkills.some(s => s.name.toLowerCase() === name.toLowerCase())) return;
+    onAddCustomSkill({ name, color: '#F59E0B', category: 'custom', description: 'Compétence personnalisée' });
+    setNewSkillName('');
+  }
+
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '85%', maxHeight: '75%', overflow: 'visible' }}>
+        <defs>
+          <filter id="icGlow">
+            <feGaussianBlur stdDeviation="5" result="b" />
+            <feComposite in="SourceGraphic" in2="b" operator="over" />
+          </filter>
+        </defs>
+
+        {/* Orbit ring */}
+        <circle cx={CX} cy={CY} r={ORBIT} fill="none" stroke={t.border} strokeWidth="1" strokeDasharray="4 6" opacity="0.5" />
+
+        {/* Connections */}
+        {nodes.map((node, i) => (
+          <path
+            key={`ic-conn-${i}`}
+            d={node.path} fill="none"
+            stroke={node.isSelected ? (node.color || t.violet) : t.border}
+            strokeWidth={node.isSelected ? 1.8 : 0.8}
+            strokeOpacity={node.isSelected ? 0.5 : 0.15}
+            style={{ transition: 'all 0.5s ease' }}
+          />
+        ))}
+
+        {/* Skill nodes (clickable) */}
+        {nodes.map((node, i) => {
+          const isRight = node.x > CX;
+          const isHov = hovered === i;
+          const sel = node.isSelected;
+          const col = node.color || t.violet;
+          return (
+            <g key={`ic-n-${i}`}
+              style={{ cursor: 'pointer', animation: `constellationBirth 0.5s ease-out forwards ${i * 80}ms`, opacity: 0, transformOrigin: `${node.x}px ${node.y}px` }}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={() => node.custom && sel ? onRemoveCustomSkill(node.name) : onToggleSkill(node.name)}
+            >
+              {/* Hover/selected glow */}
+              {(sel || isHov) && (
+                <circle cx={node.x} cy={node.y} r="28" fill={col} fillOpacity={sel ? 0.1 : 0.05}
+                  style={{ transition: 'all 0.3s' }} />
+              )}
+              {/* Node circle */}
+              <circle cx={node.x} cy={node.y} r="20"
+                fill={sel ? `${col}22` : isHov ? t.surfaceEl : t.surface}
+                stroke={sel ? col : isHov ? t.borderS : t.border}
+                strokeWidth={sel ? 2.5 : 1.5}
+                style={{ transition: 'all 0.3s ease' }}
+              />
+              {/* Inner indicator */}
+              {sel && <circle cx={node.x} cy={node.y} r="5" fill={col} style={{ transition: 'all 0.3s' }} />}
+              {!sel && <circle cx={node.x} cy={node.y} r="2" fill={t.tm} />}
+              {/* Custom badge */}
+              {node.custom && (
+                <text x={node.x} y={node.y - 24} textAnchor="middle" fill={t.warning}
+                  style={{ fontSize: '8px', fontWeight: 700, fontFamily: t.mono }}>
+                  CUSTOM
+                </text>
+              )}
+              {/* Skill name */}
+              <text
+                x={node.x + (isRight ? 28 : -28)} y={node.y + 1}
+                textAnchor={isRight ? 'start' : 'end'}
+                fill={sel ? t.tp : isHov ? t.ts : t.tm}
+                style={{ fontSize: '10px', fontWeight: sel ? 600 : 400, fontFamily: t.font, transition: 'all 0.2s', pointerEvents: 'none' }}
+              >
+                {node.name}
+              </text>
+              {/* Category */}
+              <text
+                x={node.x + (isRight ? 28 : -28)} y={node.y + 13}
+                textAnchor={isRight ? 'start' : 'end'}
+                fill={t.tm}
+                style={{ fontSize: '7px', textTransform: 'uppercase', fontFamily: t.mono, letterSpacing: '0.05em', pointerEvents: 'none' }}
+              >
+                {node.category}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Center node — agent */}
+        <g>
+          <circle cx={CX} cy={CY} r="44" fill={t.violet} fillOpacity="0.06" />
+          <circle cx={CX} cy={CY} r="38" fill={t.bg} stroke={t.violet} strokeWidth="2.5"
+            filter="url(#icGlow)" />
+          <text x={CX} y={CY - 4} textAnchor="middle" fill={t.tp}
+            style={{ fontSize: '13px', fontWeight: 700, fontFamily: t.font }}>
+            {agentName}
+          </text>
+          <text x={CX} y={CY + 11} textAnchor="middle" fill={t.ts}
+            style={{ fontSize: '9px', textTransform: 'uppercase', fontFamily: t.mono, letterSpacing: '0.04em', opacity: 0.8 }}>
+            {roleLabel}
+          </text>
+          {/* Selected count badge */}
+          <circle cx={CX + 30} cy={CY - 28} r="12" fill={t.violet} />
+          <text x={CX + 30} y={CY - 24} textAnchor="middle" fill="#fff"
+            style={{ fontSize: '10px', fontWeight: 700, fontFamily: t.mono }}>
+            {selectedSkills.length}
+          </text>
+        </g>
+      </svg>
+
+      {/* Add custom skill input */}
+      <div style={{
+        position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+        display: 'flex', gap: '8px', alignItems: 'center',
+      }}>
+        <input
+          value={newSkillName}
+          onChange={e => setNewSkillName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleAddCustom()}
+          placeholder="+ Ajouter une compétence..."
+          style={{
+            backgroundColor: t.surface, border: `1px solid ${t.border}`, borderRadius: '100px',
+            padding: '8px 16px', color: t.tp, fontSize: '12px', fontFamily: t.font,
+            outline: 'none', width: '200px', transition: 'border-color 0.2s',
+          }}
+          onFocus={e => e.target.style.borderColor = t.violet}
+          onBlur={e => e.target.style.borderColor = t.border}
+        />
+        <button
+          onClick={handleAddCustom}
+          disabled={!newSkillName.trim()}
+          style={{
+            backgroundColor: newSkillName.trim() ? t.violet : t.surfaceEl,
+            color: '#fff', border: 'none', borderRadius: '100px',
+            width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: newSkillName.trim() ? 'pointer' : 'default', fontSize: '16px', fontWeight: 700,
+            transition: 'all 0.2s',
+          }}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Skill Constellation (Final — read-only) ─────────────────────────────
 function SkillConstellation({ agentName, roleLabel, skills = [], onComplete }) {
   const SIZE = 420;
   const CX = SIZE / 2;
