@@ -552,8 +552,12 @@ export default function SkillCreator() {
       if (res.content) {
         setBlocks(parseMarkdownToBlocks(res.content));
         setDirty(true);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Generated content for ${currentFilePath} (${res.content.length} chars). Review it in the editor and click Save when ready.`
+        }]);
       }
-    } catch (err) { setError('Generate failed'); }
+    } catch (err) { setError(err.message || 'Generate failed'); }
     finally { setGenerating(false); }
   };
 
@@ -567,10 +571,29 @@ export default function SkillCreator() {
       });
       if (res.tree) {
         setFileTree(res.tree);
-        // Re-open current file
-        if (currentFilePath && skillId) openFile(skillId, currentFilePath);
+        // Expand all folders to show generated files
+        const allFolders = [];
+        const walkForFolders = (items) => {
+          for (const item of items) {
+            if (item.type === 'directory') {
+              allFolders.push(item.path);
+              if (item.children) walkForFolders(item.children);
+            }
+          }
+        };
+        walkForFolders(res.tree);
+        setExpandedFolders(allFolders);
+        // Open SKILL.md to show the new overview
+        if (skillId) openFile(skillId, 'SKILL.md');
+        // Show success message in chat
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Generated ${res.files} files (${res.totalFiles} total). Check the file tree on the left — all files have been created with detailed content. Click any file to view/edit it.`
+        }]);
       }
-    } catch (err) { setError('Generate all failed'); }
+    } catch (err) {
+      setError(err.message || 'Generate all failed — try describing your skill in the chat first');
+    }
     finally { setGenerating(false); }
   };
 

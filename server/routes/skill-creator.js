@@ -186,15 +186,45 @@ router.post('/conversations/:id/generate-file', async (req, res) => {
     if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
 
-    // Build context
+    // Build rich context
     let context = `Skill: ${conversation.name}\nTarget file: ${filePath}`;
 
     if (conversation.skill_id) {
       const skill = await db.getSkill(conversation.skill_id);
       if (skill) {
+        context += `\nCategory: ${skill.category || 'general'}`;
+        context += `\nDescription: ${skill.description || 'N/A'}`;
+
+        // Read SKILL.md for context
         const entryFile = skillStorage.readSkillFile(skill.slug, 'SKILL.md');
-        if (entryFile) context += `\n\nSKILL.md:\n${entryFile.content.slice(0, 3000)}`;
-        if (skill.file_tree) context += `\n\nFile tree: ${JSON.stringify(skill.file_tree).slice(0, 1500)}`;
+        if (entryFile) {
+          context += `\n\nSKILL.md (overview):\n${entryFile.content.slice(0, 4000)}`;
+        } else if (skill.prompt) {
+          context += `\n\nSkill prompt:\n${skill.prompt.slice(0, 4000)}`;
+        }
+
+        // Read other reference files for cross-referencing
+        const tree = skillStorage.scanSkillTree(skill.slug);
+        if (tree) {
+          context += `\n\nFile tree: ${JSON.stringify(tree).slice(0, 1500)}`;
+          // Read sibling files for coherence (up to 3)
+          const siblingFiles = [];
+          const walkTree = (items) => {
+            for (const item of items) {
+              if (item.type === 'file' && item.path !== filePath && item.path !== 'SKILL.md' && siblingFiles.length < 3) {
+                siblingFiles.push(item.path);
+              }
+              if (item.children) walkTree(item.children);
+            }
+          };
+          walkTree(tree);
+          for (const sibPath of siblingFiles) {
+            const sib = skillStorage.readSkillFile(skill.slug, sibPath);
+            if (sib) {
+              context += `\n\n--- ${sibPath} (sibling reference) ---\n${sib.content.slice(0, 1500)}`;
+            }
+          }
+        }
       }
     }
 
@@ -203,11 +233,11 @@ router.post('/conversations/:id/generate-file', async (req, res) => {
     const recentMsgs = messages.slice(-10).map(m => `${m.role}: ${m.content.slice(0, 300)}`).join('\n\n');
     if (recentMsgs) context += `\n\nRecent conversation:\n${recentMsgs}`;
 
-    const prompt = `${SKILL_GENERATION_PROMPT}\n\n## Context\n${context}\n\n## Task\nGenerate the complete content for file: ${filePath}\n${description ? `Description: ${description}` : ''}\n\nReturn ONLY the file content as markdown.`;
+    const prompt = `${SKILL_GENERATION_PROMPT}\n\n## Context\n${context}\n\n## Task\nGenerate the complete content for file: ${filePath}\n${description ? `Description: ${description}` : ''}\n\nRequirements:\n- Write 500-1500 words of DETAILED, actionable content\n- Include concrete examples, code snippets, tables where relevant\n- Cross-reference other files in the skill structure\n- NO placeholders or TODOs — everything must be production-ready\n\nReturn ONLY the markdown content.`;
 
     const content = await callGPT5(
       [
-        { role: 'system', content: 'You generate complete, production-ready skill file content. Return ONLY the content, no wrapping.' },
+        { role: 'system', content: 'You generate complete, production-ready skill file content. Write detailed, actionable content with concrete examples. Minimum 500 words per file. Return ONLY the content, no wrapping.' },
         { role: 'user', content: prompt },
       ],
       { max_completion_tokens: 16000 }
@@ -235,15 +265,53 @@ router.post('/conversations/:id/generate-structure', async (req, res) => {
     const skill = await db.getSkill(conversation.skill_id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
+    // Load existing SKILL.md content (if any) so AI can split it into sub-files
+    let existingContent = '';
+    const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+    if (entryFile && entryFile.content) {
+      existingContent = entryFile.content;
+    } else if (skill.prompt && skill.prompt.trim()) {
+      existingContent = skill.prompt;
+    }
+
+    // Load existing file tree
+    const existingTree = skillStorage.scanSkillTree(skill.slug);
+    const existingFiles = existingTree ? JSON.stringify(existingTree).slice(0, 1000) : 'none';
+
     // Load conversation for context
     const messages = await db.getSkillConversationMessages(id);
     const recentMsgs = messages.slice(-10).map(m => `${m.role}: ${m.content.slice(0, 500)}`).join('\n\n');
 
-    const prompt = `${SKILL_STRUCTURE_PROMPT}\n\n## Skill Info\nName: ${skill.name}\nSlug: ${skill.slug}\nDescription: ${skill.description || 'N/A'}\nCategory: ${skill.category || 'general'}\n\n## Conversation Context\n${recentMsgs}\n\nGenerate the complete file structure with content for each file.`;
+    const contextParts = [
+      `## Skill Info`,
+      `Name: ${skill.name}`,
+      `Slug: ${skill.slug}`,
+      `Description: ${skill.description || 'N/A'}`,
+      `Category: ${skill.category || 'general'}`,
+      `Current files on disk: ${existingFiles}`,
+    ];
+
+    if (existingContent) {
+      contextParts.push(
+        `\n## Existing Content (SPLIT THIS into focused sub-files)`,
+        `The following is the current SKILL.md content. Your job is to REORGANIZE it:`,
+        `- Keep SKILL.md as a SHORT overview (200-400 words)`,
+        `- Extract each major section (## heading) into its own reference file`,
+        `- Expand each reference file with more detail, examples, and concrete patterns`,
+        `- Add NEW reference files for topics not yet covered but relevant to this skill`,
+        `\n---\n${existingContent.slice(0, 8000)}`
+      );
+    }
+
+    if (recentMsgs) {
+      contextParts.push(`\n## Conversation Context\n${recentMsgs}`);
+    }
+
+    const prompt = `${SKILL_STRUCTURE_PROMPT}\n\n${contextParts.join('\n')}\n\nGenerate the complete file structure with 6-12 files. Each reference file must have 500+ words of detailed, actionable content.`;
 
     const response = await callGPT5(
       [
-        { role: 'system', content: 'You generate structured skill file hierarchies as JSON. Return ONLY valid JSON.' },
+        { role: 'system', content: 'You generate structured skill file hierarchies as JSON. Return ONLY valid JSON with a "files" array. Each file must have "path" and "content" fields. Generate 6-12 files minimum.' },
         { role: 'user', content: prompt },
       ],
       { max_completion_tokens: 32000, responseFormat: 'json' }
@@ -253,15 +321,26 @@ router.post('/conversations/:id/generate-structure', async (req, res) => {
     try {
       structure = JSON.parse(response);
     } catch (e) {
+      console.error('[skill-creator] Failed to parse JSON:', response.slice(0, 500));
       return res.status(500).json({ error: 'Failed to parse AI response as JSON' });
     }
 
     // Write all files to disk
     const files = structure.files || [];
+    if (files.length === 0) {
+      return res.status(500).json({ error: 'AI generated 0 files — try again or describe your skill in the chat first' });
+    }
+
     for (const file of files) {
       if (file.path && file.content) {
         skillStorage.writeSkillFile(skill.slug, file.path, file.content);
       }
+    }
+
+    // Also update the skill prompt field with the new SKILL.md content
+    const skillMdFile = files.find(f => f.path === 'SKILL.md');
+    if (skillMdFile) {
+      await db.updateSkill(skill.id, { prompt: skillMdFile.content });
     }
 
     // Sync tree to DB

@@ -58,45 +58,66 @@ Rules:
 - If in a code block, write valid code
 - Return ONLY the completion text, no explanations`;
 
-const SKILL_GENERATION_PROMPT = `You are generating a complete skill file from a conversation.
+const SKILL_GENERATION_PROMPT = `You are generating a complete, DETAILED skill reference file.
 
-Based on the conversation history and user requirements, generate a comprehensive, production-ready markdown file.
+This file will be injected into an AI agent's context to give it specialized knowledge. It must be comprehensive and immediately actionable.
 
-Requirements:
-- Use proper markdown formatting (headers, tables, code blocks, lists)
-- Include concrete, specific values — not placeholders
-- Reference other files in the skill structure where appropriate
-- Make content actionable and immediately useful for an AI agent
-- Structure with clear sections using ## and ### headers
-- Include code examples where relevant
+## Requirements
+
+- Write 500-1500 words of REAL, DETAILED content
+- Use proper markdown: ## headers, ### sub-sections, tables, code blocks, lists
+- Include CONCRETE values: actual CSS values, actual code patterns, actual rules
+- NO placeholders like "add your X here" or "TODO" — everything must be production-ready
+- Include at least 3 code examples or concrete patterns per file
+- Use tables for structured data (rules, props, config values)
+- Cross-reference other files in the skill structure where relevant
+- Write for an AI agent that needs to follow these instructions precisely
 
 Return ONLY the markdown content, no wrapping or explanations.`;
 
-const SKILL_STRUCTURE_PROMPT = `You are generating a complete skill file structure.
+const SKILL_STRUCTURE_PROMPT = `You are generating a COMPLETE skill file structure with MANY files.
 
-Based on the conversation and requirements, generate a JSON structure defining all files that should be created, along with their content.
+A skill is a knowledge package injected into AI agent context. It MUST have multiple focused reference files, not just one big SKILL.md.
 
-Return valid JSON in this format:
+## MANDATORY: Generate 6-12 files minimum
+
+The structure MUST include:
+1. **SKILL.md** — Short overview (200-400 words max) with links to reference files
+2. **references/*.md** — 4-8 focused reference files, each covering ONE specific topic in depth (500-1500 words each)
+3. **assets/** — Optional CSS tokens, config files, or code snippets if relevant
+
+## File Structure Pattern
+
+\`\`\`
+SKILL.md                          ← Overview + table of contents (SHORT)
+references/
+  topic-one.md                    ← Deep dive on topic 1 (DETAILED)
+  topic-two.md                    ← Deep dive on topic 2 (DETAILED)
+  topic-three.md                  ← Deep dive on topic 3 (DETAILED)
+  rules-and-patterns.md           ← Concrete rules (DETAILED)
+  examples.md                     ← Real examples (DETAILED)
+assets/
+  tokens.css                      ← CSS variables if design-related
+\`\`\`
+
+## CRITICAL Rules
+
+- SKILL.md must be SHORT (overview only) — the details go in references/
+- Each reference file must be FOCUSED on one topic and DETAILED (500+ words)
+- Include concrete examples, code snippets, tables, CSS values — NO placeholders
+- Reference files should cross-reference each other
+- Generate AT LEAST 6 files total, ideally 8-10
+- If the skill already has content (provided below), SPLIT it into focused sub-files
+
+## JSON Format
+
+Return ONLY valid JSON:
 {
   "files": [
-    {
-      "path": "SKILL.md",
-      "content": "# Skill Name\\n\\n## Overview\\n..."
-    },
-    {
-      "path": "references/components.md",
-      "content": "# Components\\n..."
-    }
+    { "path": "SKILL.md", "content": "# Skill Name\\n\\n## Overview\\n..." },
+    { "path": "references/topic.md", "content": "## Topic\\n\\nDetailed content..." }
   ]
-}
-
-Rules:
-- Always include SKILL.md as the entry point
-- Create a logical hierarchy of files
-- Each file should have real, detailed content
-- Include CSS tokens in assets/ when relevant
-- Reference files should be focused on one topic each
-- Return ONLY the JSON, nothing else`;
+}`;
 
 module.exports = {
   SKILL_CONVERSATION_SYSTEM_PROMPT,
