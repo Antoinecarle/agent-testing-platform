@@ -44,6 +44,9 @@ function parseAgentFile(filePath) {
     if (memMatch) memory = memMatch[1];
     const permMatch = fm.match(/permission_mode:\s*(\S+)/);
     if (permMatch) permissionMode = permMatch[1];
+    // Extract category from front matter (personaboarding agents set this)
+    const catMatch = fm.match(/category:\s*(\S+)/);
+    if (catMatch) category = catMatch[1];
   }
 
   // Fallback: extract description from body text
@@ -62,14 +65,16 @@ function parseAgentFile(filePath) {
     }
   }
 
-  // Try to detect category from name
-  if (name.includes('epiminds')) category = 'epiminds';
-  else if (name.includes('seo') || name.includes('geo')) category = 'seo';
-  else if (name.includes('reviewer') || name.includes('code')) category = 'dev-tools';
-  else if (name.includes('builder') || name.includes('architect')) category = 'builders';
-  else if (name.includes('animation') || name.includes('scroll')) category = 'animation';
-  else if (name.includes('design') || name.includes('theme') || name.includes('stylist')) category = 'design';
-  else category = 'style';
+  // Auto-detect category from name only if not set from front matter
+  if (category === 'uncategorized') {
+    if (name.includes('epiminds')) category = 'epiminds';
+    else if (name.includes('seo') || name.includes('geo')) category = 'seo';
+    else if (name.includes('reviewer') || name.includes('code')) category = 'dev-tools';
+    else if (name.includes('builder') || name.includes('architect')) category = 'builders';
+    else if (name.includes('animation') || name.includes('scroll')) category = 'animation';
+    else if (name.includes('design') || name.includes('theme') || name.includes('stylist')) category = 'design';
+    else category = 'style';
+  }
 
   const promptPreview = content.substring(0, 500);
   const fullPrompt = content;

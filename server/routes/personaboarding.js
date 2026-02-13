@@ -309,7 +309,7 @@ router.post('/ai-enhance', async (req, res) => {
 // ── POST /api/personaboarding/complete ──────────────────────────────────────
 router.post('/complete', async (req, res) => {
   try {
-    const { displayName, role, selectedSkills, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
+    const { displayName, role, selectedSkills, customSkills: customSkillsData, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
 
     if (!displayName || !displayName.trim()) {
       return res.status(400).json({ error: 'Agent name is required' });
@@ -329,8 +329,18 @@ router.post('/complete', async (req, res) => {
       return res.status(409).json({ error: `Agent "${agentName}" already exists` });
     }
 
+    // Merge role skills + custom skills
     const roleSkills = ROLE_SKILLS[role] || [];
-    const skills = selectedSkills.map(n => roleSkills.find(s => s.name === n)).filter(Boolean);
+    const customSkills = Array.isArray(customSkillsData) ? customSkillsData : [];
+    const skills = selectedSkills.map(n => {
+      // Try role skills first, then custom skills
+      const fromRole = roleSkills.find(s => s.name === n);
+      if (fromRole) return fromRole;
+      const fromCustom = customSkills.find(s => s.name === n);
+      if (fromCustom) return { name: fromCustom.name, category: fromCustom.category || 'custom', color: fromCustom.color || '#F59E0B', description: fromCustom.description || 'Custom skill' };
+      // Fallback: treat as unknown custom skill
+      return { name: n, category: 'custom', color: '#F59E0B', description: 'Custom skill' };
+    }).filter(Boolean);
 
     const permissionMap = { guided: 'plan', balanced: 'default', autonomous: 'bypassPermissions' };
     const permissionMode = permissionMap[autonomy] || 'default';
@@ -350,6 +360,7 @@ router.post('/complete', async (req, res) => {
     const fmParts = [
       `description: "${description}"`,
       `model: ${model || 'sonnet'}`,
+      `category: personal`,
       `tools: [${toolsList}]`,
       `max_turns: 15`,
       `permission_mode: ${permissionMode}`,

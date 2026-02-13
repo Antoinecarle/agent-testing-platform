@@ -329,6 +329,7 @@ export default function Personaboarding() {
           displayName,
           role: role.id,
           selectedSkills,
+          customSkills,
           commStyle: commStyle.id,
           methodology: methodology.id,
           selectedTools,
