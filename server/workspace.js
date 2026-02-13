@@ -111,10 +111,12 @@ async function getSkillContext(agentName) {
       skillSection += `### ${skill.name}\n`;
       if (skill.description) skillSection += `${skill.description}\n\n`;
 
-      // Read SKILL.md (entry point)
+      let hasFileContent = false;
+
+      // Try file-based content first (SKILL.md entry point)
       const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
       if (entryFile) {
-        // Truncate to 3000 chars to avoid overloading context
+        hasFileContent = true;
         const content = entryFile.content.length > 3000
           ? entryFile.content.slice(0, 3000) + '\n...(truncated)'
           : entryFile.content;
@@ -138,12 +140,21 @@ async function getSkillContext(agentName) {
         for (const refPath of refFiles) {
           const refFile = skillStorage.readSkillFile(skill.slug, refPath);
           if (refFile) {
+            hasFileContent = true;
             const refContent = refFile.content.length > 2000
               ? refFile.content.slice(0, 2000) + '\n...(truncated)'
               : refFile.content;
             skillSection += `#### ${refPath}\n${refContent}\n\n`;
           }
         }
+      }
+
+      // Fallback: use prompt field from DB if no files exist on disk
+      if (!hasFileContent && skill.prompt && skill.prompt.trim()) {
+        const content = skill.prompt.length > 3000
+          ? skill.prompt.slice(0, 3000) + '\n...(truncated)'
+          : skill.prompt;
+        skillSection += content + '\n\n';
       }
 
       skillSection += '---\n\n';

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ChevronLeft, Save, Copy, Sparkles, Trash2,
-  Eye, Info, Check, AlertCircle, Clock, Layout, Cpu
+  Eye, Info, Check, AlertCircle, Clock, Layout, Cpu,
+  Zap, Plus, X, Search
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -45,6 +46,10 @@ export default function AgentEdit() {
   const [categories, setCategories] = useState([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [toast, setToast] = useState(null);
+  const [agentSkills, setAgentSkills] = useState([]);
+  const [allSkills, setAllSkills] = useState([]);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [skillSearch, setSkillSearch] = useState('');
 
   const [form, setForm] = useState({
     description: '', model: 'sonnet', category: 'uncategorized',
@@ -56,7 +61,8 @@ export default function AgentEdit() {
     Promise.all([
       api(`/api/agents/${name}`),
       api('/api/categories'),
-    ]).then(([agent, cats]) => {
+      api(`/api/skills/agent/${name}`),
+    ]).then(([agent, cats, skills]) => {
       const toolsList = agent.tools ? agent.tools.split(',').map(s => s.trim()).filter(Boolean) : [];
       setForm({
         description: agent.description || '',
@@ -72,6 +78,7 @@ export default function AgentEdit() {
         project_count: agent.project_count || 0,
       });
       setCategories(cats || []);
+      setAgentSkills(skills || []);
     }).catch(err => {
       showToast('Error loading agent', 'danger');
     }).finally(() => setLoading(false));
@@ -177,6 +184,37 @@ export default function AgentEdit() {
     } catch (err) {
       showToast('Delete failed', 'danger');
       setShowDeleteModal(false);
+    }
+  };
+
+  const openSkillPicker = async () => {
+    try {
+      const all = await api('/api/skills');
+      setAllSkills(all || []);
+      setSkillSearch('');
+      setShowSkillPicker(true);
+    } catch (err) {
+      showToast('Failed to load skills', 'danger');
+    }
+  };
+
+  const assignSkill = async (skill) => {
+    try {
+      await api(`/api/skills/${skill.id}/assign/${name}`, { method: 'POST' });
+      setAgentSkills(prev => [...prev, skill]);
+      showToast(`Skill "${skill.name}" assigned`);
+    } catch (err) {
+      showToast(err.message || 'Assign failed', 'danger');
+    }
+  };
+
+  const unassignSkill = async (skill) => {
+    try {
+      await api(`/api/skills/${skill.id}/unassign/${name}`, { method: 'DELETE' });
+      setAgentSkills(prev => prev.filter(s => s.id !== skill.id));
+      showToast(`Skill "${skill.name}" removed`);
+    } catch (err) {
+      showToast(err.message || 'Unassign failed', 'danger');
     }
   };
 
@@ -370,6 +408,57 @@ export default function AgentEdit() {
             ))}
           </div>
 
+          {/* Skills */}
+          <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Zap size={14} color={t.violet} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Skills ({agentSkills.length})
+                </span>
+              </div>
+              <button onClick={openSkillPicker} style={{
+                background: 'none', border: 'none', color: t.violet, cursor: 'pointer',
+                fontSize: '11px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px',
+              }}>
+                <Plus size={12} /> Add
+              </button>
+            </div>
+            {agentSkills.length === 0 ? (
+              <div style={{
+                padding: '16px', textAlign: 'center', color: t.tm, fontSize: '11px',
+                border: `1px dashed ${t.border}`, borderRadius: '6px',
+              }}>
+                No skills assigned. Skills inject context into workspace CLAUDE.md when running projects.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {agentSkills.map(skill => (
+                  <div key={skill.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '8px 10px', backgroundColor: t.surface, borderRadius: '6px',
+                    border: `1px solid ${t.border}`,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: skill.color || t.violet, flexShrink: 0 }} />
+                      <span style={{ fontSize: '12px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{skill.name}</span>
+                      {skill.total_files > 0 && (
+                        <span style={{ fontSize: '9px', color: t.tm, backgroundColor: 'rgba(255,255,255,0.04)', padding: '1px 5px', borderRadius: '100px' }}>
+                          {skill.total_files} files
+                        </span>
+                      )}
+                    </div>
+                    <button onClick={() => unassignSkill(skill)} style={{
+                      background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '2px', display: 'flex',
+                    }} title="Remove skill">
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* MD Preview */}
           <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '20px', flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
@@ -436,6 +525,60 @@ export default function AgentEdit() {
         }}>
           {toast.type === 'danger' ? <AlertCircle size={14} color={t.danger} /> : <Check size={14} color={t.success} />}
           <span style={{ fontSize: '13px', fontWeight: 500, color: t.tp }}>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Skill Picker Modal */}
+      {showSkillPicker && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+        }} onClick={() => setShowSkillPicker(false)}>
+          <div style={{
+            width: '420px', backgroundColor: t.surface, border: `1px solid ${t.borderS}`,
+            borderRadius: '12px', overflow: 'hidden',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Add Skills to {name}</h3>
+              <button onClick={() => setShowSkillPicker(false)} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}` }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: t.tm }} />
+                <input style={{ ...inputStyle, paddingLeft: '30px', fontSize: '12px' }} placeholder="Search skills..."
+                  value={skillSearch} onChange={e => setSkillSearch(e.target.value)} autoFocus />
+              </div>
+            </div>
+            <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+              {allSkills
+                .filter(s => !agentSkills.find(as => as.id === s.id))
+                .filter(s => !skillSearch || s.name.toLowerCase().includes(skillSearch.toLowerCase()) || (s.category || '').toLowerCase().includes(skillSearch.toLowerCase()))
+                .map(skill => (
+                  <div key={skill.id} onClick={() => assignSkill(skill)} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px',
+                    borderBottom: `1px solid ${t.border}`, cursor: 'pointer', transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.03)'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: skill.color || t.violet, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '12px', fontWeight: 500 }}>{skill.name}</div>
+                      {skill.description && <div style={{ fontSize: '10px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{skill.description}</div>}
+                    </div>
+                    {skill.category && (
+                      <span style={{ fontSize: '9px', color: skill.color || t.violet, backgroundColor: `${skill.color || t.violet}15`, padding: '2px 6px', borderRadius: '100px', flexShrink: 0 }}>
+                        {skill.category}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              {allSkills.filter(s => !agentSkills.find(as => as.id === s.id)).length === 0 && (
+                <div style={{ padding: '24px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
+                  No more skills available
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
