@@ -964,7 +964,7 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '85%', maxHeight: '75%', overflow: 'visible' }}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '85%', maxHeight: '75%', overflow: 'visible', pointerEvents: 'none' }}>
         <defs>
           <filter id="icGlow">
             <feGaussianBlur stdDeviation="5" result="b" />
@@ -995,7 +995,7 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
           const col = node.color || t.violet;
           return (
             <g key={`ic-n-${i}`}
-              style={{ cursor: 'pointer', animation: `constellationBirth 0.5s ease-out forwards ${i * 80}ms`, opacity: 0, transformOrigin: `${node.x}px ${node.y}px` }}
+              style={{ cursor: 'pointer', pointerEvents: 'all', animation: `constellationBirth 0.5s ease-out forwards ${i * 80}ms`, opacity: 0, transformOrigin: `${node.x}px ${node.y}px` }}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
               onClick={() => node.custom && sel ? onRemoveCustomSkill(node.name) : onToggleSkill(node.name)}
