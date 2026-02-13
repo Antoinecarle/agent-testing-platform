@@ -360,7 +360,7 @@ router.post('/complete', async (req, res) => {
     const fmParts = [
       `description: "${description}"`,
       `model: ${model || 'sonnet'}`,
-      `category: personal`,
+      `category: persona`,
       `tools: [${toolsList}]`,
       `max_turns: 15`,
       `permission_mode: ${permissionMode}`,
@@ -375,7 +375,7 @@ router.post('/complete', async (req, res) => {
 
     const promptPreview = fullContent.substring(0, 500);
     await db.createAgentManual(
-      agentName, description, model || 'sonnet', 'personal',
+      agentName, description, model || 'sonnet', 'persona',
       promptPreview, fullContent, toolsList, 15, '', permissionMode, req.user?.userId
     );
 
