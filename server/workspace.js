@@ -360,6 +360,58 @@ To read a previous iteration for reference:
     fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
   }
 
+  // Write agent skills as Claude CLI skill files in .claude/skills/
+  // so /skills command in Claude CLI shows them
+  if (agentName) {
+    try {
+      const skills = await db.getAgentSkills(agentName);
+      if (skills && skills.length > 0) {
+        const wsSkillsDir = path.join(wsDir, '.claude', 'skills');
+        if (!fs.existsSync(wsSkillsDir)) fs.mkdirSync(wsSkillsDir, { recursive: true });
+
+        for (const skill of skills) {
+          let skillContent = `# ${skill.name}\n\n`;
+          if (skill.description) skillContent += `${skill.description}\n\n`;
+
+          // Try to read full content from disk (SKILL.md + references)
+          const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+          if (entryFile) {
+            skillContent = entryFile.content + '\n\n';
+          }
+
+          // Append reference files content
+          const tree = skillStorage.scanSkillTree(skill.slug);
+          if (tree) {
+            for (const item of tree) {
+              if (item.type === 'directory' && item.children) {
+                for (const child of item.children) {
+                  if (child.type === 'file' && child.name.endsWith('.md')) {
+                    const refFile = skillStorage.readSkillFile(skill.slug, child.path);
+                    if (refFile) {
+                      skillContent += `\n---\n\n## ${child.name.replace('.md', '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}\n\n${refFile.content}\n`;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Fallback to DB prompt if no files on disk
+          if (!entryFile && skill.prompt && skill.prompt.trim()) {
+            skillContent = skill.prompt;
+          }
+
+          const skillFilePath = path.join(wsSkillsDir, `${skill.slug}.md`);
+          fs.writeFileSync(skillFilePath, skillContent, 'utf8');
+          try { fs.chownSync(skillFilePath, 1001, 1001); } catch (_) {}
+        }
+        console.log(`[Workspace] Wrote ${skills.length} skill file(s) to ${wsSkillsDir}`);
+      }
+    } catch (err) {
+      console.warn(`[Workspace] Failed to write skill files for ${agentName}:`, err.message);
+    }
+  }
+
   // Create .claude/settings.local.json with permissions for sub-agents
   const claudeSettingsDir = path.join(wsDir, '.claude');
   if (!fs.existsSync(claudeSettingsDir)) fs.mkdirSync(claudeSettingsDir, { recursive: true });
