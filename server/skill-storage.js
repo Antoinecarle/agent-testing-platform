@@ -280,6 +280,77 @@ function deleteSkillDir(slug) {
   }
 }
 
+/**
+ * Initialize skill files on disk from DB prompt for all skills that have
+ * a prompt but no files. Splits prompt into SKILL.md + reference sections.
+ */
+async function ensureSkillFiles() {
+  ensureSkillsDir();
+  const skills = await db.getAllSkills();
+  let synced = 0;
+
+  for (const skill of skills) {
+    if (!skill.slug) continue;
+    const dir = getSkillDir(skill.slug);
+    const skillMdPath = path.join(dir, 'SKILL.md');
+
+    // Skip if files already exist on disk
+    if (fs.existsSync(skillMdPath)) continue;
+
+    // Need prompt content to create files
+    const prompt = (skill.prompt || '').trim();
+    if (!prompt && !skill.description) continue;
+
+    // Create directory structure
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
+
+    // Write SKILL.md from prompt (or description if no prompt)
+    const content = prompt || `# ${skill.name}\n\n## Overview\n\n${skill.description || 'No description.'}\n`;
+    fs.writeFileSync(skillMdPath, content, 'utf-8');
+
+    // Parse prompt for sub-sections — split by top-level ## headings into reference files
+    if (prompt) {
+      const sections = prompt.split(/\n(?=## )/);
+      // Skip first section (it's the main content, stays in SKILL.md)
+      // Extract sections that look like standalone references
+      const refSections = sections.filter((s, i) => {
+        if (i === 0) return false; // main intro stays in SKILL.md
+        const heading = s.match(/^## (.+)/);
+        if (!heading) return false;
+        // Only extract sections with substantial content (>200 chars)
+        return s.length > 200;
+      });
+
+      for (const section of refSections.slice(0, 5)) {
+        const headingMatch = section.match(/^## (.+)/);
+        if (!headingMatch) continue;
+        const sectionName = headingMatch[1].trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .replace(/\s+/g, '-')
+          .slice(0, 40);
+        const refPath = path.join(dir, 'references', `${sectionName}.md`);
+        if (!fs.existsSync(refPath)) {
+          fs.writeFileSync(refPath, section.trim(), 'utf-8');
+        }
+      }
+    }
+
+    // Sync tree to DB
+    const tree = scanSkillTree(skill.slug);
+    const total = countFiles(tree);
+    await db.updateSkillFileTree(skill.id, tree, total);
+    synced++;
+  }
+
+  if (synced > 0) {
+    console.log(`[SkillStorage] Synced ${synced} skills from DB to disk`);
+  }
+  return synced;
+}
+
 module.exports = {
   ensureSkillsDir,
   getSkillDir,
@@ -293,6 +364,7 @@ module.exports = {
   syncSkillTreeToDB,
   listTemplates,
   deleteSkillDir,
+  ensureSkillFiles,
   SKILLS_DIR,
   TEMPLATES_DIR,
 };

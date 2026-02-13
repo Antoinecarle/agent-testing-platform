@@ -67,6 +67,12 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     if (n > 0) console.log(`[Startup] Restored ${n} custom agents from DB to filesystem`);
   }).catch(err => console.error('[Startup] Custom agent sync failed:', err.message));
 
+  // Sync skills: create files on disk for skills that only have a prompt in DB
+  const skillStorage = require('./skill-storage');
+  skillStorage.ensureSkillFiles().catch(err => {
+    console.error('[Startup] Skill file sync failed:', err.message);
+  });
+
   const app = express();
   const server = http.createServer(app);
 

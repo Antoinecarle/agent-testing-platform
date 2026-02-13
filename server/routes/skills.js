@@ -75,6 +75,28 @@ router.post('/', async (req, res) => {
     const skill = await db.createSkill(
       name.trim(), slug, description, prompt, category, icon, color, req.user?.userId
     );
+
+    // Auto-create files on disk if prompt is provided
+    if (prompt && prompt.trim()) {
+      try {
+        skillStorage.ensureSkillsDir();
+        const dir = skillStorage.getSkillDir(slug);
+        const fs = require('fs');
+        const path = require('path');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
+        fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'SKILL.md'), prompt.trim(), 'utf-8');
+        const tree = skillStorage.scanSkillTree(slug);
+        const totalFiles = skillStorage.countFiles(tree);
+        await db.updateSkillFileTree(skill.id, tree, totalFiles);
+        skill.file_tree = tree;
+        skill.total_files = totalFiles;
+      } catch (fileErr) {
+        console.warn('[Skills] Auto-create files failed:', fileErr.message);
+      }
+    }
+
     res.status(201).json(skill);
   } catch (err) {
     console.error('[Skills] Create error:', err.message);
