@@ -34,6 +34,29 @@ const KEYFRAMES = `
   75% { transform:translateX(-2px) rotate(2deg); }
   100% { transform:translateX(0) rotate(0deg); }
 }
+@keyframes constellationBirth {
+  0% { opacity:0; transform:scale(0); }
+  60% { opacity:1; transform:scale(1.08); }
+  100% { opacity:1; transform:scale(1); }
+}
+@keyframes constellationBreathe {
+  0%,100% { filter:drop-shadow(0 0 12px rgba(139,92,246,0.3)); }
+  50% { filter:drop-shadow(0 0 24px rgba(139,92,246,0.7)); }
+}
+@keyframes constellationDrawConn {
+  from { stroke-dashoffset: 300; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes ambientRing {
+  0% { r:60; opacity:0; }
+  40% { opacity:0.12; }
+  100% { r:200; opacity:0; }
+}
+@keyframes particleDrift {
+  0% { opacity:0; r:1; }
+  15% { opacity:0.5; }
+  100% { opacity:0; r:0; transform:translate(var(--dx),var(--dy)); }
+}
 `;
 
 // ── Typewriter ─────────────────────────────────────────────────────────────
@@ -160,6 +183,9 @@ export default function Personaboarding() {
   const [autonomy, setAutonomy] = useState(null);
   const [gptData, setGptData] = useState(null);
   const [aiNarrative, setAiNarrative] = useState('');
+  const [createdSkills, setCreatedSkills] = useState([]);
+  const [createdAgent, setCreatedAgent] = useState(null);
+  const [constellationReady, setConstellationReady] = useState(false);
 
   // Narrative history
   const [history, setHistory] = useState([]);
@@ -310,8 +336,16 @@ export default function Personaboarding() {
           gptData: gptData || null,
         }),
       });
+      setCreatedAgent(res.agent);
+      // Build skill objects with colors from the role skills data
+      const roleSkills = allRoles.find(r => r.id === role.id)?.skills || [];
+      const skillsWithMeta = selectedSkills.map(name => {
+        const meta = roleSkills.find(s => s.name === name);
+        return { name, color: meta?.color || t.violet, category: meta?.category || '' };
+      });
+      setCreatedSkills(skillsWithMeta);
       setSuccess(true);
-      setTimeout(() => navigate(`/agents/${res.agent.name}`), 2000);
+      // Don't redirect immediately — let constellation play first
     } catch (err) {
       setError(err.message || 'Erreur lors de la création');
       setSubmitting(false);
@@ -539,7 +573,7 @@ export default function Personaboarding() {
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px',
                 padding: '32px', backgroundColor: t.surface, borderRadius: '12px',
-                border: `1px solid ${t.violetM}`,
+                border: `1px solid ${t.violetM}`, animation: 'fadeInUp 0.5s ease',
               }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%',
@@ -549,9 +583,27 @@ export default function Personaboarding() {
                   <Check size={28} color={t.success} />
                 </div>
                 <span style={{ fontSize: '15px', color: t.tp, fontWeight: 600 }}>
-                  {displayName} est prêt
+                  {displayName} est né
                 </span>
-                <span style={{ fontSize: '12px', color: t.tm }}>Redirection vers la fiche agent...</span>
+                <span style={{ fontSize: '12px', color: t.ts, textAlign: 'center', maxWidth: '280px', lineHeight: '1.6' }}>
+                  {createdSkills.length} compétences connectées. La constellation se forme...
+                </span>
+                {constellationReady && (
+                  <button
+                    onClick={() => navigate(`/agents/${createdAgent?.name || displayName.toLowerCase().replace(/\s+/g, '-')}`)}
+                    style={{
+                      backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
+                      padding: '12px 28px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '8px', fontFamily: t.font,
+                      boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
+                      animation: 'fadeInUp 0.5s ease',
+                    }}
+                    onMouseOver={e => e.currentTarget.style.transform = 'scale(1.03)'}
+                    onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+                  >
+                    <Sparkles size={15} /> Découvrir {displayName}
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -691,18 +743,29 @@ export default function Personaboarding() {
           pointerEvents: 'none', filter: 'blur(40px)',
         }} />
 
-        {/* Flow Graph SVG */}
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
+        {/* Flow Graph or Constellation */}
+        <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {success && createdSkills.length > 0 ? (
+            <SkillConstellation
+              agentName={displayName}
+              roleLabel={role?.label || ''}
+              skills={createdSkills}
+              onComplete={() => setConstellationReady(true)}
+            />
+          ) : (
+            <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
+          )}
         </div>
 
         {/* Step counter */}
-        <div style={{
-          position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-          fontSize: '11px', color: t.tm, fontFamily: t.mono,
-        }}>
-          {step + 1} / {totalSteps}
-        </div>
+        {!success && (
+          <div style={{
+            position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+            fontSize: '11px', color: t.tm, fontFamily: t.mono,
+          }}>
+            {step + 1} / {totalSteps}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -841,5 +904,158 @@ function FlowGraphWithValues({ currentStep, nodeValues }) {
         );
       })}
     </svg>
+  );
+}
+
+// ── Skill Constellation ─────────────────────────────────────────────────
+function SkillConstellation({ agentName, roleLabel, skills = [], onComplete }) {
+  const SIZE = 420;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const ORBIT = 150;
+  const cbRef = useRef(onComplete);
+  cbRef.current = onComplete;
+
+  useEffect(() => {
+    const total = (skills.length * 350) + 1500;
+    const timer = setTimeout(() => cbRef.current?.(), total);
+    return () => clearTimeout(timer);
+  }, [skills.length]);
+
+  // Compute skill positions around circle
+  const nodes = skills.map((skill, i) => {
+    const angle = ((i * 360) / skills.length - 90) * (Math.PI / 180);
+    const x = CX + ORBIT * Math.cos(angle);
+    const y = CY + ORBIT * Math.sin(angle);
+    // Control point for curved connection
+    const cpAngle = angle + 0.25;
+    const cpR = ORBIT * 0.5;
+    const cpx = CX + cpR * Math.cos(cpAngle);
+    const cpy = CY + cpR * Math.sin(cpAngle);
+    const path = `M ${CX} ${CY} Q ${cpx} ${cpy} ${x} ${y}`;
+    return { ...skill, x, y, path, delay: i * 350 };
+  });
+
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '88%', height: '88%', overflow: 'visible' }}>
+        <defs>
+          <filter id="conGlow">
+            <feGaussianBlur stdDeviation="6" result="b" />
+            <feComposite in="SourceGraphic" in2="b" operator="over" />
+          </filter>
+        </defs>
+
+        {/* Ambient rings */}
+        {[0, 1, 2].map(i => (
+          <circle key={`ring-${i}`} cx={CX} cy={CY} r="80" fill="none"
+            stroke={t.violet} strokeWidth="0.8" opacity="0"
+            style={{ transformOrigin: `${CX}px ${CY}px`, animation: `ambientRing ${3 + i}s ease-out infinite ${i * 1.2}s` }}
+          />
+        ))}
+
+        {/* Connections — draw from center to each skill */}
+        {nodes.map((node, i) => (
+          <path
+            key={`conn-${i}`}
+            d={node.path}
+            fill="none"
+            stroke={node.color || t.violet}
+            strokeWidth="1.5"
+            strokeOpacity="0.35"
+            strokeDasharray="300"
+            strokeDashoffset="300"
+            style={{ animation: `constellationDrawConn 1s ease-out forwards ${node.delay}ms` }}
+          />
+        ))}
+
+        {/* Skill nodes */}
+        {nodes.map((node, i) => {
+          const isRight = node.x > CX;
+          const isBottom = node.y > CY;
+          return (
+            <g key={`sn-${i}`}
+              style={{
+                transformOrigin: `${node.x}px ${node.y}px`,
+                opacity: 0,
+                animation: `constellationBirth 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards ${node.delay + 200}ms`,
+              }}
+            >
+              {/* Outer glow */}
+              <circle cx={node.x} cy={node.y} r="26" fill={node.color || t.violet} fillOpacity="0.08" />
+              {/* Node circle */}
+              <circle cx={node.x} cy={node.y} r="20"
+                fill={t.surfaceEl} stroke={node.color || t.violet} strokeWidth="2"
+              />
+              {/* Inner dot */}
+              <circle cx={node.x} cy={node.y} r="4" fill={node.color || t.violet} />
+              {/* Skill name */}
+              <text
+                x={node.x + (isRight ? 28 : -28)}
+                y={node.y - 1}
+                textAnchor={isRight ? 'start' : 'end'}
+                fill={t.tp}
+                style={{ fontSize: '11px', fontWeight: 500, fontFamily: t.font }}
+              >
+                {node.name}
+              </text>
+              {/* Category */}
+              <text
+                x={node.x + (isRight ? 28 : -28)}
+                y={node.y + 12}
+                textAnchor={isRight ? 'start' : 'end'}
+                fill={t.tm}
+                style={{ fontSize: '8px', textTransform: 'uppercase', fontFamily: t.mono, letterSpacing: '0.06em' }}
+              >
+                {node.category}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Center node — the agent */}
+        <g style={{
+          transformOrigin: `${CX}px ${CY}px`,
+          animation: 'constellationBreathe 3s ease-in-out infinite',
+        }}>
+          {/* Layered glows */}
+          <circle cx={CX} cy={CY} r="48" fill={t.violet} fillOpacity="0.05" />
+          <circle cx={CX} cy={CY} r="44" fill={t.violet} fillOpacity="0.08" />
+          {/* Main circle */}
+          <circle cx={CX} cy={CY} r="38"
+            fill={t.bg} stroke={t.violet} strokeWidth="2.5"
+            filter="url(#conGlow)"
+          />
+          {/* Agent name */}
+          <text x={CX} y={CY - 3} textAnchor="middle" fill={t.tp}
+            style={{ fontSize: '14px', fontWeight: 700, fontFamily: t.font, letterSpacing: '-0.01em' }}
+          >
+            {agentName}
+          </text>
+          {/* Role label */}
+          <text x={CX} y={CY + 13} textAnchor="middle" fill={t.ts}
+            style={{ fontSize: '9px', textTransform: 'uppercase', fontFamily: t.mono, letterSpacing: '0.05em', opacity: 0.8 }}
+          >
+            {roleLabel}
+          </text>
+        </g>
+
+        {/* Ambient particles drifting outward */}
+        {Array.from({ length: 10 }).map((_, i) => {
+          const a = (i * 36) * (Math.PI / 180);
+          const dx = Math.cos(a) * 220;
+          const dy = Math.sin(a) * 220;
+          return (
+            <circle key={`p-${i}`} cx={CX} cy={CY} r="1.5" fill={t.tp}
+              style={{
+                '--dx': `${dx}px`, '--dy': `${dy}px`,
+                opacity: 0,
+                animation: `particleDrift ${2.5 + (i % 3) * 0.5}s ease-out infinite ${i * 0.4}s`,
+              }}
+            />
+          );
+        })}
+      </svg>
+    </div>
   );
 }
