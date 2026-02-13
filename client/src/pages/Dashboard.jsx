@@ -418,6 +418,99 @@ export default function Dashboard() {
         </button>
       </motion.div>
 
+      {/* Persona Onboarding CTA */}
+      <motion.div variants={itemVariants}>
+        <div
+          onClick={() => navigate('/personaboarding')}
+          style={{
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '16px', padding: '32px 36px',
+            background: `linear-gradient(135deg, ${t.surface} 0%, #1e1233 50%, ${t.surface} 100%)`,
+            border: `1px solid ${t.violet}33`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '32px',
+            transition: 'all 0.3s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = t.violet;
+            e.currentTarget.style.boxShadow = `0 12px 40px ${t.violet}20`;
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = `${t.violet}33`;
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          {/* Animated glow orbs */}
+          <div style={{
+            position: 'absolute', top: '-40px', right: '120px',
+            width: '200px', height: '200px', borderRadius: '50%',
+            background: `radial-gradient(circle, ${t.violet}18 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            position: 'absolute', bottom: '-60px', left: '30%',
+            width: '160px', height: '160px', borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(236,72,153,0.1) 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+
+          {/* Left: Icon cluster */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', zIndex: 1 }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '16px',
+              background: `linear-gradient(135deg, ${t.violet}, #a855f7)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: `0 8px 24px ${t.violet}44`,
+              flexShrink: 0,
+            }}>
+              <User size={28} color="#fff" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: t.tp, letterSpacing: '-0.01em' }}>
+                  Persona Onboarding
+                </h3>
+                <span style={{
+                  padding: '2px 10px', borderRadius: '100px',
+                  background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                  color: '#fff', fontSize: '10px', fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: '0.08em',
+                }}>
+                  New
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: '13px', color: t.ts, lineHeight: '1.5', maxWidth: '420px' }}>
+                Créez un agent personnalisé qui comprend votre façon de travailler. Chaque choix construit une histoire narrative unique.
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Mini preview chips + arrow */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', zIndex: 1, flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '180px' }}>
+              {['Role', 'Skills', 'Style', 'Workflow'].map(tag => (
+                <span key={tag} style={{
+                  padding: '4px 10px', borderRadius: '6px',
+                  backgroundColor: `${t.violet}15`, border: `1px solid ${t.violet}30`,
+                  color: t.violet, fontSize: '10px', fontWeight: 600,
+                }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: '12px',
+              backgroundColor: t.tp, color: t.bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'transform 0.2s',
+            }}>
+              <ArrowUpRight size={20} />
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Metrics Section */}
       <motion.div variants={itemVariants} className="dash-metrics" style={{
         display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px'
