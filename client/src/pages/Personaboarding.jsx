@@ -438,6 +438,39 @@ export default function Personaboarding() {
               Cliquez sur les nodes dans la constellation pour connecter des compétences à {displayName}.
               Vous pouvez aussi créer vos propres skills.
             </div>
+            {/* Inline Interactive Constellation */}
+            <div style={{
+              width: '100%', minHeight: '420px', marginBottom: '16px',
+              borderRadius: '12px', border: `1px solid ${t.border}`,
+              backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
+            }}>
+              {/* Dot grid background */}
+              <div style={{
+                position: 'absolute', inset: 0,
+                backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
+                backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+              }} />
+              <InteractiveConstellation
+                agentName={displayName}
+                roleLabel={role?.label || ''}
+                skills={skills}
+                selectedSkills={selectedSkills}
+                customSkills={customSkills}
+                onToggleSkill={(name) => {
+                  setSelectedSkills(prev =>
+                    prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
+                  );
+                }}
+                onAddCustomSkill={(skill) => {
+                  setCustomSkills(prev => [...prev, skill]);
+                  setSelectedSkills(prev => [...prev, skill.name]);
+                }}
+                onRemoveCustomSkill={(name) => {
+                  setCustomSkills(prev => prev.filter(s => s.name !== name));
+                  setSelectedSkills(prev => prev.filter(s => s !== name));
+                }}
+              />
+            </div>
             {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
             <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label={`Valider ${selectedSkills.length} compétence${selectedSkills.length > 1 ? 's' : ''}`} />
           </div>
@@ -571,6 +604,7 @@ export default function Personaboarding() {
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px',
                 padding: '32px', backgroundColor: t.surface, borderRadius: '12px',
                 border: `1px solid ${t.violetM}`, animation: 'fadeInUp 0.5s ease',
+                width: '100%',
               }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%',
@@ -585,6 +619,26 @@ export default function Personaboarding() {
                 <span style={{ fontSize: '12px', color: t.ts, textAlign: 'center', maxWidth: '280px', lineHeight: '1.6' }}>
                   {createdSkills.length} compétences connectées. La constellation se forme...
                 </span>
+                {/* Inline Final Constellation */}
+                {createdSkills.length > 0 && (
+                  <div style={{
+                    width: '100%', minHeight: '380px', marginTop: '8px',
+                    borderRadius: '12px', border: `1px solid ${t.border}`,
+                    backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
+                      backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+                    }} />
+                    <SkillConstellation
+                      agentName={displayName}
+                      roleLabel={role?.label || ''}
+                      skills={createdSkills}
+                      onComplete={() => setConstellationReady(true)}
+                    />
+                  </div>
+                )}
                 {constellationReady && (
                   <button
                     onClick={() => navigate(`/agents/${createdAgent?.name || displayName.toLowerCase().replace(/\s+/g, '-')}`)}
@@ -740,43 +794,13 @@ export default function Personaboarding() {
           pointerEvents: 'none', filter: 'blur(40px)',
         }} />
 
-        {/* Flow Graph / Interactive Constellation / Final Constellation */}
+        {/* Flow Graph — always visible */}
         <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {success && createdSkills.length > 0 ? (
-            <SkillConstellation
-              agentName={displayName}
-              roleLabel={role?.label || ''}
-              skills={createdSkills}
-              onComplete={() => setConstellationReady(true)}
-            />
-          ) : step === 2 && !typing && skills.length > 0 ? (
-            <InteractiveConstellation
-              agentName={displayName}
-              roleLabel={role?.label || ''}
-              skills={skills}
-              selectedSkills={selectedSkills}
-              customSkills={customSkills}
-              onToggleSkill={(name) => {
-                setSelectedSkills(prev =>
-                  prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
-                );
-              }}
-              onAddCustomSkill={(skill) => {
-                setCustomSkills(prev => [...prev, skill]);
-                setSelectedSkills(prev => [...prev, skill.name]);
-              }}
-              onRemoveCustomSkill={(name) => {
-                setCustomSkills(prev => prev.filter(s => s.name !== name));
-                setSelectedSkills(prev => prev.filter(s => s !== name));
-              }}
-            />
-          ) : (
-            <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
-          )}
+          <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
         </div>
 
         {/* Step counter */}
-        {!success && step !== 2 && (
+        {!success && (
           <div style={{
             position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
             fontSize: '11px', color: t.tm, fontFamily: t.mono,

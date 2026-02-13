@@ -251,6 +251,62 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     }
   });
 
+  // Get skills for a project's agent
+  app.get('/api/projects/:projectId/skills', verifyToken, async (req, res) => {
+    try {
+      const project = await db.getProject(req.params.projectId);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (!project.agent_name) return res.json([]);
+      const skills = await db.getAgentSkills(project.agent_name);
+      res.json(skills || []);
+    } catch (err) {
+      console.error('[ProjectSkills] Error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Workspace CLAUDE.md diagnostic — check what skills are injected
+  app.get('/api/projects/:projectId/workspace-context', verifyToken, async (req, res) => {
+    try {
+      const { getSkillContext } = require('./workspace');
+      const project = await db.getProject(req.params.projectId);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      const agentName = project.agent_name || '';
+      const skillContext = agentName ? await getSkillContext(agentName) : '';
+      const wsDir = path.join(DATA_DIR, 'workspaces', req.params.projectId);
+      const claudeMdPath = path.join(wsDir, 'CLAUDE.md');
+      const claudeMdExists = fs.existsSync(claudeMdPath);
+      const claudeMdSize = claudeMdExists ? fs.statSync(claudeMdPath).size : 0;
+      const hasSkillSection = claudeMdExists ? fs.readFileSync(claudeMdPath, 'utf-8').includes('## Assigned Skills') : false;
+      res.json({
+        agentName,
+        skillContextLength: skillContext.length,
+        skillContextPreview: skillContext.substring(0, 500),
+        claudeMdExists,
+        claudeMdSize,
+        hasSkillSection,
+      });
+    } catch (err) {
+      console.error('[WorkspaceContext] Error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Force regenerate workspace CLAUDE.md (useful when skills change)
+  app.post('/api/projects/:projectId/refresh-workspace', verifyToken, async (req, res) => {
+    try {
+      const { generateWorkspaceContext } = require('./workspace');
+      const claudeMdPath = await generateWorkspaceContext(req.params.projectId);
+      if (!claudeMdPath) return res.status(404).json({ error: 'Project not found' });
+      const size = fs.statSync(claudeMdPath).size;
+      const hasSkills = fs.readFileSync(claudeMdPath, 'utf-8').includes('## Assigned Skills');
+      res.json({ ok: true, claudeMdPath, size, hasSkills });
+    } catch (err) {
+      console.error('[RefreshWorkspace] Error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Claude CLI status check
   app.get('/api/claude-status', verifyToken, (req, res) => {
     try {

@@ -264,6 +264,7 @@ export default function ProjectView() {
   const [claudeStatus, setClaudeStatus] = useState(null);
   const [userClaudeConnected, setUserClaudeConnected] = useState(null);
   const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
+  const [agentSkills, setAgentSkills] = useState([]);
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
@@ -294,12 +295,14 @@ export default function ProjectView() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [p, tree, savedTabs] = await Promise.all([
+        const [p, tree, savedTabs, skills] = await Promise.all([
           api(`/api/projects/${projectId}`),
           api(`/api/iterations/${projectId}/tree`),
           api(`/api/terminal-tabs/${projectId}`),
+          api(`/api/projects/${projectId}/skills`).catch(() => []),
         ]);
         setProject(p);
+        setAgentSkills(skills || []);
         setTreeData(tree || []);
         if (tree && tree.length > 0) {
           const flat = [];
@@ -534,6 +537,21 @@ export default function ProjectView() {
               {selected.agent_name}
             </span>
           </>}
+          {agentSkills.length > 0 && (
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <span style={{ color: t.tm, fontSize: '10px' }}>Skills:</span>
+              {agentSkills.map(s => (
+                <span key={s.id} style={{
+                  background: s.color ? `${s.color}20` : 'rgba(139,92,246,0.12)',
+                  color: s.color || t.violet,
+                  padding: '1px 6px', borderRadius: '99px', fontSize: '9px', fontWeight: '600',
+                  border: `1px solid ${s.color ? `${s.color}40` : 'rgba(139,92,246,0.2)'}`,
+                }}>
+                  {s.name}
+                </span>
+              ))}
+            </div>
+          )}
           <div style={{ flex: 1 }} />
           <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
             style={{

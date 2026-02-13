@@ -102,12 +102,14 @@ function writeBranchContext(projectId, parentId) {
 async function getSkillContext(agentName) {
   try {
     const skills = await db.getAgentSkills(agentName);
+    console.log(`[Workspace] getSkillContext(${agentName}): found ${skills ? skills.length : 0} skills`);
     if (!skills || skills.length === 0) return '';
 
     let skillSection = '\n## Assigned Skills\n\n';
     skillSection += 'The following skills are loaded for this agent. Use them as reference and follow their patterns:\n\n';
 
     for (const skill of skills) {
+      console.log(`[Workspace]   Skill: ${skill.name} (slug=${skill.slug}, prompt=${skill.prompt ? skill.prompt.length : 0} chars)`);
       skillSection += `### ${skill.name}\n`;
       if (skill.description) skillSection += `${skill.description}\n\n`;
 
@@ -115,6 +117,7 @@ async function getSkillContext(agentName) {
 
       // Try file-based content first (SKILL.md entry point)
       const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+      console.log(`[Workspace]   readSkillFile(${skill.slug}, ${skill.entry_point || 'SKILL.md'}): ${entryFile ? entryFile.content.length + ' chars' : 'null'}`);
       if (entryFile) {
         hasFileContent = true;
         const content = entryFile.content.length > 3000
@@ -160,6 +163,7 @@ async function getSkillContext(agentName) {
       skillSection += '---\n\n';
     }
 
+    console.log(`[Workspace] getSkillContext(${agentName}): returning ${skillSection.length} chars`);
     return skillSection;
   } catch (err) {
     console.warn(`[Workspace] Failed to load skills for ${agentName}:`, err.message);
