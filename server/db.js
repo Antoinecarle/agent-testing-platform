@@ -957,6 +957,76 @@ async function getSkillStats() {
   return { total, byCategory, totalAssignments, uniqueAgents };
 }
 
+// ===================== SKILL FILE TREE =====================
+
+async function updateSkillFileTree(id, fileTree, totalFiles) {
+  await supabase.from('skills').update({
+    file_tree: fileTree,
+    total_files: totalFiles || 0,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
+}
+
+// ===================== SKILL CONVERSATIONS =====================
+
+async function createSkillConversation(userId, skillId, name) {
+  const { data } = await supabase.from('skill_conversations').insert({
+    user_id: userId,
+    skill_id: skillId || null,
+    name: name || 'New Skill',
+  }).select('*').single();
+  return data;
+}
+
+async function getSkillConversation(id) {
+  const { data } = await supabase.from('skill_conversations').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function getUserSkillConversations(userId) {
+  const { data } = await supabase.from('skill_conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  return data || [];
+}
+
+async function updateSkillConversation(id, updates) {
+  const { data } = await supabase.from('skill_conversations').update({
+    ...updates,
+    updated_at: now(),
+  }).eq('id', id).select('*').single();
+  return data || null;
+}
+
+async function deleteSkillConversation(id) {
+  await supabase.from('skill_conversations').delete().eq('id', id);
+}
+
+// ===================== SKILL CONVERSATION MESSAGES =====================
+
+async function createSkillConversationMessage(conversationId, role, content, fileContext) {
+  const { data } = await supabase.from('skill_conversation_messages').insert({
+    conversation_id: conversationId,
+    role,
+    content,
+    file_context: fileContext || null,
+  }).select('*').single();
+
+  // Update conversation updated_at
+  await updateSkillConversation(conversationId, {});
+
+  return data;
+}
+
+async function getSkillConversationMessages(conversationId) {
+  const { data } = await supabase.from('skill_conversation_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  return data || [];
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -1010,4 +1080,11 @@ module.exports = {
   searchSkills, getSkillsByCategory,
   assignSkillToAgent, unassignSkillFromAgent, getAgentSkills, getSkillAgents,
   bulkAssignSkill, bulkAssignSkillsToAgent, getSkillStats,
+  // Skill File Tree
+  updateSkillFileTree,
+  // Skill Conversations
+  createSkillConversation, getSkillConversation, getUserSkillConversations,
+  updateSkillConversation, deleteSkillConversation,
+  // Skill Conversation Messages
+  createSkillConversationMessage, getSkillConversationMessages,
 };

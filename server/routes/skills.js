@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const skillStorage = require('../skill-storage');
 
 const router = express.Router();
 
@@ -146,6 +147,119 @@ router.post('/agent/:agentName/bulk', async (req, res) => {
   } catch (err) {
     console.error('[Skills] Bulk assign to agent error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== FILE MANAGEMENT ROUTES ====================
+
+// GET /api/skills/:id/files — get file tree
+router.get('/:id/files', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const tree = skillStorage.scanSkillTree(skill.slug);
+    res.json({ tree, totalFiles: skillStorage.countFiles(tree) });
+  } catch (err) {
+    console.error('[Skills] Files tree error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/skills/:id/files/* — read a file
+router.get('/:id/files/*', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const relativePath = req.params[0];
+    if (!relativePath) return res.status(400).json({ error: 'File path required' });
+
+    const file = skillStorage.readSkillFile(skill.slug, relativePath);
+    if (!file) return res.status(404).json({ error: 'File not found' });
+
+    res.json(file);
+  } catch (err) {
+    console.error('[Skills] Read file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/skills/:id/files/* — write/update a file
+router.put('/:id/files/*', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const relativePath = req.params[0];
+    if (!relativePath) return res.status(400).json({ error: 'File path required' });
+
+    const { content } = req.body;
+    if (content === undefined) return res.status(400).json({ error: 'content is required' });
+
+    const tree = skillStorage.writeSkillFile(skill.slug, relativePath, content);
+    const totalFiles = skillStorage.countFiles(tree);
+    await db.updateSkillFileTree(skill.id, tree, totalFiles);
+
+    res.json({ tree, totalFiles });
+  } catch (err) {
+    console.error('[Skills] Write file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/skills/:id/files/* — delete a file
+router.delete('/:id/files/*', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const relativePath = req.params[0];
+    if (!relativePath) return res.status(400).json({ error: 'File path required' });
+
+    const tree = skillStorage.deleteSkillFile(skill.slug, relativePath);
+    const totalFiles = skillStorage.countFiles(tree);
+    await db.updateSkillFileTree(skill.id, tree, totalFiles);
+
+    res.json({ tree, totalFiles });
+  } catch (err) {
+    console.error('[Skills] Delete file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/skills/:id/dirs — create a subdirectory
+router.post('/:id/dirs', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const { path: dirPath } = req.body;
+    if (!dirPath) return res.status(400).json({ error: 'path is required' });
+
+    const tree = skillStorage.createSkillDir(skill.slug, dirPath);
+    res.json({ tree });
+  } catch (err) {
+    console.error('[Skills] Create dir error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/skills/:id/init — initialize from template or blank
+router.post('/:id/init', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const { template } = req.body;
+    const tree = skillStorage.initSkillFromTemplate(skill.slug, template || 'blank');
+    const totalFiles = skillStorage.countFiles(tree);
+    await db.updateSkillFileTree(skill.id, tree, totalFiles);
+
+    res.json({ tree, totalFiles });
+  } catch (err) {
+    console.error('[Skills] Init error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

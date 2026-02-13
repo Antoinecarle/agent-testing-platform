@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search, Filter, Edit2, Trash2,
   UserPlus, X, Check, Layers, Users, Zap, Hash,
-  AlertCircle
+  AlertCircle, FileText, Sparkles
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -25,6 +26,7 @@ const inputStyle = {
 const PRESET_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#6366F1', '#14B8A6', '#F97316'];
 
 export default function Skills() {
+  const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
   const [stats, setStats] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -206,25 +208,37 @@ export default function Skills() {
     <div style={{ color: t.tp }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '28px' }}>
+      <div className="skills-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '28px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>Skills</h1>
           <p style={{ color: t.ts, fontSize: '13px', margin: 0 }}>Create and manage reusable skills for your agents</p>
         </div>
-        <button
-          onClick={handleOpenCreate}
-          style={{
-            backgroundColor: t.tp, color: t.bg, border: 'none', borderRadius: '4px',
-            padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '6px',
-          }}
-        >
-          <Plus size={14} /> New Skill
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => navigate('/skills/create')}
+            style={{
+              backgroundColor: t.violetM, color: t.violet, border: `1px solid rgba(139,92,246,0.3)`, borderRadius: '4px',
+              padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}
+          >
+            <Sparkles size={14} /> Create with AI
+          </button>
+          <button
+            onClick={handleOpenCreate}
+            style={{
+              backgroundColor: t.tp, color: t.bg, border: 'none', borderRadius: '4px',
+              padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}
+          >
+            <Plus size={14} /> New Skill
+          </button>
+        </div>
       </div>
 
       {/* Stats Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
+      <div className="skills-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
         {[
           { label: 'Total Skills', val: stats?.total || 0, icon: <Layers size={13} /> },
           { label: 'Assignments', val: stats?.totalAssignments || 0, icon: <UserPlus size={13} /> },
@@ -335,11 +349,22 @@ export default function Skills() {
               </p>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: t.tm, fontSize: '11px' }}>
-                  <Users size={11} />
-                  <span>{skill.agent_count || 0} agent{(skill.agent_count || 0) !== 1 ? 's' : ''}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: t.tm, fontSize: '11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Users size={11} />
+                    <span>{skill.agent_count || 0} agent{(skill.agent_count || 0) !== 1 ? 's' : ''}</span>
+                  </div>
+                  {skill.total_files > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: t.violet }}>
+                      <FileText size={11} />
+                      <span>{skill.total_files} file{skill.total_files !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '2px' }} onClick={e => e.stopPropagation()}>
+                  {skill.total_files > 0 && (
+                    <button onClick={() => navigate(`/skills/${skill.id}/edit`)} style={{ ...iconBtnStyle, color: t.violet }} title="Edit in Editor"><FileText size={13} /></button>
+                  )}
                   <button onClick={() => handleOpenAssign(skill)} style={iconBtnStyle} title="Assign to Agents"><UserPlus size={13} /></button>
                   <button onClick={() => handleOpenEdit(skill)} style={iconBtnStyle} title="Edit"><Edit2 size={13} /></button>
                   <button onClick={() => handleDelete(skill.id)} style={{ ...iconBtnStyle, color: t.danger }} title="Delete"><Trash2 size={13} /></button>
@@ -619,16 +644,26 @@ export default function Skills() {
               </div>
             </div>
 
-            <div style={{ padding: '16px 20px', borderTop: `1px solid ${t.border}`, display: 'flex', gap: '10px' }}>
-              <button onClick={() => handleOpenEdit(activeSkill)} style={{ ...btnSecStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                <Edit2 size={13} /> Edit
-              </button>
-              <button onClick={() => handleDelete(activeSkill.id)} style={{
-                ...btnSecStyle, color: t.danger, borderColor: `${t.danger}33`, flex: 1,
+            <div style={{ padding: '16px 20px', borderTop: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button onClick={() => { setIsDrawerOpen(false); navigate(`/skills/${activeSkill.id}/edit`); }} style={{
+                width: '100%', padding: '8px', borderRadius: '4px',
+                backgroundColor: t.violetM, color: t.violet, border: `1px solid rgba(139,92,246,0.3)`,
+                fontSize: '12px', fontWeight: '600', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}>
-                <Trash2 size={13} /> Delete
+                <Sparkles size={13} /> Open in Editor
               </button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => handleOpenEdit(activeSkill)} style={{ ...btnSecStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <Edit2 size={13} /> Edit
+                </button>
+                <button onClick={() => handleDelete(activeSkill.id)} style={{
+                  ...btnSecStyle, color: t.danger, borderColor: `${t.danger}33`, flex: 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                }}>
+                  <Trash2 size={13} /> Delete
+                </button>
+              </div>
             </div>
           </div>
         </>
@@ -653,6 +688,18 @@ export default function Skills() {
       <style>{`
         @media (max-width: 768px) {
           .skills-stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .skills-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+          .skills-search-row { flex-direction: column !important; }
+          .skills-search-row > div:last-child { min-width: 0 !important; width: 100% !important; }
+          .skills-grid { grid-template-columns: 1fr !important; }
+          .skills-modal-content { width: 95vw !important; max-width: 95vw !important; }
+          .skills-drawer {
+            width: 100vw !important;
+            border-left: none !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .skills-stats-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

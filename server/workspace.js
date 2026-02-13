@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
+const skillStorage = require('./skill-storage');
 
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', 'agents');
 const SYSTEM_AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
@@ -93,6 +94,66 @@ function writeBranchContext(projectId, parentId) {
   const ctxPath = path.join(wsDir, '.branch-context.json');
   fs.writeFileSync(ctxPath, JSON.stringify({ parentId, updatedAt: Date.now() }));
   try { fs.chownSync(ctxPath, 1001, 1001); } catch (_) {}
+}
+
+/**
+ * Get skill context for an agent — reads SKILL.md and key reference files
+ */
+async function getSkillContext(agentName) {
+  try {
+    const skills = await db.getAgentSkills(agentName);
+    if (!skills || skills.length === 0) return '';
+
+    let skillSection = '\n## Assigned Skills\n\n';
+    skillSection += 'The following skills are loaded for this agent. Use them as reference and follow their patterns:\n\n';
+
+    for (const skill of skills) {
+      skillSection += `### ${skill.name}\n`;
+      if (skill.description) skillSection += `${skill.description}\n\n`;
+
+      // Read SKILL.md (entry point)
+      const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+      if (entryFile) {
+        // Truncate to 3000 chars to avoid overloading context
+        const content = entryFile.content.length > 3000
+          ? entryFile.content.slice(0, 3000) + '\n...(truncated)'
+          : entryFile.content;
+        skillSection += content + '\n\n';
+      }
+
+      // Read up to 5 key reference files (first-level only)
+      const tree = skillStorage.scanSkillTree(skill.slug);
+      if (tree) {
+        const refFiles = [];
+        for (const item of tree) {
+          if (item.type === 'directory' && item.children) {
+            for (const child of item.children) {
+              if (child.type === 'file' && child.name.endsWith('.md') && refFiles.length < 5) {
+                refFiles.push(child.path);
+              }
+            }
+          }
+        }
+
+        for (const refPath of refFiles) {
+          const refFile = skillStorage.readSkillFile(skill.slug, refPath);
+          if (refFile) {
+            const refContent = refFile.content.length > 2000
+              ? refFile.content.slice(0, 2000) + '\n...(truncated)'
+              : refFile.content;
+            skillSection += `#### ${refPath}\n${refContent}\n\n`;
+          }
+        }
+      }
+
+      skillSection += '---\n\n';
+    }
+
+    return skillSection;
+  } catch (err) {
+    console.warn(`[Workspace] Failed to load skills for ${agentName}:`, err.message);
+    return '';
+  }
 }
 
 /**
@@ -261,6 +322,8 @@ ${agentPrompt}` : `## No Agent Assigned
 
 No specific agent is assigned to this project. You can use any design style. Consider asking the user which agent/style they'd like to use.`}
 
+${agentName ? await getSkillContext(agentName) : ''}
+
 ${iterations.length > 0 ? `## Previous Iterations Reference
 
 The HTML files for previous iterations are stored in:
@@ -334,4 +397,4 @@ To read a previous iteration for reference:
   return claudeMdPath;
 }
 
-module.exports = { generateWorkspaceContext, getAgentPrompt, readBranchContext, writeBranchContext };
+module.exports = { generateWorkspaceContext, getAgentPrompt, getSkillContext, readBranchContext, writeBranchContext };
