@@ -260,12 +260,28 @@ export default function SkillCreator() {
       setSkill(data);
       setSkillId(skillId);
       // Load file tree
-      const filesData = await api(`/api/skills/${skillId}/files`);
-      setFileTree(filesData.tree || []);
+      let filesData = await api(`/api/skills/${skillId}/files`);
+      let tree = filesData.tree || [];
+
+      // If no files on disk, auto-init from blank template
+      if (!tree || tree.length === 0) {
+        try {
+          const initData = await api(`/api/skills/${skillId}/init`, {
+            method: 'POST',
+            body: JSON.stringify({ template: 'blank' }),
+          });
+          tree = initData.tree || [];
+        } catch (initErr) {
+          console.warn('Auto-init failed:', initErr);
+        }
+      }
+
+      setFileTree(tree);
       // Expand root folders
-      setExpandedFolders((filesData.tree || []).filter(i => i.type === 'directory').map(i => i.path));
-      // Auto-open SKILL.md
-      if (data.entry_point) openFile(skillId, data.entry_point);
+      setExpandedFolders(tree.filter(i => i.type === 'directory').map(i => i.path));
+      // Auto-open SKILL.md if it exists in the tree
+      const hasEntryPoint = data.entry_point && flattenFileNames(tree).includes(data.entry_point);
+      if (hasEntryPoint) openFile(skillId, data.entry_point);
       // Create or load conversation
       await initConversation(skillId, data.name);
     } catch (err) {
@@ -328,10 +344,12 @@ export default function SkillCreator() {
   };
 
   const handleInitTemplate = async (templateSlug) => {
-    // First create the skill
+    // First create the skill with a unique name
     try {
-      const name = templateSlug === 'blank' ? 'New Skill' :
+      const suffix = Date.now().toString(36).slice(-4);
+      const baseName = templateSlug === 'blank' ? 'New Skill' :
         templateSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      const name = `${baseName} ${suffix}`;
       const skillData = await api('/api/skills', {
         method: 'POST',
         body: JSON.stringify({ name, description: '', category: 'general' }),
