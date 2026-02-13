@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Check, Loader2, ArrowRight } from 'lucide-react';
+import {
+  User, Shield, Zap, MessageSquare, GitBranch, Wrench,
+  Cpu, Settings, Sparkles, Check, Loader2, PenTool, ArrowRight,
+} from 'lucide-react';
 import { api } from '../api';
 
 const t = {
@@ -13,11 +16,31 @@ const t = {
   font: '"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
 };
 
-// ── Typewriter ──────────────────────────────────────────────────────────────
-function TypewriterText({ text, onComplete, speed = 25, style = {} }) {
+// ── CSS Keyframes ──────────────────────────────────────────────────────────
+const KEYFRAMES = `
+@keyframes fadeInUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+@keyframes pulse { 0%,100% { transform:scale(1); opacity:0.3; } 50% { transform:scale(1.25); opacity:0.6; } }
+@keyframes cursorBlink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+@keyframes nodeGlow { 0%,100% { filter:drop-shadow(0 0 6px rgba(139,92,246,0.4)); } 50% { filter:drop-shadow(0 0 14px rgba(139,92,246,0.8)); } }
+@keyframes drawPath {
+  from { stroke-dashoffset: var(--path-len); }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes quillWrite {
+  0% { transform:translateX(0) rotate(0deg); }
+  25% { transform:translateX(3px) rotate(-3deg); }
+  50% { transform:translateX(0) rotate(0deg); }
+  75% { transform:translateX(-2px) rotate(2deg); }
+  100% { transform:translateX(0) rotate(0deg); }
+}
+`;
+
+// ── Typewriter ─────────────────────────────────────────────────────────────
+function TypewriterText({ text, onComplete, speed = 25 }) {
   const [displayed, setDisplayed] = useState('');
-  const completeRef = useRef(onComplete);
-  completeRef.current = onComplete;
+  const cbRef = useRef(onComplete);
+  cbRef.current = onComplete;
 
   useEffect(() => {
     setDisplayed('');
@@ -27,52 +50,66 @@ function TypewriterText({ text, onComplete, speed = 25, style = {} }) {
       setDisplayed(text.slice(0, i));
       if (i >= text.length) {
         clearInterval(timer);
-        completeRef.current?.();
+        cbRef.current?.();
       }
     }, speed);
     return () => clearInterval(timer);
   }, [text, speed]);
 
-  return <span style={{ lineHeight: '1.7', ...style }}>{displayed}<span style={{ opacity: displayed.length < text.length ? 1 : 0, transition: 'opacity 0.3s' }}>|</span></span>;
+  const showCursor = displayed.length < text.length;
+  return (
+    <span style={{ lineHeight: '1.7' }}>
+      {displayed}
+      {showCursor && (
+        <span style={{
+          display: 'inline-block', width: '2px', height: '1.1em',
+          backgroundColor: t.violet, marginLeft: '2px', verticalAlign: 'middle',
+          animation: 'cursorBlink 0.8s infinite',
+        }} />
+      )}
+    </span>
+  );
 }
 
-// ── Chip ────────────────────────────────────────────────────────────────────
-function Chip({ label, selected, onClick, subtitle, multi }) {
-  const [hovered, setHovered] = useState(false);
+// ── Chip ───────────────────────────────────────────────────────────────────
+function Chip({ label, selected, onClick, subtitle, multi, color }) {
+  const [hov, setHov] = useState(false);
+  const accent = color || t.violet;
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
         display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px',
-        padding: subtitle ? '10px 16px' : '8px 14px',
-        backgroundColor: selected ? t.violetG : hovered ? t.surfaceEl : t.surface,
-        border: `1px solid ${selected ? t.violet : hovered ? t.borderS : t.border}`,
-        borderRadius: '8px', cursor: 'pointer',
+        padding: subtitle ? '10px 16px' : '8px 16px',
+        backgroundColor: selected ? `${accent}22` : hov ? t.surfaceEl : t.surface,
+        border: `1px solid ${selected ? accent : hov ? t.borderS : t.border}`,
+        borderRadius: multi ? '8px' : '100px', cursor: 'pointer',
         transition: 'all 0.2s ease', textAlign: 'left',
-        minWidth: subtitle ? '180px' : 'auto',
+        minWidth: subtitle ? '170px' : 'auto',
+        boxShadow: selected ? `0 0 12px ${accent}20` : 'none',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
         {multi && (
           <div style={{
-            width: 16, height: 16, borderRadius: 4,
-            border: `1.5px solid ${selected ? t.violet : t.tm}`,
-            backgroundColor: selected ? t.violet : 'transparent',
+            width: 15, height: 15, borderRadius: 3, flexShrink: 0,
+            border: `1.5px solid ${selected ? accent : t.tm}`,
+            backgroundColor: selected ? accent : 'transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'all 0.15s ease', flexShrink: 0,
+            transition: 'all 0.15s ease',
           }}>
-            {selected && <Check size={10} color="#fff" strokeWidth={3} />}
+            {selected && <Check size={9} color="#fff" strokeWidth={3.5} />}
           </div>
         )}
-        <span style={{ fontSize: '13px', fontWeight: '500', color: selected ? t.tp : t.ts }}>
+        <span style={{ fontSize: '13px', fontWeight: 500, color: selected ? t.tp : t.ts }}>
           {label}
         </span>
-        {!multi && selected && <Check size={12} color={t.violet} style={{ marginLeft: 'auto' }} />}
+        {!multi && selected && <Check size={12} color={accent} style={{ marginLeft: 'auto' }} />}
       </div>
       {subtitle && (
-        <span style={{ fontSize: '11px', color: t.tm, marginLeft: multi ? '24px' : 0 }}>
+        <span style={{ fontSize: '11px', color: t.tm, marginLeft: multi ? '23px' : 0 }}>
           {subtitle}
         </span>
       )}
@@ -80,38 +117,21 @@ function Chip({ label, selected, onClick, subtitle, multi }) {
   );
 }
 
-// ── Highlighted narrative line ──────────────────────────────────────────────
-function NarrativeLine({ text, highlights }) {
-  if (!highlights || highlights.length === 0) {
-    return <span>{text}</span>;
-  }
-  // Find and highlight values within text
-  let parts = [{ text, highlight: false }];
-  for (const hl of highlights) {
-    if (!hl) continue;
-    const newParts = [];
-    for (const part of parts) {
-      if (part.highlight) { newParts.push(part); continue; }
-      const idx = part.text.indexOf(hl);
-      if (idx === -1) { newParts.push(part); continue; }
-      if (idx > 0) newParts.push({ text: part.text.slice(0, idx), highlight: false });
-      newParts.push({ text: hl, highlight: true });
-      if (idx + hl.length < part.text.length) newParts.push({ text: part.text.slice(idx + hl.length), highlight: false });
-    }
-    parts = newParts;
-  }
-  return (
-    <span>
-      {parts.map((p, i) =>
-        p.highlight
-          ? <span key={i} style={{ color: t.violet, fontWeight: 600 }}>{p.text}</span>
-          : <span key={i}>{p.text}</span>
-      )}
-    </span>
-  );
-}
+// ── Step metadata for SVG flow graph ───────────────────────────────────────
+const STEP_META = [
+  { id: 'name', label: 'Nom', Icon: User },
+  { id: 'role', label: 'Rôle', Icon: Shield },
+  { id: 'skills', label: 'Compétences', Icon: Zap },
+  { id: 'comm', label: 'Communication', Icon: MessageSquare },
+  { id: 'method', label: 'Méthodologie', Icon: GitBranch },
+  { id: 'tools', label: 'Outils', Icon: Wrench },
+  { id: 'model', label: 'Modèle', Icon: Cpu },
+  { id: 'autonomy', label: 'Autonomie', Icon: Settings },
+  { id: 'enhance', label: 'IA Enhance', Icon: Sparkles },
+  { id: 'complete', label: 'Terminé', Icon: Check },
+];
 
-// ── Main Component ──────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────
 export default function Personaboarding() {
   const navigate = useNavigate();
   const scrollRef = useRef(null);
@@ -120,6 +140,7 @@ export default function Personaboarding() {
   const [step, setStep] = useState(0);
   const [typing, setTyping] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
@@ -129,15 +150,18 @@ export default function Personaboarding() {
 
   // User selections
   const [displayName, setDisplayName] = useState('');
-  const [role, setRole] = useState(null);       // { id, label }
-  const [skills, setSkills] = useState([]);      // [{ name, ... }]
-  const [selectedSkills, setSelectedSkills] = useState([]); // [string names]
+  const [role, setRole] = useState(null);
+  const [skills, setSkills] = useState([]);
+  const [selectedSkills, setSelectedSkills] = useState([]);
   const [commStyle, setCommStyle] = useState(null);
   const [methodology, setMethodology] = useState(null);
+  const [selectedTools, setSelectedTools] = useState([]);
   const [model, setModel] = useState(null);
   const [autonomy, setAutonomy] = useState(null);
+  const [gptData, setGptData] = useState(null);
+  const [aiNarrative, setAiNarrative] = useState('');
 
-  // Narrative history: [{ text, highlights }]
+  // Narrative history
   const [history, setHistory] = useState([]);
 
   // Fetch options on mount
@@ -151,7 +175,7 @@ export default function Personaboarding() {
         setOptions(opts);
         setAllRoles(roles);
       } catch (err) {
-        console.error('Failed to load options:', err);
+        console.error('Failed to load personaboarding options:', err);
       }
     })();
   }, []);
@@ -161,60 +185,113 @@ export default function Personaboarding() {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [history, typing, step]);
 
-  // Focus input on step 0
+  // Focus input
   useEffect(() => {
-    if (step === 0 && !typing) inputRef.current?.focus();
+    if (step === 0 && !typing) setTimeout(() => inputRef.current?.focus(), 100);
   }, [step, typing]);
 
-  // ── Step handlers ─────────────────────────────────────────────────────────
-  function advance(narrativeText, highlights) {
-    setHistory(prev => [...prev, { text: narrativeText, highlights }]);
+  // ── Narrative prompts ────────────────────────────────────────────────────
+  const prompts = [
+    "Commençons la genèse. Quel sera le nom de votre agent ?",
+    `Je m'appellerai ${displayName}. Quel rôle souhaitez-vous me confier ?`,
+    `En tant que ${role?.label || '...'}, j'aurai besoin de compétences spécifiques. Quelles sont les miennes ?`,
+    `Mes ${selectedSkills.length} compétences sont acquises. Comment souhaitez-vous que je communique ?`,
+    `Style ${commStyle?.label || '...'} noté. Quelle méthodologie de travail me guidera ?`,
+    `Méthodologie ${methodology?.label || '...'} intégrée. De quels outils aurai-je besoin ?`,
+    `Mes outils sont configurés. Quel cerveau IA souhaitez-vous me donner ?`,
+    `Je fonctionnerai avec ${model?.label || '...'}. Quel sera mon degré de liberté ?`,
+    `Configuration terminée. L'intelligence artificielle analyse votre vision et compose mon essence...`,
+    aiNarrative || `${displayName} est prêt. Son existence commence maintenant.`,
+  ];
+
+  // ── Advance to next step ─────────────────────────────────────────────────
+  function advance(narrativeText) {
+    setHistory(prev => [...prev, narrativeText]);
     setTyping(true);
     setStep(prev => prev + 1);
   }
 
+  // ── Step handlers ────────────────────────────────────────────────────────
   function handleNameSubmit() {
     const name = displayName.trim();
     if (!name) return;
     setDisplayName(name);
-    advance(`Je vais créer un agent qui s'appellera ${name}.`, [name]);
+    advance(`Je vais créer un agent qui s'appellera ${name}.`);
   }
 
   function handleRoleSelect(r) {
     setRole(r);
-    // Load skills for this role
     const roleData = allRoles.find(ar => ar.id === r.id);
     setSkills(roleData?.skills || []);
     setSelectedSkills([]);
-    advance(`${displayName} sera ${r.label}.`, [r.label]);
+    advance(`${displayName} sera ${r.label}.`);
   }
 
   function handleSkillsValidate() {
     if (selectedSkills.length === 0) return;
     const list = selectedSkills.join(', ');
-    advance(`${displayName} maîtrisera ${list}.`, selectedSkills);
+    advance(`${displayName} maîtrisera ${list}.`);
   }
 
   function handleCommStyleSelect(cs) {
     setCommStyle(cs);
-    advance(`${displayName} communiquera de manière ${cs.label.toLowerCase()}.`, [cs.label.toLowerCase()]);
+    advance(`${displayName} communiquera de manière ${cs.label.toLowerCase()}.`);
   }
 
   function handleMethodologySelect(m) {
     setMethodology(m);
-    advance(`${displayName} travaillera selon la méthodologie ${m.label}.`, [m.label]);
+    advance(`${displayName} travaillera selon la méthodologie ${m.label}.`);
+  }
+
+  function handleToolsValidate() {
+    if (selectedTools.length === 0) return;
+    const list = selectedTools.join(', ');
+    advance(`${displayName} utilisera les outils : ${list}.`);
   }
 
   function handleModelSelect(m) {
     setModel(m);
-    advance(`Son moteur d'intelligence sera ${m.label}.`, [m.label]);
+    advance(`Son moteur d'intelligence sera ${m.label}.`);
   }
 
   function handleAutonomySelect(a) {
     setAutonomy(a);
-    advance(`Son niveau d'autonomie sera ${a.label.toLowerCase()}.`, [a.label.toLowerCase()]);
+    advance(`Son niveau d'autonomie sera ${a.label.toLowerCase()}.`);
   }
 
+  // AI Enhancement step
+  async function handleAiEnhance() {
+    setEnhancing(true);
+    setError(null);
+    try {
+      const res = await api('/api/personaboarding/ai-enhance', {
+        method: 'POST',
+        body: JSON.stringify({
+          displayName,
+          role: role.id,
+          selectedSkills,
+          commStyle: commStyle.id,
+          methodology: methodology.id,
+          selectedTools,
+          model: model.id,
+          autonomy: autonomy.id,
+        }),
+      });
+      setGptData(res.gptData);
+      setAiNarrative(res.narrative);
+      setEnhancing(false);
+      // Auto advance after showing AI narrative
+      advance(`L'IA a parlé : "${res.narrative}"`);
+    } catch (err) {
+      // Fallback if GPT unavailable
+      const fallbackNarrative = `Ainsi naquit ${displayName}, prêt à transformer chaque défi en opportunité.`;
+      setAiNarrative(fallbackNarrative);
+      setEnhancing(false);
+      advance(`L'IA a parlé : "${fallbackNarrative}"`);
+    }
+  }
+
+  // Final creation
   async function handleCreate() {
     setSubmitting(true);
     setError(null);
@@ -227,50 +304,52 @@ export default function Personaboarding() {
           selectedSkills,
           commStyle: commStyle.id,
           methodology: methodology.id,
+          selectedTools,
           model: model.id,
           autonomy: autonomy.id,
+          gptData: gptData || null,
         }),
       });
       setSuccess(true);
-      setTimeout(() => navigate(`/agents/${res.agent.name}`), 1500);
+      setTimeout(() => navigate(`/agents/${res.agent.name}`), 2000);
     } catch (err) {
       setError(err.message || 'Erreur lors de la création');
       setSubmitting(false);
     }
   }
 
-  // ── Step prompts ──────────────────────────────────────────────────────────
-  const prompts = [
-    "Je vais créer un agent qui s'appellera...",
-    `${displayName} sera...`,
-    `${displayName} maîtrisera...`,
-    `${displayName} communiquera de manière...`,
-    `${displayName} travaillera selon la méthodologie...`,
-    "Son moteur d'intelligence sera...",
-    "Son niveau d'autonomie sera...",
-    `La genèse de ${displayName} est terminée.`,
-  ];
+  // ── Build node values for the flow graph ─────────────────────────────────
+  function getNodeValues() {
+    return [
+      displayName || null,
+      role?.label || null,
+      selectedSkills.length > 0 ? `${selectedSkills.length} skills` : null,
+      commStyle?.label || null,
+      methodology?.label || null,
+      selectedTools.length > 0 ? `${selectedTools.length} outils` : null,
+      model?.label || null,
+      autonomy?.label || null,
+      gptData ? 'Enhanced' : null,
+      success ? 'Créé' : null,
+    ];
+  }
 
-  // ── Step inputs ───────────────────────────────────────────────────────────
+  // ── Render chip area per step ────────────────────────────────────────────
   function renderInput() {
     if (typing) return null;
 
-    const chipContainerStyle = {
-      display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px',
-      animation: 'fadeIn 0.3s ease',
-    };
+    const fadeIn = { animation: 'fadeInUp 0.35s ease' };
 
     switch (step) {
-      // Step 0: Agent name
       case 0:
         return (
-          <div style={{ display: 'flex', gap: '8px', marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '20px', ...fadeIn }}>
             <input
               ref={inputRef}
               autoFocus
               style={{
                 backgroundColor: t.bg, border: `1px solid ${t.borderS}`,
-                borderRadius: '6px', padding: '10px 14px', color: '#fff',
+                borderRadius: '6px', padding: '11px 14px', color: '#fff',
                 fontSize: '14px', flex: 1, outline: 'none', fontFamily: t.font,
                 transition: 'border-color 0.2s',
               }}
@@ -287,9 +366,11 @@ export default function Personaboarding() {
               style={{
                 backgroundColor: displayName.trim() ? t.tp : t.surfaceEl,
                 color: displayName.trim() ? t.bg : t.tm,
-                border: 'none', borderRadius: '6px', padding: '0 20px',
-                fontSize: '12px', fontWeight: 600, cursor: displayName.trim() ? 'pointer' : 'default',
-                transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px',
+                border: 'none', borderRadius: '6px', padding: '0 22px',
+                fontSize: '12px', fontWeight: 600,
+                cursor: displayName.trim() ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                transition: 'all 0.2s',
               }}
             >
               Continuer <ArrowRight size={14} />
@@ -297,11 +378,10 @@ export default function Personaboarding() {
           </div>
         );
 
-      // Step 1: Role
       case 1:
-        if (!options) return <span style={{ color: t.tm, fontSize: '12px' }}>Chargement...</span>;
+        if (!options) return <LoadingText />;
         return (
-          <div style={chipContainerStyle}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
             {options.roles.map(r => (
               <Chip key={r.id} label={r.label} subtitle={`${r.skillCount} compétences`}
                 selected={role?.id === r.id} onClick={() => handleRoleSelect(r)} />
@@ -309,34 +389,17 @@ export default function Personaboarding() {
           </div>
         );
 
-      // Step 2: Skills (multi-select)
       case 2:
-        if (skills.length === 0) return <span style={{ color: t.tm, fontSize: '12px' }}>Chargement des compétences...</span>;
+        if (skills.length === 0) return <LoadingText text="Chargement des compétences..." />;
         return (
-          <div style={{ marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
-            {selectedSkills.length > 0 && (
-              <div style={{
-                display: 'flex', flexWrap: 'wrap', gap: '6px',
-                marginBottom: '12px', padding: '10px 12px',
-                backgroundColor: t.violetG, borderRadius: '8px',
-                border: `1px solid ${t.violetM}`,
-              }}>
-                <span style={{ fontSize: '11px', color: t.violet, fontWeight: 600, marginRight: '4px', lineHeight: '22px' }}>
-                  {selectedSkills.length} sélectionnée{selectedSkills.length > 1 ? 's' : ''} :
-                </span>
-                {selectedSkills.map(s => (
-                  <span key={s} style={{
-                    fontSize: '11px', color: t.tp, backgroundColor: t.violetM,
-                    padding: '2px 8px', borderRadius: '100px', fontWeight: 500,
-                  }}>{s}</span>
-                ))}
-              </div>
-            )}
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
               {skills.map(skill => (
                 <Chip
                   key={skill.name} label={skill.name} subtitle={skill.description}
                   multi selected={selectedSkills.includes(skill.name)}
+                  color={skill.color}
                   onClick={() => {
                     setSelectedSkills(prev =>
                       prev.includes(skill.name) ? prev.filter(s => s !== skill.name) : [...prev, skill.name]
@@ -345,88 +408,150 @@ export default function Personaboarding() {
                 />
               ))}
             </div>
-            <button
-              disabled={selectedSkills.length === 0}
-              onClick={handleSkillsValidate}
-              style={{
-                backgroundColor: selectedSkills.length > 0 ? t.tp : t.surfaceEl,
-                color: selectedSkills.length > 0 ? t.bg : t.tm,
-                border: 'none', borderRadius: '6px', padding: '10px 24px',
-                fontSize: '12px', fontWeight: 600,
-                cursor: selectedSkills.length > 0 ? 'pointer' : 'default',
-                display: 'flex', alignItems: 'center', gap: '8px',
-                transition: 'all 0.2s',
-              }}
-            >
-              Valider la maîtrise <ArrowRight size={14} />
-            </button>
+            <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label="Valider la maîtrise" />
           </div>
         );
 
-      // Step 3: Communication style
       case 3:
+        if (!options) return <LoadingText />;
         return (
-          <div style={chipContainerStyle}>
-            {options?.commStyles?.map(cs => (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
+            {options.commStyles.map(cs => (
               <Chip key={cs.id} label={cs.label} subtitle={cs.description}
                 selected={commStyle?.id === cs.id} onClick={() => handleCommStyleSelect(cs)} />
             ))}
           </div>
         );
 
-      // Step 4: Methodology
       case 4:
+        if (!options) return <LoadingText />;
         return (
-          <div style={chipContainerStyle}>
-            {options?.methodologies?.map(m => (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
+            {options.methodologies.map(m => (
               <Chip key={m.id} label={m.label} subtitle={m.description}
                 selected={methodology?.id === m.id} onClick={() => handleMethodologySelect(m)} />
             ))}
           </div>
         );
 
-      // Step 5: Model
       case 5:
+        if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
-            {options?.models?.map(m => (
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            {selectedTools.length > 0 && <SelectedBadges items={selectedTools} />}
+            {/* Group tools by category */}
+            {['files', 'system', 'search', 'web', 'agents'].map(cat => {
+              const catTools = options.tools.filter(tl => tl.category === cat);
+              if (catTools.length === 0) return null;
+              return (
+                <div key={cat} style={{ marginBottom: '12px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 600, color: t.tm, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {cat}
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                    {catTools.map(tl => (
+                      <Chip
+                        key={tl.id} label={tl.label} subtitle={tl.description}
+                        multi selected={selectedTools.includes(tl.id)}
+                        onClick={() => {
+                          setSelectedTools(prev =>
+                            prev.includes(tl.id) ? prev.filter(x => x !== tl.id) : [...prev, tl.id]
+                          );
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <ValidateButton disabled={selectedTools.length === 0} onClick={handleToolsValidate} label="Valider les outils" />
+          </div>
+        );
+
+      case 6:
+        if (!options) return <LoadingText />;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px', ...fadeIn }}>
+            {options.models.map(m => (
               <Chip key={m.id} label={m.label} subtitle={m.description}
                 selected={model?.id === m.id} onClick={() => handleModelSelect(m)} />
             ))}
           </div>
         );
 
-      // Step 6: Autonomy
-      case 6:
+      case 7:
+        if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
-            {options?.autonomyLevels?.map(a => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px', ...fadeIn }}>
+            {options.autonomyLevels.map(a => (
               <Chip key={a.id} label={a.label} subtitle={a.description}
                 selected={autonomy?.id === a.id} onClick={() => handleAutonomySelect(a)} />
             ))}
           </div>
         );
 
-      // Step 7: Create button
-      case 7:
+      case 8:
         return (
-          <div style={{ marginTop: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', animation: 'fadeIn 0.5s ease' }}>
+          <div style={{ marginTop: '24px', ...fadeIn }}>
+            {enhancing ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '14px', padding: '20px',
+                backgroundColor: t.surface, borderRadius: '10px', border: `1px solid ${t.violetM}`,
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  backgroundColor: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <PenTool size={16} color={t.violet} style={{ animation: 'quillWrite 1s ease-in-out infinite' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '13px', color: t.tp, fontWeight: 500 }}>
+                    L'IA compose votre agent...
+                  </div>
+                  <div style={{ fontSize: '11px', color: t.tm, marginTop: '4px' }}>
+                    Optimisation de la matrice comportementale
+                  </div>
+                </div>
+                <Loader2 size={16} color={t.violet} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
+              </div>
+            ) : (
+              <button
+                onClick={handleAiEnhance}
+                style={{
+                  backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
+                  padding: '14px 32px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '10px', fontFamily: t.font,
+                  boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
+                }}
+                onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'}
+                onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                <Sparkles size={16} /> Lancer l'amélioration IA
+              </button>
+            )}
+          </div>
+        );
+
+      case 9:
+        return (
+          <div style={{ marginTop: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', ...fadeIn }}>
             {success ? (
               <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
-                animation: 'fadeIn 0.5s ease',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px',
+                padding: '32px', backgroundColor: t.surface, borderRadius: '12px',
+                border: `1px solid ${t.violetM}`,
               }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%',
-                  backgroundColor: t.violetG, border: `2px solid ${t.violet}`,
+                  backgroundColor: `${t.success}22`, border: `2px solid ${t.success}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Check size={28} color={t.violet} />
+                  <Check size={28} color={t.success} />
                 </div>
-                <span style={{ fontSize: '14px', color: t.violet, fontWeight: 600 }}>
+                <span style={{ fontSize: '15px', color: t.tp, fontWeight: 600 }}>
                   {displayName} est prêt
                 </span>
-                <span style={{ fontSize: '12px', color: t.tm }}>Redirection...</span>
+                <span style={{ fontSize: '12px', color: t.tm }}>Redirection vers la fiche agent...</span>
               </div>
             ) : (
               <>
@@ -434,16 +559,15 @@ export default function Personaboarding() {
                   onClick={handleCreate}
                   disabled={submitting}
                   style={{
-                    backgroundColor: t.violet, color: '#fff',
-                    border: 'none', borderRadius: '10px',
+                    backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
                     padding: '14px 36px', fontSize: '15px', fontWeight: 600,
                     cursor: submitting ? 'wait' : 'pointer',
                     display: 'flex', alignItems: 'center', gap: '10px',
-                    transition: 'all 0.2s', fontFamily: t.font,
-                    boxShadow: `0 0 30px ${t.violetG}`,
+                    fontFamily: t.font, boxShadow: `0 0 30px ${t.violetG}`,
+                    transition: 'all 0.2s',
                   }}
                   onMouseOver={e => { if (!submitting) e.currentTarget.style.transform = 'scale(1.03)'; }}
-                  onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+                  onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
                 >
                   {submitting ? (
                     <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Création en cours...</>
@@ -451,9 +575,7 @@ export default function Personaboarding() {
                     <><Sparkles size={18} /> Créer {displayName}</>
                   )}
                 </button>
-                {error && (
-                  <span style={{ fontSize: '12px', color: t.danger }}>{error}</span>
-                )}
+                {error && <span style={{ fontSize: '12px', color: t.danger }}>{error}</span>}
               </>
             )}
           </div>
@@ -463,88 +585,261 @@ export default function Personaboarding() {
     }
   }
 
-  // ── Progress dots ─────────────────────────────────────────────────────────
-  const totalSteps = 8;
+  // ── Render ──────────────────────────────────────────────────────────────
+  const totalSteps = STEP_META.length;
+  const nodeValues = getNodeValues();
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      minHeight: 'calc(100vh - 56px)', backgroundColor: t.bg, color: t.tp,
-      fontFamily: t.font, display: 'flex', flexDirection: 'column', alignItems: 'center',
-      padding: '60px 24px 120px',
+      display: 'flex', height: 'calc(100vh - 56px)', backgroundColor: t.bg,
+      color: t.tp, fontFamily: t.font, overflow: 'hidden',
     }}>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(139,92,246,0.3); } 50% { box-shadow: 0 0 0 12px rgba(139,92,246,0); } }
-      `}</style>
+      <style>{KEYFRAMES}</style>
 
-      <div style={{ maxWidth: '680px', width: '100%' }}>
+      {/* ── LEFT: Narrative Book ─────────────────────────────────────────── */}
+      <div style={{
+        flex: '0 0 55%', display: 'flex', flexDirection: 'column',
+        borderRight: `1px solid ${t.border}`, padding: '36px 40px',
+        overflow: 'hidden',
+      }}>
         {/* Header */}
-        <div style={{ marginBottom: '48px', textAlign: 'center', animation: 'fadeIn 0.5s ease' }}>
+        <div style={{ marginBottom: '28px' }}>
           <div style={{
-            display: 'inline-flex', padding: '4px 14px', borderRadius: '100px',
+            display: 'inline-flex', alignItems: 'center', gap: '8px',
+            padding: '4px 12px', borderRadius: '100px',
             backgroundColor: t.violetM, border: `1px solid rgba(139,92,246,0.3)`,
             color: t.violet, fontSize: '10px', fontWeight: 700,
-            textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '16px',
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px',
           }}>
-            Persona Onboarding
+            <Sparkles size={11} /> Persona Onboarding
           </div>
-          <h1 style={{
-            fontSize: '28px', fontWeight: 700, color: t.tp, margin: 0,
-            letterSpacing: '-0.02em',
-          }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
             Créer votre agent personnel
           </h1>
-          <p style={{ fontSize: '13px', color: t.tm, marginTop: '8px' }}>
-            Chaque choix construit l'histoire de votre agent
+          <p style={{ fontSize: '13px', color: t.tm, marginTop: '6px', margin: '6px 0 0' }}>
+            Chaque choix construit l'histoire et les capacités de votre agent
           </p>
         </div>
 
-        {/* Progress */}
-        <div style={{
-          display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '40px',
-        }}>
+        {/* Progress dots */}
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '24px' }}>
           {Array.from({ length: totalSteps }).map((_, i) => (
             <div key={i} style={{
-              width: i <= step ? '24px' : '8px', height: '4px',
-              borderRadius: '100px',
+              width: i <= step ? '22px' : '6px', height: '4px', borderRadius: '100px',
               backgroundColor: i < step ? t.violet : i === step ? t.violet : t.surfaceEl,
-              opacity: i < step ? 0.5 : i === step ? 1 : 0.3,
+              opacity: i < step ? 0.5 : i === step ? 1 : 0.25,
               transition: 'all 0.4s ease',
             }} />
           ))}
         </div>
 
-        {/* Narrative */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {/* Scrollable narrative area */}
+        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+          {/* History lines */}
           {history.map((entry, idx) => (
             <p key={idx} style={{
-              margin: 0, fontSize: '17px', lineHeight: '1.7',
-              color: t.ts, opacity: 0.7,
-              animation: 'fadeIn 0.3s ease',
+              margin: '0 0 10px', fontSize: '15px', lineHeight: '1.7',
+              color: t.ts, opacity: 0.5, fontStyle: 'italic',
             }}>
-              <NarrativeLine text={entry.text} highlights={entry.highlights} />
+              {entry}
             </p>
           ))}
 
           {/* Current typing line */}
-          <p style={{ margin: 0, fontSize: '17px', lineHeight: '1.7', color: t.tp, fontWeight: 500 }}>
+          <p style={{
+            margin: '0 0 4px', fontSize: '17px', lineHeight: '1.7',
+            color: t.tp, fontWeight: 500,
+            display: 'flex', gap: step === 8 ? '10px' : '0',
+          }}>
+            {step === 8 && (
+              <PenTool size={18} style={{ color: t.violet, marginTop: '4px', flexShrink: 0 }} />
+            )}
             <TypewriterText
               key={`step-${step}`}
               text={prompts[step] || ''}
               onComplete={() => setTyping(false)}
             />
           </p>
+
+          {/* Input area */}
+          <div style={{ minHeight: '220px', marginTop: '8px' }}>
+            {renderInput()}
+          </div>
+
+          <div ref={scrollRef} style={{ height: '20px' }} />
+        </div>
+      </div>
+
+      {/* ── RIGHT: Flow Graph ────────────────────────────────────────────── */}
+      <div style={{
+        flex: '0 0 45%', background: '#0a0a0a', position: 'relative',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden',
+      }}>
+        {/* Dot grid background */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
+          backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+        }} />
+
+        {/* Ambient violet glow */}
+        <div style={{
+          position: 'absolute', top: '30%', left: '30%',
+          width: '200px', height: '200px', borderRadius: '50%',
+          background: `radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)`,
+          pointerEvents: 'none', filter: 'blur(40px)',
+        }} />
+
+        {/* Flow Graph SVG */}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
         </div>
 
-        {/* Current input */}
-        <div style={{ minHeight: '200px', marginTop: '20px' }}>
-          {renderInput()}
+        {/* Step counter */}
+        <div style={{
+          position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+          fontSize: '11px', color: t.tm, fontFamily: t.mono,
+        }}>
+          {step + 1} / {totalSteps}
         </div>
-
-        <div ref={scrollRef} style={{ height: '40px' }} />
       </div>
     </div>
+  );
+}
+
+// ── Small helpers ────────────────────────────────────────────────────────
+function LoadingText({ text = 'Chargement...' }) {
+  return <span style={{ color: t.tm, fontSize: '12px', marginTop: '16px', display: 'block' }}>{text}</span>;
+}
+
+function SelectedBadges({ items }) {
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', gap: '6px',
+      marginBottom: '12px', padding: '10px 12px',
+      backgroundColor: t.violetG, borderRadius: '8px', border: `1px solid ${t.violetM}`,
+    }}>
+      <span style={{
+        fontSize: '11px', color: t.violet, fontWeight: 600, marginRight: '4px', lineHeight: '22px',
+      }}>
+        {items.length} sélectionnée{items.length > 1 ? 's' : ''} :
+      </span>
+      {items.map(s => (
+        <span key={s} style={{
+          fontSize: '11px', color: t.tp, backgroundColor: t.violetM,
+          padding: '2px 8px', borderRadius: '100px', fontWeight: 500,
+        }}>{s}</span>
+      ))}
+    </div>
+  );
+}
+
+function ValidateButton({ disabled, onClick, label }) {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        backgroundColor: !disabled ? t.tp : t.surfaceEl,
+        color: !disabled ? t.bg : t.tm,
+        border: 'none', borderRadius: '6px', padding: '10px 24px',
+        fontSize: '12px', fontWeight: 600,
+        cursor: !disabled ? 'pointer' : 'default',
+        display: 'flex', alignItems: 'center', gap: '8px',
+        transition: 'all 0.2s',
+      }}
+    >
+      {label} <ArrowRight size={14} />
+    </button>
+  );
+}
+
+// ── Flow Graph with node values ─────────────────────────────────────────
+function FlowGraphWithValues({ currentStep, nodeValues }) {
+  const nodeSpacing = 64;
+  const cx = 90;
+  const startY = 40;
+  const svgH = startY + (STEP_META.length - 1) * nodeSpacing + 40;
+  const nodes = STEP_META.map((s, i) => ({ ...s, x: cx, y: startY + i * nodeSpacing }));
+
+  return (
+    <svg width="230" height={svgH} style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id="pathGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={t.violet} />
+          <stop offset="100%" stopColor="#6D28D9" />
+        </linearGradient>
+      </defs>
+
+      {/* Bezier paths */}
+      {nodes.map((node, i) => {
+        if (i >= nodes.length - 1) return null;
+        const next = nodes[i + 1];
+        const midY = (node.y + next.y) / 2;
+        const d = `M ${node.x} ${node.y + 18} C ${node.x} ${midY}, ${next.x} ${midY}, ${next.x} ${next.y - 18}`;
+        const isComplete = currentStep > i;
+        return (
+          <g key={`p-${i}`}>
+            <path d={d} fill="none" stroke={t.border} strokeWidth="1.5" />
+            {isComplete && (
+              <path
+                d={d} fill="none" stroke="url(#pathGrad)" strokeWidth="2"
+                strokeDasharray="120"
+                style={{ '--path-len': 120, animation: 'drawPath 0.8s ease-out forwards' }}
+              />
+            )}
+          </g>
+        );
+      })}
+
+      {/* Nodes */}
+      {nodes.map((node, i) => {
+        const isActive = currentStep === i;
+        const isComplete = currentStep > i;
+        const IconComp = node.Icon;
+        const val = nodeValues[i];
+        return (
+          <g key={node.id}>
+            {isActive && (
+              <circle cx={node.x} cy={node.y} r="22" fill="none"
+                stroke={t.violet} strokeWidth="1" opacity="0.4"
+                style={{ transformOrigin: `${node.x}px ${node.y}px`, animation: 'pulse 2s ease-in-out infinite' }}
+              />
+            )}
+            <circle
+              cx={node.x} cy={node.y} r="18"
+              fill={isComplete ? t.violet : isActive ? t.surfaceEl : t.surface}
+              stroke={isComplete || isActive ? t.violet : t.border}
+              strokeWidth={isActive ? 2 : 1.5}
+              style={isComplete ? { animation: 'nodeGlow 3s ease-in-out infinite' } : {}}
+            />
+            <foreignObject x={node.x - 9} y={node.y - 9} width="18" height="18">
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: isComplete ? '#fff' : isActive ? t.violet : t.tm,
+                width: '100%', height: '100%',
+              }}>
+                <IconComp size={13} />
+              </div>
+            </foreignObject>
+            <text x={node.x + 30} y={node.y + 4} style={{
+              fontSize: '11px', fontWeight: isActive ? 600 : 400,
+              fill: isActive ? t.tp : isComplete ? t.ts : t.tm,
+              fontFamily: t.font,
+            }}>
+              {node.label}
+            </text>
+            {isComplete && val && (
+              <text x={node.x + 30} y={node.y + 16} style={{
+                fontSize: '9px', fill: t.violet, fontFamily: t.mono, opacity: 0.7,
+              }}>
+                {val.length > 20 ? val.slice(0, 20) + '…' : val}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 }

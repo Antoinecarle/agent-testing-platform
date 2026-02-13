@@ -9,12 +9,11 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'
 const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
 
-// Slugify helper
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-// Skill templates per role
+// ── Skill templates per role ────────────────────────────────────────────────
 const ROLE_SKILLS = {
   'product-manager': [
     { name: 'User Research', category: 'research', color: '#8B5CF6', description: 'Conduct user interviews, surveys, and usability tests' },
@@ -88,16 +87,14 @@ const ROLE_SKILLS = {
   ],
 };
 
-// Communication style descriptions
 const COMM_STYLES = {
   'formal': 'Uses professional, structured language. Prefers clear headers, numbered lists, and precise terminology.',
   'casual': 'Uses friendly, approachable language. Conversational tone with analogies and examples.',
   'technical': 'Uses domain-specific jargon freely. Code-heavy responses with minimal fluff.',
-  'empathetic': 'Focuses on understanding the user\'s perspective. Asks clarifying questions and validates concerns.',
+  'empathetic': "Focuses on understanding the user's perspective. Asks clarifying questions and validates concerns.",
   'direct': 'Straight to the point. Minimal preamble, actionable outputs, no unnecessary context.',
 };
 
-// Work methodology descriptions
 const METHODOLOGIES = {
   'agile': 'Works in sprints with iterative delivery. Focuses on user stories, standups, and retrospectives.',
   'lean': 'Eliminates waste, validates assumptions quickly. Build-Measure-Learn loops.',
@@ -106,20 +103,135 @@ const METHODOLOGIES = {
   'kanban': 'Continuous flow with WIP limits. Visual board, pull-based work.',
 };
 
-// Generate agent prompt from onboarding choices
-function generateAgentPrompt(data) {
-  const { name, displayName, role, skills, commStyle, methodology, model, autonomy } = data;
+// Available tools for agents
+const AVAILABLE_TOOLS = [
+  { id: 'Read', label: 'Read', description: 'Read files from the filesystem', category: 'files' },
+  { id: 'Write', label: 'Write', description: 'Write/create files', category: 'files' },
+  { id: 'Edit', label: 'Edit', description: 'Edit existing files with precision', category: 'files' },
+  { id: 'Bash', label: 'Bash', description: 'Execute shell commands', category: 'system' },
+  { id: 'Glob', label: 'Glob', description: 'Find files by pattern', category: 'search' },
+  { id: 'Grep', label: 'Grep', description: 'Search file contents', category: 'search' },
+  { id: 'WebFetch', label: 'WebFetch', description: 'Fetch and analyze web pages', category: 'web' },
+  { id: 'WebSearch', label: 'WebSearch', description: 'Search the web for information', category: 'web' },
+  { id: 'Task', label: 'Task', description: 'Spawn sub-agents for parallel work', category: 'agents' },
+  { id: 'NotebookEdit', label: 'Notebook', description: 'Edit Jupyter notebooks', category: 'files' },
+];
 
+// ── GPT-powered prompt generation ───────────────────────────────────────────
+async function generateWithGPT(choices) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const { displayName, role, skills, commStyle, methodology, tools, model, autonomy } = choices;
+  const roleLabel = role.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const skillNames = skills.map(s => s.name).join(', ');
+  const toolNames = tools.join(', ');
+  const commDesc = COMM_STYLES[commStyle] || 'Direct and efficient';
+  const methDesc = METHODOLOGIES[methodology] || 'Agile methodology';
+
+  const systemPrompt = `You are an expert at creating Claude Code agent system prompts.
+You must respond ONLY with valid JSON. No markdown. No explanation. No extra text.
+
+Generate a comprehensive, production-quality agent system prompt based on the user's persona choices.
+
+The response JSON must have this exact structure:
+{
+  "identity": "A rich 2-3 paragraph description of who this agent is, their expertise, personality, and how they approach work",
+  "workflow": ["Step 1 description", "Step 2 description", ...],
+  "rules": ["Rule 1", "Rule 2", ...],
+  "examples": ["Example interaction pattern 1", "Example interaction pattern 2"],
+  "narrative": "A single poetic sentence in French summarizing this agent's essence for the story (e.g., 'Ainsi naquit Alex, un stratège né de la données et de la rigueur.')"
+}
+
+Make the identity section deeply personal and specific. The workflow should be 5-7 concrete steps.
+The rules should be 8-12 specific behavioral guidelines. Include 2-3 example patterns.`;
+
+  const userPrompt = `Create an agent named "${displayName}" with these characteristics:
+- Role: ${roleLabel}
+- Core Skills: ${skillNames}
+- Communication Style: ${commStyle} — ${commDesc}
+- Work Methodology: ${methodology} — ${methDesc}
+- Tools Available: ${toolNames}
+- AI Model: ${model}
+- Autonomy: ${autonomy}
+
+Make the prompt deeply personal, as if this agent truly understands how its creator works.`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'gpt-5-mini-2025-08-07',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_completion_tokens: 4000,
+        temperature: 0.8,
+      }),
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.error('[Personaboarding] GPT API error:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return JSON.parse(content);
+  } catch (err) {
+    console.error('[Personaboarding] GPT generation error:', err.message);
+    return null;
+  }
+}
+
+// Build the full agent prompt markdown from choices + GPT enhancement
+function buildAgentPrompt(choices, gptData) {
+  const { displayName, role, skills, commStyle, methodology, tools, model, autonomy } = choices;
   const roleLabel = role.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   const skillNames = skills.map(s => s.name).join(', ');
   const commDesc = COMM_STYLES[commStyle] || COMM_STYLES['direct'];
   const methDesc = METHODOLOGIES[methodology] || METHODOLOGIES['agile'];
 
-  return `# ${displayName} - Personal ${roleLabel} Agent
+  const identity = gptData?.identity ||
+    `You are **${displayName}**, a specialized ${roleLabel} agent created through personalized onboarding to match a specific work style and methodology.`;
+
+  const workflow = gptData?.workflow || [
+    `**Understand**: Clarify the request and gather context`,
+    `**Plan**: Break down the task using ${methodology} principles`,
+    `**Execute**: Deliver using core competencies (${skillNames})`,
+    `**Review**: Validate output quality and completeness`,
+    `**Iterate**: Refine based on feedback`,
+  ];
+
+  const rules = gptData?.rules || [
+    `Always stay in character as ${displayName}`,
+    `Leverage your ${roleLabel} expertise in every response`,
+    `Apply ${methodology} methodology to structure your approach`,
+    `Use your skills (${skillNames}) as your primary toolkit`,
+    `Maintain ${commStyle} communication style throughout`,
+    `Ask clarifying questions when requirements are ambiguous`,
+    `Provide concrete, actionable deliverables over theoretical advice`,
+  ];
+
+  const examples = gptData?.examples || [];
+
+  let prompt = `# ${displayName} — Personal ${roleLabel} Agent
 
 ## Identity
 
-You are **${displayName}**, a specialized ${roleLabel} agent. You were created through a personalized onboarding process to match a specific work style and methodology.
+${identity}
 
 ## Core Competencies
 
@@ -134,9 +246,7 @@ When responding:
 - Adapt depth based on the question complexity
 - Provide actionable outputs whenever possible
 
-## Work Methodology
-
-You follow the **${methodology.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}** methodology.
+## Work Methodology: ${methodology.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
 
 ${methDesc}
 
@@ -144,30 +254,63 @@ Apply this methodology to structure your work, recommendations, and deliverables
 
 ## Workflow
 
-1. **Understand**: Clarify the request and gather context
-2. **Plan**: Break down the task using ${methodology} principles
-3. **Execute**: Deliver using your core competencies (${skillNames})
-4. **Review**: Validate output quality and completeness
-5. **Iterate**: Refine based on feedback
+${workflow.map((w, i) => `${i + 1}. ${w}`).join('\n')}
 
 ## Rules
 
-- Always stay in character as ${displayName}
-- Leverage your ${roleLabel} expertise in every response
-- Apply ${methodology} methodology to structure your approach
-- Use your skills (${skillNames}) as your primary toolkit
-- Maintain ${commStyle} communication style throughout
-- Ask clarifying questions when requirements are ambiguous
-- Provide concrete, actionable deliverables over theoretical advice
+${rules.map(r => `- ${r}`).join('\n')}
 `;
+
+  if (examples.length > 0) {
+    prompt += `\n## Example Interaction Patterns\n\n${examples.map((e, i) => `${i + 1}. ${e}`).join('\n')}\n`;
+  }
+
+  return prompt;
 }
 
-// POST /api/personaboarding/complete — create agent + skills from onboarding
+// ── POST /api/personaboarding/ai-enhance ────────────────────────────────────
+// Calls GPT to generate rich agent content from choices
+router.post('/ai-enhance', async (req, res) => {
+  try {
+    const { displayName, role, selectedSkills, commStyle, methodology, selectedTools, model, autonomy } = req.body;
+
+    if (!displayName || !role || !selectedSkills?.length) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const roleSkills = ROLE_SKILLS[role] || [];
+    const skills = selectedSkills.map(n => roleSkills.find(s => s.name === n)).filter(Boolean);
+
+    const gptData = await generateWithGPT({
+      displayName: displayName.trim(),
+      role,
+      skills,
+      commStyle: commStyle || 'direct',
+      methodology: methodology || 'agile',
+      tools: selectedTools || ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+      model: model || 'sonnet',
+      autonomy: autonomy || 'balanced',
+    });
+
+    if (!gptData) {
+      return res.status(502).json({ error: 'AI generation unavailable', fallback: true });
+    }
+
+    res.json({
+      gptData,
+      narrative: gptData.narrative || `Ainsi naquit ${displayName}, prêt à transformer chaque défi en opportunité.`,
+    });
+  } catch (err) {
+    console.error('[Personaboarding] AI enhance error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/personaboarding/complete ──────────────────────────────────────
 router.post('/complete', async (req, res) => {
   try {
-    const { displayName, role, selectedSkills, commStyle, methodology, model, autonomy } = req.body;
+    const { displayName, role, selectedSkills, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
 
-    // Validate required fields
     if (!displayName || !displayName.trim()) {
       return res.status(400).json({ error: 'Agent name is required' });
     }
@@ -176,67 +319,55 @@ router.post('/complete', async (req, res) => {
       return res.status(400).json({ error: 'At least one skill must be selected' });
     }
 
-    // Generate kebab-case name from display name
     const agentName = slugify(displayName.trim());
     if (!agentName || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentName)) {
       return res.status(400).json({ error: 'Invalid name — must produce a valid kebab-case slug' });
     }
 
-    // Check if agent already exists
     const existing = await db.getAgent(agentName);
     if (existing) {
       return res.status(409).json({ error: `Agent "${agentName}" already exists` });
     }
 
-    // Get skill definitions from role template
     const roleSkills = ROLE_SKILLS[role] || [];
-    const skills = selectedSkills
-      .map(skillName => roleSkills.find(s => s.name === skillName))
-      .filter(Boolean);
+    const skills = selectedSkills.map(n => roleSkills.find(s => s.name === n)).filter(Boolean);
 
-    // Map autonomy to permission_mode
     const permissionMap = { guided: 'plan', balanced: 'default', autonomous: 'bypassPermissions' };
     const permissionMode = permissionMap[autonomy] || 'default';
+    const toolsList = (selectedTools && selectedTools.length > 0) ? selectedTools.join(',') : 'Read,Write,Edit,Bash,Glob,Grep';
 
-    // Generate the full agent prompt
-    const fullPrompt = generateAgentPrompt({
-      name: agentName,
+    const fullPrompt = buildAgentPrompt({
       displayName: displayName.trim(),
-      role,
-      skills,
+      role, skills,
       commStyle: commStyle || 'direct',
       methodology: methodology || 'agile',
+      tools: (selectedTools || ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep']),
       model: model || 'sonnet',
       autonomy: autonomy || 'balanced',
-    });
+    }, gptData || null);
 
-    // Build YAML front matter
     const description = `Personal ${role.replace(/-/g, ' ')} agent with ${skills.length} skills`;
-    const toolsList = 'Read,Write,Edit,Bash,Glob,Grep';
     const fmParts = [
       `description: "${description}"`,
       `model: ${model || 'sonnet'}`,
       `tools: [${toolsList}]`,
-      `max_turns: 10`,
+      `max_turns: 15`,
       `permission_mode: ${permissionMode}`,
     ];
     const frontMatter = `---\n${fmParts.join('\n')}\n---\n\n`;
     const fullContent = frontMatter + fullPrompt;
 
-    // Write .md file to agents dirs
     for (const dir of [BUNDLED_AGENTS_DIR, CUSTOM_AGENTS_DIR]) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, `${agentName}.md`), fullContent, 'utf-8');
     }
 
-    // Create agent in DB
     const promptPreview = fullContent.substring(0, 500);
     await db.createAgentManual(
       agentName, description, model || 'sonnet', 'personal',
-      promptPreview, fullContent, toolsList, 10, '', permissionMode, req.user?.userId
+      promptPreview, fullContent, toolsList, 15, '', permissionMode, req.user?.userId
     );
 
-    // Create skills and assign them
     const createdSkillIds = [];
     for (const skill of skills) {
       const slug = slugify(skill.name);
@@ -246,17 +377,13 @@ router.post('/complete', async (req, res) => {
           skill.name, slug, skill.description, '', skill.category, '', skill.color, req.user?.userId
         );
       }
-      if (existingSkill?.id) {
-        createdSkillIds.push(existingSkill.id);
-      }
+      if (existingSkill?.id) createdSkillIds.push(existingSkill.id);
     }
 
-    // Bulk assign skills to agent
     if (createdSkillIds.length > 0) {
       await db.bulkAssignSkillsToAgent(agentName, createdSkillIds);
     }
 
-    // Fetch the created agent
     const agent = await db.getAgent(agentName);
     const agentSkills = await db.getAgentSkills(agentName);
 
@@ -271,7 +398,7 @@ router.post('/complete', async (req, res) => {
   }
 });
 
-// GET /api/personaboarding/roles — get available roles and their skills
+// ── GET endpoints ───────────────────────────────────────────────────────────
 router.get('/roles', (req, res) => {
   const roles = Object.entries(ROLE_SKILLS).map(([key, skills]) => ({
     id: key,
@@ -281,7 +408,6 @@ router.get('/roles', (req, res) => {
   res.json(roles);
 });
 
-// GET /api/personaboarding/options — get all options for the onboarding steps
 router.get('/options', (req, res) => {
   res.json({
     roles: Object.entries(ROLE_SKILLS).map(([key, skills]) => ({
@@ -299,15 +425,16 @@ router.get('/options', (req, res) => {
       label: key.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
       description: desc,
     })),
+    tools: AVAILABLE_TOOLS,
     models: [
-      { id: 'sonnet', label: 'Sonnet', description: 'Fast and capable — best balance of speed and quality' },
-      { id: 'opus', label: 'Opus', description: 'Most powerful — for complex reasoning and analysis' },
-      { id: 'haiku', label: 'Haiku', description: 'Fastest — for quick tasks and high throughput' },
+      { id: 'sonnet', label: 'Sonnet', description: 'Rapide et capable — meilleur équilibre vitesse/qualité' },
+      { id: 'opus', label: 'Opus', description: 'Le plus puissant — raisonnement complexe et analyse profonde' },
+      { id: 'haiku', label: 'Haiku', description: 'Le plus rapide — tâches simples et haut débit' },
     ],
     autonomyLevels: [
-      { id: 'guided', label: 'Guided', description: 'Plans first, asks before acting — maximum control' },
-      { id: 'balanced', label: 'Balanced', description: 'Acts independently but confirms risky actions' },
-      { id: 'autonomous', label: 'Autonomous', description: 'Full autonomy — executes without asking' },
+      { id: 'guided', label: 'Guidé', description: 'Planifie d\'abord, demande avant d\'agir' },
+      { id: 'balanced', label: 'Équilibré', description: 'Agit seul mais confirme les actions risquées' },
+      { id: 'autonomous', label: 'Autonome', description: 'Pleine autonomie — exécute sans demander' },
     ],
   });
 });
