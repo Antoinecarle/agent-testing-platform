@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "build": "cd client && npm run build",
+    "build": "cd client && npm install --include=dev && npm run build",
     "install-all": "npm install && cd client && npm install",
-    "postinstall": "cd client && npm install && npm run build && npm install -g @anthropic-ai/claude-code 2>/dev/null || true",
+    "postinstall": "cd client && npm install --include=dev && npm run build && npm install -g @anthropic-ai/claude-code 2>/dev/null || true",
     "seed": "node server/seed-runner.js"
   },
   "dependencies": {
