@@ -97,13 +97,8 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
       // Ensure watcher is watching this project
       watcher.watchProject(projectId);
 
-      // Try normal import first (detects new/changed files)
+      // Import new/changed files (do NOT use manualImport — it clears hashes and causes duplicates)
       let iterationId = await watcher.importIteration(projectId);
-
-      // If nothing imported, force re-import (clears hashes)
-      if (!iterationId) {
-        iterationId = await watcher.manualImport(projectId);
-      }
 
       if (iterationId) {
         res.status(201).json({ ok: true, saved: true, iterationId });

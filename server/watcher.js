@@ -9,8 +9,11 @@ const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 const IS_RAILWAY = !!process.env.RAILWAY_ENVIRONMENT;
 
-// Track file hashes to detect real changes
+// Track file hashes to detect real changes (keyed by `${projectId}:${filePath}`)
 const fileHashes = new Map();
+// Track content hashes of already-imported iterations (keyed by `${projectId}:${contentHash}`)
+// This prevents duplicates even after deploy/restart or if fileHashes is cleared
+const knownContentHashes = new Set();
 // Track active watchers per project
 const watchers = new Map();
 // Debounce timers per project
@@ -117,6 +120,15 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
   const hashKey = `${projectId}:${htmlPath}`;
   const previousHash = fileHashes.get(hashKey);
   if (previousHash === hash) return null;
+
+  // Content-based dedup: skip if this exact content was already imported for this project
+  const contentKey = `${projectId}:${hash}`;
+  if (knownContentHashes.has(contentKey)) {
+    // Update file hash so we don't keep checking, but don't create a duplicate
+    fileHashes.set(hashKey, hash);
+    return null;
+  }
+
   fileHashes.set(hashKey, hash);
 
   try {
@@ -161,6 +173,9 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
 
     const count = await db.countIterations(projectId);
     await db.updateProjectIterationCount(projectId, count);
+
+    // Register content hash to prevent future duplicates
+    knownContentHashes.add(contentKey);
 
     console.log(`[Watcher] Imported iteration ${title} (parent: ${parentId || 'ROOT'}) for project ${project.name} (${id})`);
 
@@ -314,12 +329,30 @@ function watchProject(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   if (!fs.existsSync(wsDir)) fs.mkdirSync(wsDir, { recursive: true });
 
-  // Initialize hashes from existing files (so we don't re-import old files)
+  // Initialize hashes from existing workspace files (so we don't re-import old files)
   const allFiles = scanWorkspaceHtmlFiles(wsDir);
   for (const item of allFiles) {
     try {
       const content = fs.readFileSync(item.path, 'utf-8');
-      fileHashes.set(`${projectId}:${item.path}`, hashContent(content));
+      const hash = hashContent(content);
+      fileHashes.set(`${projectId}:${item.path}`, hash);
+      knownContentHashes.add(`${projectId}:${hash}`);
+    } catch (_) {}
+  }
+
+  // Also load content hashes from already-stored iterations (survives deploys)
+  const projectIterDir = path.join(ITERATIONS_DIR, projectId);
+  if (fs.existsSync(projectIterDir)) {
+    try {
+      const iterDirs = fs.readdirSync(projectIterDir, { withFileTypes: true });
+      for (const entry of iterDirs) {
+        if (!entry.isDirectory()) continue;
+        const htmlPath = path.join(projectIterDir, entry.name, 'index.html');
+        try {
+          const content = fs.readFileSync(htmlPath, 'utf-8');
+          knownContentHashes.add(`${projectId}:${hashContent(content)}`);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
@@ -429,9 +462,12 @@ async function initWatchers(io) {
 
 /**
  * Manually trigger import for a project (API use)
+ * Clears file-path hashes to re-check workspace files, but content dedup
+ * (knownContentHashes) still prevents duplicate iterations.
  */
 async function manualImport(projectId) {
-  // Reset all hashes for this project to force re-import
+  // Reset file-path hashes so workspace files are re-checked
+  // Content hashes (knownContentHashes) are NOT cleared — prevents duplicates
   for (const key of fileHashes.keys()) {
     if (key.startsWith(`${projectId}:`)) {
       fileHashes.delete(key);
