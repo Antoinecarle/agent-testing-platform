@@ -63,8 +63,37 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   // Sync agents from filesystem + restore custom agents from DB to filesystem + user homes
   agentsRoutes.ensureSynced();
-  agentsRoutes.syncCustomAgentsFromDB().then(n => {
+  agentsRoutes.syncCustomAgentsFromDB().then(async (n) => {
     if (n > 0) console.log(`[Startup] Restored ${n} custom agents from DB to filesystem`);
+
+    // Fix legacy personal agents: update category and patch .md files
+    try {
+      const { data: personalAgents } = await db.supabase.from('agents')
+        .select('name, full_prompt, category')
+        .like('description', 'Personal % agent with % skills');
+      if (personalAgents && personalAgents.length > 0) {
+        const CUSTOM_DIR = path.join(DATA_DIR, 'custom-agents');
+        let patched = 0;
+        for (const agent of personalAgents) {
+          if (agent.category !== 'persona') {
+            await db.supabase.from('agents').update({ category: 'persona' }).eq('name', agent.name);
+          }
+          // Patch .md file front matter with category if missing
+          const mdPath = path.join(CUSTOM_DIR, `${agent.name}.md`);
+          if (fs.existsSync(mdPath)) {
+            let content = fs.readFileSync(mdPath, 'utf-8');
+            if (!content.includes('category:')) {
+              content = content.replace(/^(---\n)/, '$1category: persona\n');
+              fs.writeFileSync(mdPath, content, 'utf-8');
+              patched++;
+            }
+          }
+        }
+        if (patched > 0) console.log(`[Startup] Patched ${patched} persona agent .md files with category`);
+      }
+    } catch (err) {
+      console.warn('[Startup] Persona agent migration:', err.message);
+    }
   }).catch(err => console.error('[Startup] Custom agent sync failed:', err.message));
 
   // Sync skills: create files on disk for skills that only have a prompt in DB
