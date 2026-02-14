@@ -714,7 +714,7 @@ export default function Personaboarding() {
           }}
           onFocus={e => e.target.style.borderColor = t.violet}
           onBlur={e => e.target.style.borderColor = t.borderS}
-          placeholder="ex: Data & AI Consultant, Product Manager, Full-Stack Developer..."
+          placeholder="Data & AI Consultant chez Neosub, Product Manager Doctolib, Développeur Full-Stack React/Node..."
           value={oauthHeadline}
           onChange={e => setOauthHeadline(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && oauthHeadline.trim() && handleOAuthAnalyze()}
@@ -1105,7 +1105,7 @@ export default function Personaboarding() {
                   backgroundColor: 'transparent', border: 'none', color: '#fff',
                   fontSize: '13px', flex: 1, outline: 'none', fontFamily: t.font,
                 }}
-                placeholder="Ou saisissez un rôle personnalisé..."
+                placeholder="Data Scientist, Growth Hacker, DevOps Engineer, UX Researcher..."
                 value={customRoleInput}
                 onChange={e => setCustomRoleInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleCustomRole()}

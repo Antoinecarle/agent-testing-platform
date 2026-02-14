@@ -242,49 +242,47 @@ router.post('/linkedin/analyze-oauth', async (req, res) => {
       return res.status(400).json({ error: 'No profile name provided' });
     }
 
-    // Build context for GPT analysis
-    const contextParts = [
-      `Full name: ${name}`,
-      given_name ? `First name: ${given_name}` : '',
-      family_name ? `Last name: ${family_name}` : '',
-      email ? `Email domain: ${email.split('@')[1]}` : '',
-      headline ? `Job/headline (self-described): ${headline}` : '',
-    ].filter(Boolean);
-
     const hasHeadline = !!headline;
 
-    const prompt = `Analyze this person's profile and create a personalized AI agent configuration.
+    const prompt = hasHeadline
+      ? `This person connected via LinkedIn OAuth. Here is their real info:
 
-${contextParts.join('\n')}
+Full name: ${name}
+${given_name ? `First name: ${given_name}` : ''}
+${family_name ? `Last name: ${family_name}` : ''}
+${email ? `Email: ${email}` : ''}
 
-${hasHeadline
-  ? `Use the job/headline they described to determine their EXACT professional role and generate skills that match precisely.`
-  : `I only have basic identity info. Create a well-rounded professional agent profile.`}
+Their EXACT job description / headline: "${headline}"
 
-Based on ALL available information, suggest:
-1. A display name (FIRST NAME only)
-2. The best professional role as a kebab-case slug (e.g. "product-manager", "data-scientist", "frontend-developer", "growth-hacker", "ux-researcher", "cto", "sales-engineer"). Be specific and creative — do NOT limit to a predefined list.
-3. 10-12 specific professional skills with categories and colors — make them RELEVANT to the detected role
-4. Communication style from: formal, casual, technical, empathetic, direct
-5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
-6. Suggested tools from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
+CRITICAL: The role and skills MUST be based on their exact headline "${headline}". Do NOT invent a different role. Convert their headline directly into the role slug and generate skills that match this specific profession.
 
-Each skill must use a unique color from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC4899, #06B6D4, #A855F7, #EF4444, #14B8A6, #F97316, #6366F1, #84CC16
+For example:
+- "Data & AI Consultant" → role: "data-ai-consultant", skills about data engineering, ML, AI strategy, etc.
+- "Product Manager chez Doctolib" → role: "product-manager", skills about product strategy, user research, etc.
+- "Développeur Full-Stack React/Node" → role: "fullstack-developer", skills about React, Node.js, APIs, etc.
+- "UX Designer Freelance" → role: "ux-designer", skills about user research, wireframing, prototyping, etc.
 
-Return ONLY valid JSON:
-{
-  "displayName": "FirstName",
-  "role": "role-id",
-  "skills": [{ "name": "Skill Name", "category": "category-slug", "color": "#hex", "description": "Short description" }],
-  "commStyle": "style-id",
-  "methodology": "methodology-id",
-  "tools": ["Tool1", "Tool2"],
-  "summary": "Brief professional summary of this person in French (2-3 sentences)"
-}`;
+Generate:
+1. displayName: their FIRST NAME only (from "${given_name || name}")
+2. role: kebab-case slug derived DIRECTLY from their headline "${headline}"
+3. skills: 10-12 specific skills matching their EXACT role — technical + soft skills
+4. commStyle: from formal, casual, technical, empathetic, direct
+5. methodology: from agile, lean, design-thinking, waterfall, kanban
+6. tools: from Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
+7. summary: 2-3 sentences in French describing this person based on their headline`
+      : `This person connected via LinkedIn OAuth but didn't describe their role.
+
+Full name: ${name}
+${given_name ? `First name: ${given_name}` : ''}
+${email ? `Email: ${email}` : ''}
+
+Create a general-purpose professional agent profile. Use their first name as displayName.
+
+Generate: displayName, role (kebab-case), 10-12 skills, commStyle, methodology, tools, summary (French)`;
 
     const response = await callGPT5(
       [
-        { role: 'system', content: 'You are an expert at creating AI agent configurations from professional profiles. When given a job headline, use it as the primary source for role and skill determination. Always return exactly 10-12 skills. Return ONLY valid JSON.' },
+        { role: 'system', content: `You create AI agent configurations from LinkedIn profiles. ${hasHeadline ? 'The user gave their EXACT job headline — the role and skills MUST match it precisely. Do NOT override with a different role.' : 'Create a balanced professional profile.'} Return ONLY valid JSON with this schema: { "displayName": "string", "role": "kebab-case-string", "skills": [{"name":"string","category":"string","color":"#hex","description":"string"}], "commStyle": "string", "methodology": "string", "tools": ["string"], "summary": "string" }. Each skill color must be unique from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC4899, #06B6D4, #A855F7, #EF4444, #14B8A6, #F97316, #6366F1, #84CC16` },
         { role: 'user', content: prompt },
       ],
       { max_completion_tokens: 4000, responseFormat: 'json' }
