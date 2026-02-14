@@ -1176,27 +1176,19 @@ export default function Personaboarding() {
             {/* Inline Interactive Constellation */}
             <div style={{
               width: '100%',
-              minHeight: '420px',
-              margin: '48px 0',
+              margin: '12px 0',
               position: 'relative',
-              overflow: 'visible',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+              overflow: 'hidden',
             }}>
-              {/* Subtle radial glow to ground the constellation in the narrative flow */}
+              {/* Subtle radial glow */}
               <div style={{
-                position: 'absolute',
-                width: '100%',
-                height: '100%',
+                position: 'absolute', inset: 0,
                 background: `radial-gradient(circle at center, ${t.violetG} 0%, transparent 70%)`,
                 pointerEvents: 'none',
                 opacity: 0.8,
               }} />
 
-              {/* Interactive Area with visible overflow for labels */}
-              <div style={{ position: 'relative', zIndex: 1, width: '100%', overflow: 'visible' }}>
+              <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>
                 <InteractiveConstellation
                   agentName={displayName}
                   roleLabel={role?.label || ''}
@@ -1666,7 +1658,7 @@ export default function Personaboarding() {
                   </p>
 
                   {/* Input area */}
-                  <div style={{ minHeight: '220px', marginTop: '8px' }}>
+                  <div style={{ marginTop: '8px' }}>
                     {renderInput()}
                   </div>
                 </div>
