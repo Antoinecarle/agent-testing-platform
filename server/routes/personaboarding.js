@@ -129,23 +129,80 @@ const AVAILABLE_TOOLS = [
   { id: 'NotebookEdit', label: 'Notebook', description: 'Edit Jupyter notebooks', category: 'files' },
 ];
 
+// ── Enrich LinkedIn data via DuckDuckGo search ─────────────────────────────
+async function enrichLinkedInFromSearch(username, url) {
+  const searchResults = [];
+  // Try DuckDuckGo to find LinkedIn profile snippets
+  const queries = [
+    `"${username.replace(/-/g, ' ')}" linkedin`,
+    `site:linkedin.com/in/${username}`,
+  ];
+  for (const q of queries) {
+    try {
+      const resp = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (resp.ok) {
+        const html = await resp.text();
+        // Extract snippets
+        const snippetRegex = /result__snippet[^>]*>([^<]+)/g;
+        let m;
+        while ((m = snippetRegex.exec(html)) !== null) {
+          const text = m[1].replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+          if (text.length > 20) searchResults.push(text);
+        }
+        // Extract titles
+        const titleRegex = /result__a[^>]*>([^<]+)/g;
+        while ((m = titleRegex.exec(html)) !== null) {
+          const text = m[1].replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim();
+          if (text.length > 5) searchResults.push(text);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Personaboarding] DuckDuckGo search failed for "${q}":`, err.message);
+    }
+    if (searchResults.length > 0) break; // Got data, stop searching
+  }
+  return searchResults.slice(0, 8); // Top 8 results
+}
+
 // ── LinkedIn Profile Analysis ───────────────────────────────────────────────
 async function analyzeLinkedInWithGPT(pageData, url) {
-  const context = [
+  // Enrich with search engine data
+  let searchContext = [];
+  if (pageData.username) {
+    searchContext = await enrichLinkedInFromSearch(pageData.username, url);
+    if (searchContext.length > 0) {
+      console.log(`[Personaboarding] Enriched with ${searchContext.length} search snippets`);
+    }
+  }
+
+  const contextParts = [
     `LinkedIn URL: ${url}`,
     pageData.username ? `Username/slug: ${pageData.username}` : '',
     pageData.title ? `Page title: ${pageData.title}` : '',
     pageData.description ? `Page description: ${pageData.description}` : '',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean);
 
-  const prompt = `Analyze this LinkedIn profile data and suggest an AI agent configuration.
+  if (searchContext.length > 0) {
+    contextParts.push(`\nSearch engine results about this person:`);
+    searchContext.forEach((s, i) => contextParts.push(`  ${i + 1}. ${s}`));
+  }
+
+  const context = contextParts.join('\n');
+  const hasRichData = !!(pageData.title || pageData.description || searchContext.length > 0);
+
+  const prompt = `Analyze this LinkedIn profile and create a personalized AI agent configuration.
 
 ${context}
 
-Based on this information, suggest:
-1. A display name for the agent (the person's first name or common name)
-2. The best role as a kebab-case slug (e.g. "product-manager", "data-scientist", "frontend-developer", "growth-hacker", "ux-researcher", "cto", "sales-engineer"). Be specific and creative — do NOT limit to a predefined list.
-3. 10-12 specific professional skills with categories and colors
+${hasRichData ? '' : `IMPORTANT: I only have the LinkedIn slug "${pageData.username}". Derive the person's likely first name from the slug (e.g. "john-doe" → "John", "antoinecarle" → "Antoine"). For skills and role, create a well-rounded professional profile based on the name style and any patterns you can infer.`}
+
+Based on ALL available information, suggest:
+1. A display name for the agent (the person's FIRST NAME only, derived from the slug or page data)
+2. The best professional role as a kebab-case slug (e.g. "product-manager", "data-scientist", "frontend-developer", "growth-hacker", "ux-researcher", "cto", "sales-engineer"). Be specific and creative — do NOT limit to a predefined list. If search results mention their job/company, use that.
+3. 10-12 specific professional skills with categories and colors — make them RELEVANT to the detected role
 4. Communication style from: formal, casual, technical, empathetic, direct
 5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
 6. Suggested tools from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
@@ -154,19 +211,19 @@ Each skill must use a unique color from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC
 
 Return ONLY valid JSON:
 {
-  "displayName": "Suggested Name",
+  "displayName": "FirstName",
   "role": "role-id",
-  "skills": [{ "name": "Skill Name", "category": "category-slug", "color": "#hex", "description": "Description" }],
+  "skills": [{ "name": "Skill Name", "category": "category-slug", "color": "#hex", "description": "Short description" }],
   "commStyle": "style-id",
   "methodology": "methodology-id",
   "tools": ["Tool1", "Tool2"],
-  "summary": "Brief summary of the person's profile in French"
+  "summary": "Brief professional summary of this person in French (2-3 sentences)"
 }`;
 
   try {
     const response = await callGPT5(
       [
-        { role: 'system', content: 'You analyze LinkedIn profiles and suggest AI agent configurations. Return ONLY valid JSON. Always suggest 10-12 diverse, specific skills.' },
+        { role: 'system', content: 'You are an expert at analyzing LinkedIn profiles and creating AI agent configurations. When given search engine snippets about a person, use ALL available data to build an accurate profile. When data is limited, make intelligent inferences from the LinkedIn slug and any contextual clues. Always return exactly 10-12 skills. Return ONLY valid JSON.' },
         { role: 'user', content: prompt },
       ],
       { max_completion_tokens: 4000, responseFormat: 'json' }
@@ -175,7 +232,7 @@ Return ONLY valid JSON:
   } catch (err) {
     console.error('[Personaboarding] GPT LinkedIn analysis error:', err.message);
     const nameFromSlug = pageData.username
-      ? pageData.username.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+      ? pageData.username.replace(/-?\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).split(' ')[0]
       : 'Agent';
     return {
       displayName: nameFromSlug,
@@ -189,48 +246,32 @@ Return ONLY valid JSON:
   }
 }
 
-// ── Fetch LinkedIn page with multiple strategies ────────────────────────────
+// ── Fetch LinkedIn page (best-effort, LinkedIn often blocks) ────────────────
 async function fetchLinkedInPage(url, username) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
-  };
-
-  // Strategy 1: Direct fetch with Googlebot UA (LinkedIn sometimes allows it)
-  const strategies = [
-    { name: 'googlebot', url, headers },
-    { name: 'linkedin-voyager', url, headers: { ...headers, 'User-Agent': 'LinkedInBot/1.0 (compatible; Mozilla/5.0; +https://www.linkedin.com)' } },
-    { name: 'google-cache', url: `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`, headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } },
-  ];
-
-  for (const strat of strategies) {
-    try {
-      console.log(`[Personaboarding] Trying ${strat.name} for ${username}...`);
-      const response = await fetch(strat.url, {
-        headers: strat.headers,
-        signal: AbortSignal.timeout(10000),
-        redirect: 'follow',
-      });
-      if (response.ok || response.status === 200) {
-        const html = await response.text();
-        // Check if we got real content (not auth wall)
-        if (html.length > 5000 && !html.includes('authwall') && !html.includes('Join LinkedIn')) {
-          console.log(`[Personaboarding] ${strat.name} succeeded (${html.length} bytes)`);
-          return html;
-        }
-        // Even auth wall HTML might contain og:image in meta tags
-        const ogImg = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
-        if (ogImg) {
-          console.log(`[Personaboarding] ${strat.name} got og:image from partial HTML`);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
+      },
+      signal: AbortSignal.timeout(8000),
+      redirect: 'follow',
+    });
+    if (response.ok) {
+      const html = await response.text();
+      // Only useful if we got real content (not auth wall / blocked)
+      if (html.length > 3000) {
+        const hasOgData = html.includes('og:title') || html.includes('og:image') || html.includes('og:description');
+        if (hasOgData) {
+          console.log(`[Personaboarding] LinkedIn fetch got og data (${html.length} bytes)`);
           return html;
         }
       }
-    } catch (err) {
-      console.warn(`[Personaboarding] ${strat.name} failed:`, err.message);
     }
+  } catch (err) {
+    console.warn(`[Personaboarding] LinkedIn direct fetch failed:`, err.message);
   }
-
   return null;
 }
 
