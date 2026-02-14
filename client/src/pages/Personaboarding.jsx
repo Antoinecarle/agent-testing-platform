@@ -701,8 +701,32 @@ export default function Personaboarding() {
           Quel est votre poste actuel ?
         </div>
         <p style={{ fontSize: '13px', color: t.tm, marginBottom: '16px', lineHeight: '1.5' }}>
-          Décrivez brièvement votre rôle pour que l'IA génère des compétences précises.
+          Sélectionnez ou écrivez votre rôle pour que l'IA génère des compétences précises.
         </p>
+
+        {/* Quick-select role chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+          {[
+            'Product Manager', 'Développeur Full-Stack', 'Data & AI Consultant',
+            'UX/UI Designer', 'DevOps Engineer', 'Growth Marketer',
+            'CTO / Tech Lead', 'Business Analyst', 'Freelance Developer',
+          ].map(label => (
+            <button
+              key={label}
+              onClick={() => setOauthHeadline(label)}
+              style={{
+                padding: '7px 14px', borderRadius: '100px', fontSize: '13px', fontWeight: 500,
+                backgroundColor: oauthHeadline === label ? `${t.violet}22` : t.surface,
+                border: `1px solid ${oauthHeadline === label ? t.violet : t.border}`,
+                color: oauthHeadline === label ? t.tp : t.ts,
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <input
           autoFocus
           style={{
@@ -714,41 +738,30 @@ export default function Personaboarding() {
           }}
           onFocus={e => e.target.style.borderColor = t.violet}
           onBlur={e => e.target.style.borderColor = t.borderS}
-          placeholder="Data & AI Consultant chez Neosub, Product Manager Doctolib, Développeur Full-Stack React/Node..."
+          placeholder="Ou tapez votre poste exact..."
           value={oauthHeadline}
           onChange={e => setOauthHeadline(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && oauthHeadline.trim() && handleOAuthAnalyze()}
         />
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={handleOAuthAnalyze}
-            disabled={linkedinLoading}
-            style={{
-              flex: 1, padding: '12px 20px', backgroundColor: oauthHeadline.trim() ? t.violet : t.surfaceEl,
-              color: '#fff', border: 'none', borderRadius: '8px',
-              fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-              transition: 'all 0.2s',
-            }}
-          >
-            {linkedinLoading ? (
-              <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analyse en cours...</>
-            ) : (
-              <><Sparkles size={16} /> Analyser mon profil</>
-            )}
-          </button>
-          <button
-            onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('analyzing'); handleOAuthAnalyze(); }}
-            disabled={linkedinLoading}
-            style={{
-              padding: '12px 16px', backgroundColor: 'transparent',
-              color: t.ts, border: `1px solid ${t.border}`, borderRadius: '8px',
-              fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s',
-            }}
-          >
-            Passer
-          </button>
-        </div>
+        <button
+          onClick={handleOAuthAnalyze}
+          disabled={linkedinLoading || !oauthHeadline.trim()}
+          style={{
+            width: '100%', padding: '13px 20px',
+            backgroundColor: oauthHeadline.trim() ? t.violet : t.surfaceEl,
+            color: '#fff', border: 'none', borderRadius: '8px',
+            fontSize: '14px', fontWeight: 600,
+            cursor: oauthHeadline.trim() ? 'pointer' : 'default',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            transition: 'all 0.2s', opacity: oauthHeadline.trim() ? 1 : 0.5,
+          }}
+        >
+          {linkedinLoading ? (
+            <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analyse en cours...</>
+          ) : (
+            <><Sparkles size={16} /> Analyser mon profil</>
+          )}
+        </button>
       </div>
     );
   }
