@@ -72,8 +72,24 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
       return res.status(400).json({ error: 'messages array required' });
     }
 
-    // Build system prompt from agent
-    const systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+    // Build system prompt from agent + skills
+    let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+
+    // Inject assigned skills (same as workspace.js does)
+    try {
+      const skills = await db.getAgentSkills(deployment.agent_name);
+      if (skills && skills.length > 0) {
+        systemPrompt += '\n\n## Assigned Skills\n\n';
+        systemPrompt += 'The following skills are loaded for this agent. Use them as reference and follow their patterns:\n\n';
+        for (const skill of skills) {
+          systemPrompt += `### ${skill.name}\n`;
+          if (skill.description) systemPrompt += `${skill.description}\n\n`;
+          if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+        }
+      }
+    } catch (err) {
+      console.warn('[MCP] Failed to load skills for', deployment.agent_name, err.message);
+    }
 
     // Prepare messages with system prompt
     const fullMessages = [
