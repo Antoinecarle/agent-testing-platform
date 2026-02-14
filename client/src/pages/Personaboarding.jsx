@@ -189,6 +189,8 @@ export default function Personaboarding() {
   const [createdAgent, setCreatedAgent] = useState(null);
   const [constellationReady, setConstellationReady] = useState(false);
 
+  const [customRoleInput, setCustomRoleInput] = useState('');
+
   // LinkedIn / Source mode
   const [sourceMode, setSourceMode] = useState(null); // null | 'linkedin' | 'manual'
   const [linkedinUrl, setLinkedinUrl] = useState('');
@@ -746,22 +748,77 @@ export default function Personaboarding() {
           </div>
         );
 
-      case 1:
+      case 1: {
         if (!options) return <LoadingText />;
+        // Build role list: predefined + LinkedIn suggestion if not already in list
+        const roleOptions = [...options.roles];
+        if (linkedinSuggestions?.role) {
+          const liRole = linkedinSuggestions.role;
+          if (!roleOptions.some(r => r.id === liRole)) {
+            roleOptions.unshift({
+              id: liRole,
+              label: liRole.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+              skillCount: 'IA',
+              _linkedin: true,
+            });
+          }
+        }
+        const handleCustomRole = () => {
+          const name = customRoleInput.trim();
+          if (!name) return;
+          const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          handleRoleSelect({ id, label: name, skillCount: 'IA' });
+          setCustomRoleInput('');
+        };
         return (
           <div style={{ marginTop: '20px', ...fadeIn }}>
             {linkedinSuggestions?.role && (
-              <SuggestionBadge label={options.roles.find(r => r.id === linkedinSuggestions.role)?.label || linkedinSuggestions.role} />
+              <SuggestionBadge label={
+                roleOptions.find(r => r.id === linkedinSuggestions.role)?.label
+                || linkedinSuggestions.role.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+              } />
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {options.roles.map(r => (
-                <Chip key={r.id} label={r.label} subtitle={`${r.skillCount} compétences`}
+              {roleOptions.map(r => (
+                <Chip key={r.id} label={r.label}
+                  subtitle={r._linkedin ? 'Suggestion LinkedIn' : `${r.skillCount} compétences`}
                   selected={role?.id === r.id} onClick={() => handleRoleSelect(r)}
-                  color={linkedinSuggestions?.role === r.id ? '#3B82F6' : undefined} />
+                  color={linkedinSuggestions?.role === r.id ? '#3B82F6' : r._linkedin ? '#3B82F6' : undefined} />
               ))}
+            </div>
+            {/* Custom role input */}
+            <div style={{
+              display: 'flex', gap: '8px', marginTop: '16px',
+              padding: '12px 14px', backgroundColor: t.surface, borderRadius: '10px',
+              border: `1px solid ${t.border}`,
+            }}>
+              <input
+                style={{
+                  backgroundColor: 'transparent', border: 'none', color: '#fff',
+                  fontSize: '13px', flex: 1, outline: 'none', fontFamily: t.font,
+                }}
+                placeholder="Ou saisissez un rôle personnalisé..."
+                value={customRoleInput}
+                onChange={e => setCustomRoleInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCustomRole()}
+              />
+              <button
+                disabled={!customRoleInput.trim()}
+                onClick={handleCustomRole}
+                style={{
+                  backgroundColor: customRoleInput.trim() ? t.violet : 'transparent',
+                  color: customRoleInput.trim() ? '#fff' : t.tm,
+                  border: 'none', borderRadius: '6px', padding: '6px 14px',
+                  fontSize: '12px', fontWeight: 600, cursor: customRoleInput.trim() ? 'pointer' : 'default',
+                  transition: 'all 0.2s', fontFamily: t.font,
+                }}
+              >
+                Valider
+              </button>
             </div>
           </div>
         );
+      }
 
       case 2:
         if (aiSkillsLoading) return (

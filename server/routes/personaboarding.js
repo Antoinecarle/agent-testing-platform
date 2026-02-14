@@ -133,7 +133,7 @@ ${context}
 
 Based on this information, suggest:
 1. A display name for the agent (the person's first name or common name)
-2. The best matching role from: product-manager, developer, designer, marketing, writer, analyst, devops
+2. The best role as a kebab-case slug (e.g. "product-manager", "data-scientist", "frontend-developer", "growth-hacker", "ux-researcher", "cto", "sales-engineer"). Be specific and creative — do NOT limit to a predefined list.
 3. 10-12 specific professional skills with categories and colors
 4. Communication style from: formal, casual, technical, empathetic, direct
 5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
