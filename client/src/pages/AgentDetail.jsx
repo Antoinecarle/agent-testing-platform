@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles } from 'lucide-react';
-import { api } from '../api';
+import { api, getUser } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 import AgentCreator from '../components/AgentCreator';
 
@@ -217,6 +217,10 @@ export default function AgentDetail() {
 
   // Agent Creator (Enhance with AI)
   const [showAgentCreator, setShowAgentCreator] = useState(false);
+
+  // Ownership
+  const user = getUser();
+  const isOwner = agent && agent.source === 'manual' && (!agent.created_by || agent.created_by === user?.userId);
 
   // MCP Deployment
   const [deployment, setDeployment] = useState(null);
@@ -584,13 +588,15 @@ export default function AgentDetail() {
 
         {/* Actions */}
         <div className="agent-detail-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(`/agents/${name}/edit`)} style={{
-            backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
-            padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '6px',
-          }}>
-            <Edit3 size={13} />Edit
-          </button>
+          {isOwner && (
+            <button onClick={() => navigate(`/agents/${name}/edit`)} style={{
+              backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+              padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <Edit3 size={13} />Edit
+            </button>
+          )}
           <button onClick={() => navigate(`/project/new?agent=${name}`)} style={{
             backgroundColor: t.violetM, color: t.violet, border: 'none',
             padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
@@ -637,31 +643,34 @@ export default function AgentDetail() {
           }}>
             <Package size={13} />{mgmtOpen ? 'Hide Showcases' : 'Manage Showcases'}
           </button>
-          {!confirmDelete ? (
-            <button onClick={() => setConfirmDelete(true)} style={{
-              backgroundColor: 'transparent', color: t.danger, border: `1px solid rgba(239,68,68,0.3)`,
-              padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '6px',
-            }}>
-              <Trash2 size={13} />Delete
-            </button>
-          ) : (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: t.danger }}>Confirm?</span>
-              <button onClick={handleDelete} style={{
-                backgroundColor: t.danger, color: '#fff', border: 'none',
-                padding: '6px 12px', fontSize: '11px', fontWeight: '700', borderRadius: '4px', cursor: 'pointer',
-              }}>Yes</button>
-              <button onClick={() => setConfirmDelete(false)} style={{
-                backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
-                padding: '6px 12px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
-              }}>No</button>
-            </div>
+          {isOwner && (
+            !confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)} style={{
+                backgroundColor: 'transparent', color: t.danger, border: `1px solid rgba(239,68,68,0.3)`,
+                padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px',
+              }}>
+                <Trash2 size={13} />Delete
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: t.danger }}>Confirm?</span>
+                <button onClick={handleDelete} style={{
+                  backgroundColor: t.danger, color: '#fff', border: 'none',
+                  padding: '6px 12px', fontSize: '11px', fontWeight: '700', borderRadius: '4px', cursor: 'pointer',
+                }}>Yes</button>
+                <button onClick={() => setConfirmDelete(false)} style={{
+                  backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+                  padding: '6px 12px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                }}>No</button>
+              </div>
+            )
           )}
         </div>
       </div>
 
-      {/* Quick Action CTAs */}
+      {/* Quick Action CTAs — only for agent owners */}
+      {isOwner && (
       <div style={{ padding: '20px 32px 0', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         {/* Create Skill for this agent */}
         <button
@@ -777,6 +786,7 @@ export default function AgentDetail() {
           <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
         </button>
       </div>
+      )}
 
       {/* Showcase Management Panel */}
       {mgmtOpen && (
@@ -1027,19 +1037,21 @@ export default function AgentDetail() {
                   {agentSkills.length}
                 </span>
               </h2>
-              <button onClick={async () => {
-                try {
-                  const all = await api('/api/skills');
-                  setAllSkills(all || []);
-                  setShowSkillPicker(true);
-                } catch (e) { console.error(e); }
-              }} style={{
-                backgroundColor: t.violetM, color: t.violet, border: 'none',
-                padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '4px',
-              }}>
-                <Plus size={12} />Add
-              </button>
+              {isOwner && (
+                <button onClick={async () => {
+                  try {
+                    const all = await api('/api/skills');
+                    setAllSkills(all || []);
+                    setShowSkillPicker(true);
+                  } catch (e) { console.error(e); }
+                }} style={{
+                  backgroundColor: t.violetM, color: t.violet, border: 'none',
+                  padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                }}>
+                  <Plus size={12} />Add
+                </button>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1060,16 +1072,18 @@ export default function AgentDetail() {
                       backgroundColor: 'rgba(255,255,255,0.04)',
                     }}>{skill.category || 'general'}</span>
                   </div>
-                  <button onClick={async () => {
-                    try {
-                      await api(`/api/skills/${skill.id}/unassign/${name}`, { method: 'DELETE' });
-                      setAgentSkills(prev => prev.filter(s => s.id !== skill.id));
-                    } catch (e) { console.error(e); }
-                  }} style={{
-                    background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '4px', display: 'flex',
-                  }} title="Remove skill">
-                    <X size={13} />
-                  </button>
+                  {isOwner && (
+                    <button onClick={async () => {
+                      try {
+                        await api(`/api/skills/${skill.id}/unassign/${name}`, { method: 'DELETE' });
+                        setAgentSkills(prev => prev.filter(s => s.id !== skill.id));
+                      } catch (e) { console.error(e); }
+                    }} style={{
+                      background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '4px', display: 'flex',
+                    }} title="Remove skill">
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
               ))}
               {agentSkills.length === 0 && (

@@ -293,7 +293,7 @@ export default function AgentBrowser() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('rating');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('mine');
   const [viewType, setViewType] = useState('grid');
   const user = getUser();
   const [isSyncing, setIsSyncing] = useState(false);
