@@ -220,6 +220,119 @@ router.get('/:slug/api/usage', validateApiKey, async (req, res) => {
   }
 });
 
+// POST /mcp/:slug/api/demo-chat — Public demo chat (no API key, rate-limited per IP)
+const demoChatLimits = new Map(); // ip -> { count, resetAt }
+
+router.post('/:slug/api/demo-chat', async (req, res) => {
+  try {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+
+    // Rate limit: 20 messages per 10 min per IP
+    let limit = demoChatLimits.get(ip);
+    if (!limit || now > limit.resetAt) {
+      limit = { count: 0, resetAt: now + 10 * 60 * 1000 };
+      demoChatLimits.set(ip, limit);
+    }
+    limit.count++;
+    if (limit.count > 20) {
+      return res.status(429).json({ error: 'Demo rate limit reached. Try again in a few minutes.' });
+    }
+
+    const deployment = await db.getDeploymentBySlug(req.params.slug);
+    if (!deployment || deployment.status !== 'active') {
+      return res.status(404).json({ error: 'MCP not found or inactive' });
+    }
+
+    const agent = await db.getAgent(deployment.agent_name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const { messages } = req.body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array required' });
+    }
+    // Limit conversation length for demo
+    const trimmedMessages = messages.slice(-10);
+
+    // Build full system prompt with skills (deep — read from disk)
+    let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+
+    try {
+      const skills = await db.getAgentSkills(deployment.agent_name);
+      if (skills && skills.length > 0) {
+        const skillStorage = require('../skill-storage');
+        systemPrompt += '\n\n## Assigned Skills\n\n';
+        systemPrompt += 'The following skills are loaded. Use them as reference and follow their patterns:\n\n';
+        for (const skill of skills) {
+          systemPrompt += `### ${skill.name}\n`;
+          if (skill.description) systemPrompt += `${skill.description}\n\n`;
+          try {
+            const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+            if (entryFile && entryFile.content) {
+              systemPrompt += entryFile.content.slice(0, 6000) + '\n\n';
+            } else if (skill.prompt) {
+              systemPrompt += skill.prompt.slice(0, 6000) + '\n\n';
+            }
+          } catch (_) {
+            if (skill.prompt) systemPrompt += skill.prompt.slice(0, 6000) + '\n\n';
+          }
+          // Reference files
+          try {
+            const tree = skillStorage.scanSkillTree(skill.slug);
+            if (tree) {
+              const refFiles = [];
+              const walkTree = (items) => {
+                for (const item of items) {
+                  if (item.type === 'file' && item.path !== 'SKILL.md' && item.path !== (skill.entry_point || 'SKILL.md') && refFiles.length < 3) {
+                    refFiles.push(item.path);
+                  }
+                  if (item.children) walkTree(item.children);
+                }
+              };
+              walkTree(tree);
+              for (const refPath of refFiles) {
+                const refFile = skillStorage.readSkillFile(skill.slug, refPath);
+                if (refFile && refFile.content) {
+                  systemPrompt += `#### ${refPath}\n${refFile.content.slice(0, 2000)}\n\n`;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn('[MCP Demo] Failed to load skills:', err.message);
+    }
+
+    const { callGPT5 } = require('../lib/agent-analysis');
+    const fullMessages = [
+      { role: 'system', content: systemPrompt },
+      ...trimmedMessages,
+    ];
+
+    const response = await callGPT5(fullMessages, { max_completion_tokens: 4000 });
+
+    res.json({
+      role: 'assistant',
+      content: response,
+      context: {
+        tokens: Math.round(systemPrompt.length / 4),
+      },
+    });
+  } catch (err) {
+    console.error('[MCP Demo Chat] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Chat failed' });
+  }
+});
+
+// Clean up rate limit map every 30 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, limit] of demoChatLimits) {
+    if (now > limit.resetAt) demoChatLimits.delete(ip);
+  }
+}, 30 * 60 * 1000);
+
 // =================== LANDING PAGE GENERATOR ===================
 
 function escapeHtml(str) {
@@ -629,6 +742,152 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
     footer a { color: var(--primary); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
+    /* ===== FLOATING CHAT ===== */
+    .chat-fab {
+      position: fixed; bottom: 28px; right: 28px; z-index: 999;
+      width: 60px; height: 60px; border-radius: 50%;
+      background: var(--primary); color: #fff; border: none;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 24px ${color}55, 0 0 0 0 ${color}33;
+      transition: all 0.3s; font-size: 26px;
+    }
+    .chat-fab:hover { transform: scale(1.08); box-shadow: 0 6px 32px ${color}77; }
+    .chat-fab-pulse {
+      position: absolute; inset: -4px; border-radius: 50%;
+      border: 2px solid var(--primary); animation: fabPulse 2s infinite;
+      pointer-events: none;
+    }
+    @keyframes fabPulse {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+    .chat-float {
+      position: fixed; bottom: 100px; right: 28px; z-index: 1000;
+      width: 420px; height: 560px; border-radius: 20px;
+      background: var(--bg); border: 1px solid var(--border);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px ${color}15;
+      display: flex; flex-direction: column; overflow: hidden;
+      animation: chatIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    @keyframes chatIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .chat-header {
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,255,255,0.02); flex-shrink: 0;
+    }
+    .chat-header-left { display: flex; align-items: center; gap: 10px; }
+    .chat-avatar-sm {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--primary-light), ${color}22);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; border: 1px solid ${color}33;
+    }
+    .chat-header h3 { font-size: 14px; font-weight: 600; margin: 0; }
+    .chat-clear {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text-dim); font-size: 10px; padding: 3px 8px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .chat-clear:hover { border-color: var(--primary); color: var(--primary); }
+    .chat-close {
+      background: none; border: none; color: var(--text-dim); font-size: 16px;
+      cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: all 0.2s;
+      line-height: 1;
+    }
+    .chat-close:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 16px 18px; scroll-behavior: smooth;
+    }
+    .chat-empty { text-align: center; padding: 30px 16px; }
+    .chat-empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.15; }
+    .chat-empty p { color: var(--text-muted); font-size: 14px; margin-bottom: 6px; }
+    .chat-empty .sub { color: var(--text-dim); font-size: 11px; }
+    .chat-suggestions {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px;
+    }
+    .chat-suggestion {
+      padding: 5px 12px; border-radius: 100px; font-size: 11px;
+      background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .chat-suggestion:hover {
+      border-color: var(--primary); color: var(--primary); background: var(--primary-light);
+    }
+    .chat-msg {
+      display: flex; gap: 10px; margin-bottom: 14px; animation: msgIn 0.3s ease;
+    }
+    .chat-msg.user { flex-direction: row-reverse; }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .chat-msg-avatar {
+      width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 13px;
+    }
+    .chat-msg.user .chat-msg-avatar { background: rgba(255,255,255,0.08); }
+    .chat-msg.assistant .chat-msg-avatar { background: var(--primary-light); }
+    .chat-msg-bubble {
+      max-width: 82%; padding: 10px 14px; font-size: 13px; line-height: 1.7;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .chat-msg.user .chat-msg-bubble {
+      background: var(--primary-light); border: 1px solid ${color}33;
+      border-radius: 14px 14px 4px 14px; color: var(--text);
+    }
+    .chat-msg.assistant .chat-msg-bubble {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 14px 14px 14px 4px; color: var(--text-muted);
+    }
+    .chat-cursor {
+      display: inline-block; width: 2px; height: 14px; background: var(--primary);
+      margin-left: 2px; vertical-align: text-bottom;
+      animation: blink 0.8s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+    .chat-typing-dots { display: flex; gap: 4px; padding: 10px 14px; }
+    .chat-typing-dots span {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim);
+      animation: typing 1.4s infinite;
+    }
+    .chat-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing {
+      0%,60%,100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-4px); }
+    }
+    .chat-input-area {
+      padding: 12px 18px; border-top: 1px solid var(--border);
+      display: flex; gap: 8px; flex-shrink: 0;
+    }
+    .chat-input {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 14px; font-size: 13px;
+      color: var(--text); outline: none; font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .chat-input:focus { border-color: var(--primary); }
+    .chat-input::placeholder { color: var(--text-dim); }
+    .chat-send {
+      width: 40px; height: 40px; border-radius: 10px; border: none;
+      background: var(--primary); color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s; font-size: 16px;
+    }
+    .chat-send:hover { opacity: 0.9; box-shadow: 0 0 16px ${color}44; }
+    .chat-send:disabled { opacity: 0.3; cursor: default; box-shadow: none; }
+
+    @media (max-width: 768px) {
+      .chat-float {
+        width: calc(100vw - 24px); right: 12px; bottom: 80px;
+        height: calc(100vh - 120px); max-height: 500px;
+      }
+      .chat-fab { bottom: 16px; right: 16px; width: 52px; height: 52px; font-size: 22px; }
+    }
+
     /* ===== RESPONSIVE ===== */
     @media (max-width: 768px) {
       .hero { padding: 120px 0 60px; }
@@ -828,6 +1087,45 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
     </div>
   </section>
 
+  <!-- FLOATING CHAT WIDGET -->
+  <div class="chat-fab" id="chat-fab" onclick="toggleChat()">
+    <span class="chat-fab-icon" id="chat-fab-icon">&#x1f4ac;</span>
+    <span class="chat-fab-pulse"></span>
+  </div>
+
+  <div class="chat-float" id="chat-float" style="display:none">
+    <div class="chat-header">
+      <div class="chat-header-left">
+        <div class="chat-avatar-sm">&#x1f916;</div>
+        <div>
+          <h3>${agentName}</h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:1px">${formatTokens(promptTokens + totalSkillTokens)} tokens &middot; ${safeSkills.length} skill${safeSkills.length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="chat-clear" id="chat-clear" style="display:none" onclick="clearChat()">Clear</button>
+        <button class="chat-close" onclick="toggleChat()">&#x2715;</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-empty" id="chat-empty">
+        <div class="chat-empty-icon">&#x1f916;</div>
+        <p>Chat with ${agentName}</p>
+        <div class="sub">Full agent prompt + all skills loaded</div>
+        <div class="chat-suggestions">
+          <button class="chat-suggestion" onclick="fillInput('What can you do?')">What can you do?</button>
+          <button class="chat-suggestion" onclick="fillInput('List your capabilities')">List capabilities</button>
+          <button class="chat-suggestion" onclick="fillInput('Help me get started')">Get started</button>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <input class="chat-input" id="chat-input" type="text" placeholder="Ask ${agentName} anything..." autocomplete="off"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey)sendDemo()">
+      <button class="chat-send" id="chat-send" onclick="sendDemo()" title="Send">&#x27A4;</button>
+    </div>
+  </div>
+
   <!-- SETUP -->
   <section class="section" id="setup">
     <div class="container">
@@ -1016,6 +1314,148 @@ data = response.json()
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
+
+    // ========== FLOATING CHAT ==========
+    const chatMessages = [];
+    let chatOpen = false;
+    let chatBusy = false;
+
+    function toggleChat() {
+      chatOpen = !chatOpen;
+      const panel = document.getElementById('chat-float');
+      const fab = document.getElementById('chat-fab');
+      const fabIcon = document.getElementById('chat-fab-icon');
+      if (chatOpen) {
+        panel.style.display = 'flex';
+        fabIcon.innerHTML = '&#x2715;';
+        fab.querySelector('.chat-fab-pulse').style.display = 'none';
+        document.getElementById('chat-input').focus();
+      } else {
+        panel.style.display = 'none';
+        fabIcon.innerHTML = '&#x1f4ac;';
+        fab.querySelector('.chat-fab-pulse').style.display = '';
+      }
+    }
+
+    function fillInput(text) {
+      document.getElementById('chat-input').value = text;
+      document.getElementById('chat-input').focus();
+    }
+
+    function clearChat() {
+      chatMessages.length = 0;
+      renderMessages();
+      document.getElementById('chat-clear').style.display = 'none';
+    }
+
+    function scrollToBottom() {
+      const el = document.getElementById('chat-messages');
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function renderMessages() {
+      const container = document.getElementById('chat-messages');
+      if (chatMessages.length === 0) {
+        container.innerHTML = document.getElementById('chat-empty') ?
+          '<div class="chat-empty" id="chat-empty"><div class="chat-empty-icon">&#x1f916;</div><p>Chat with ${agentName}</p><div class="sub">Full agent prompt + all skills loaded</div><div class="chat-suggestions"><button class="chat-suggestion" onclick="fillInput(\\\'What can you do?\\\')">What can you do?</button><button class="chat-suggestion" onclick="fillInput(\\\'List capabilities\\\')">List capabilities</button><button class="chat-suggestion" onclick="fillInput(\\\'Help me get started\\\')">Get started</button></div></div>' : '';
+        return;
+      }
+      let html = '';
+      for (const m of chatMessages) {
+        const avatarEmoji = m.role === 'user' ? '&#x1f464;' : '&#x1f916;';
+        html += '<div class="chat-msg ' + m.role + '">';
+        html += '<div class="chat-msg-avatar">' + avatarEmoji + '</div>';
+        html += '<div class="chat-msg-bubble" id="' + (m.id || '') + '">' + escapeChat(m.content) + (m.typing ? '<span class="chat-cursor"></span>' : '') + '</div>';
+        html += '</div>';
+      }
+      container.innerHTML = html;
+      scrollToBottom();
+    }
+
+    function escapeChat(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br>');
+    }
+
+    async function sendDemo() {
+      const input = document.getElementById('chat-input');
+      const msg = input.value.trim();
+      if (!msg || chatBusy) return;
+      input.value = '';
+      chatBusy = true;
+      document.getElementById('chat-send').disabled = true;
+      document.getElementById('chat-clear').style.display = 'inline-block';
+
+      // Add user message
+      chatMessages.push({ role: 'user', content: msg });
+      renderMessages();
+
+      // Add typing indicator
+      const assistantId = 'msg-' + Date.now();
+      chatMessages.push({ role: 'assistant', content: '', typing: true, id: assistantId });
+      renderMessages();
+
+      try {
+        const apiMessages = chatMessages
+          .filter(m => m.content || m.role === 'user')
+          .filter(m => !m.typing)
+          .map(m => ({ role: m.role, content: m.content }));
+
+        const res = await fetch('/mcp/${deployment.slug}/api/demo-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: apiMessages }),
+        });
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        // Remove typing indicator and typewrite the response
+        const lastMsg = chatMessages[chatMessages.length - 1];
+        lastMsg.typing = false;
+        lastMsg.content = '';
+        renderMessages();
+
+        await typewrite(assistantId, data.content || 'No response');
+        lastMsg.content = data.content || 'No response';
+
+      } catch (err) {
+        const lastMsg = chatMessages[chatMessages.length - 1];
+        lastMsg.typing = false;
+        lastMsg.content = 'Error: ' + (err.message || 'Failed');
+        renderMessages();
+      }
+
+      chatBusy = false;
+      document.getElementById('chat-send').disabled = false;
+      input.focus();
+    }
+
+    async function typewrite(elementId, text) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      let i = 0;
+      const speed = Math.max(8, Math.min(30, 2000 / text.length)); // adaptive speed
+      return new Promise(resolve => {
+        function type() {
+          if (i < text.length) {
+            // Add characters in chunks for long texts
+            const chunk = Math.ceil(text.length / 200);
+            const end = Math.min(i + chunk, text.length);
+            const partial = text.slice(0, end);
+            el.innerHTML = escapeChat(partial) + '<span class="chat-cursor"></span>';
+            i = end;
+            scrollToBottom();
+            requestAnimationFrame(() => setTimeout(type, speed));
+          } else {
+            el.innerHTML = escapeChat(text);
+            scrollToBottom();
+            resolve();
+          }
+        }
+        type();
+      });
+    }
   </script>
 </body>
 </html>`;
