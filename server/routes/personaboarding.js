@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db');
+const { callGPT5 } = require('../lib/agent-analysis');
 
 const router = express.Router();
 
@@ -116,6 +117,151 @@ const AVAILABLE_TOOLS = [
   { id: 'Task', label: 'Task', description: 'Spawn sub-agents for parallel work', category: 'agents' },
   { id: 'NotebookEdit', label: 'Notebook', description: 'Edit Jupyter notebooks', category: 'files' },
 ];
+
+// ── LinkedIn Profile Analysis ───────────────────────────────────────────────
+async function analyzeLinkedInWithGPT(pageData, url) {
+  const context = [
+    `LinkedIn URL: ${url}`,
+    pageData.username ? `Username/slug: ${pageData.username}` : '',
+    pageData.title ? `Page title: ${pageData.title}` : '',
+    pageData.description ? `Page description: ${pageData.description}` : '',
+  ].filter(Boolean).join('\n');
+
+  const prompt = `Analyze this LinkedIn profile data and suggest an AI agent configuration.
+
+${context}
+
+Based on this information, suggest:
+1. A display name for the agent (the person's first name or common name)
+2. The best matching role from: product-manager, developer, designer, marketing, writer, analyst, devops
+3. 10-12 specific professional skills with categories and colors
+4. Communication style from: formal, casual, technical, empathetic, direct
+5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
+6. Suggested tools from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
+
+Each skill must use a unique color from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC4899, #06B6D4, #A855F7, #EF4444, #14B8A6, #F97316, #6366F1, #84CC16
+
+Return ONLY valid JSON:
+{
+  "displayName": "Suggested Name",
+  "role": "role-id",
+  "skills": [{ "name": "Skill Name", "category": "category-slug", "color": "#hex", "description": "Description" }],
+  "commStyle": "style-id",
+  "methodology": "methodology-id",
+  "tools": ["Tool1", "Tool2"],
+  "summary": "Brief summary of the person's profile in French"
+}`;
+
+  try {
+    const response = await callGPT5(
+      [
+        { role: 'system', content: 'You analyze LinkedIn profiles and suggest AI agent configurations. Return ONLY valid JSON. Always suggest 10-12 diverse, specific skills.' },
+        { role: 'user', content: prompt },
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+    return JSON.parse(response);
+  } catch (err) {
+    console.error('[Personaboarding] GPT LinkedIn analysis error:', err.message);
+    const nameFromSlug = pageData.username
+      ? pageData.username.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+      : 'Agent';
+    return {
+      displayName: nameFromSlug,
+      role: 'developer',
+      skills: [],
+      commStyle: 'direct',
+      methodology: 'agile',
+      tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+      summary: `Agent basé sur le profil de ${nameFromSlug}`,
+    };
+  }
+}
+
+// POST /api/personaboarding/linkedin-analyze
+router.post('/linkedin-analyze', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || !url.includes('linkedin.com/in/')) {
+      return res.status(400).json({ error: 'URL LinkedIn invalide. Format: https://linkedin.com/in/username' });
+    }
+
+    const match = url.match(/linkedin\.com\/in\/([^/?#]+)/);
+    const username = match ? match[1] : null;
+    let pageData = { username };
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        },
+        signal: AbortSignal.timeout(10000),
+        redirect: 'follow',
+      });
+      if (response.ok) {
+        const html = await response.text();
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
+        const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+        const ogDescMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i);
+        pageData.title = ogTitleMatch?.[1] || titleMatch?.[1] || '';
+        pageData.description = ogDescMatch?.[1] || descMatch?.[1] || '';
+      }
+    } catch (fetchErr) {
+      console.warn('[Personaboarding] LinkedIn fetch warning:', fetchErr.message);
+    }
+
+    const suggestions = await analyzeLinkedInWithGPT(pageData, url);
+    res.json({ suggestions, rawData: pageData });
+  } catch (err) {
+    console.error('[Personaboarding] LinkedIn analyze error:', err.message);
+    res.status(500).json({ error: "Erreur lors de l'analyse du profil LinkedIn" });
+  }
+});
+
+// POST /api/personaboarding/ai-suggest-skills
+router.post('/ai-suggest-skills', async (req, res) => {
+  try {
+    const { role, context: ctx, linkedinData } = req.body;
+    if (!role) return res.status(400).json({ error: 'Role is required' });
+
+    let contextInfo = `Role: ${role.replace(/-/g, ' ')}`;
+    if (ctx) contextInfo += `\nContext: ${ctx}`;
+    if (linkedinData?.summary) contextInfo += `\nProfile: ${linkedinData.summary}`;
+    if (linkedinData?.displayName) contextInfo += `\nPerson: ${linkedinData.displayName}`;
+    if (linkedinData?.skills?.length > 0) {
+      contextInfo += `\nLinkedIn skills: ${linkedinData.skills.map(s => s.name).join(', ')}`;
+    }
+
+    const prompt = `Generate 10-14 specific professional skills for a ${role.replace(/-/g, ' ')} AI agent.
+
+${contextInfo}
+
+Requirements:
+- Each skill must be concrete and actionable (not vague)
+- Mix of technical and soft skills relevant to this role
+- Categories as lowercase slugs (engineering, research, design, analytics, communication, strategy, devops, quality, content, growth)
+- Each skill gets a unique color from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC4899, #06B6D4, #A855F7, #EF4444, #14B8A6, #F97316, #6366F1, #84CC16
+
+Return ONLY valid JSON: { "skills": [{ "name": "...", "category": "...", "color": "#...", "description": "..." }] }`;
+
+    const response = await callGPT5(
+      [
+        { role: 'system', content: 'You generate professional skills for AI agents. Return ONLY valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+    const data = JSON.parse(response);
+    res.json(data);
+  } catch (err) {
+    console.error('[Personaboarding] AI suggest skills error:', err.message);
+    const fallbackSkills = ROLE_SKILLS[req.body?.role] || ROLE_SKILLS['developer'] || [];
+    res.json({ skills: fallbackSkills });
+  }
+});
 
 // ── GPT-powered prompt generation ───────────────────────────────────────────
 async function generateWithGPT(choices) {
@@ -272,14 +418,21 @@ ${rules.map(r => `- ${r}`).join('\n')}
 // Calls GPT to generate rich agent content from choices
 router.post('/ai-enhance', async (req, res) => {
   try {
-    const { displayName, role, selectedSkills, commStyle, methodology, selectedTools, model, autonomy } = req.body;
+    const { displayName, role, selectedSkills, skillsData: aiSkillsData, commStyle, methodology, selectedTools, model, autonomy } = req.body;
 
     if (!displayName || !role || !selectedSkills?.length) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const aiSkills = Array.isArray(aiSkillsData) ? aiSkillsData : [];
     const roleSkills = ROLE_SKILLS[role] || [];
-    const skills = selectedSkills.map(n => roleSkills.find(s => s.name === n)).filter(Boolean);
+    const skills = selectedSkills.map(n => {
+      const fromAi = aiSkills.find(s => s.name === n);
+      if (fromAi) return fromAi;
+      const fromRole = roleSkills.find(s => s.name === n);
+      if (fromRole) return fromRole;
+      return { name: n, description: `${n} expertise` };
+    }).filter(Boolean);
 
     const gptData = await generateWithGPT({
       displayName: displayName.trim(),
@@ -309,7 +462,7 @@ router.post('/ai-enhance', async (req, res) => {
 // ── POST /api/personaboarding/complete ──────────────────────────────────────
 router.post('/complete', async (req, res) => {
   try {
-    const { displayName, role, selectedSkills, customSkills: customSkillsData, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
+    const { displayName, role, selectedSkills, customSkills: customSkillsData, skillsData: aiSkillsData, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
 
     if (!displayName || !displayName.trim()) {
       return res.status(400).json({ error: 'Agent name is required' });
@@ -329,16 +482,17 @@ router.post('/complete', async (req, res) => {
       return res.status(409).json({ error: `Agent "${agentName}" already exists` });
     }
 
-    // Merge role skills + custom skills
+    // Merge AI skills + role skills + custom skills
+    const aiSkills = Array.isArray(aiSkillsData) ? aiSkillsData : [];
     const roleSkills = ROLE_SKILLS[role] || [];
     const customSkills = Array.isArray(customSkillsData) ? customSkillsData : [];
     const skills = selectedSkills.map(n => {
-      // Try role skills first, then custom skills
+      const fromAi = aiSkills.find(s => s.name === n);
+      if (fromAi) return { name: fromAi.name, category: fromAi.category || 'ai', color: fromAi.color || '#8B5CF6', description: fromAi.description || 'AI-generated skill' };
       const fromRole = roleSkills.find(s => s.name === n);
       if (fromRole) return fromRole;
       const fromCustom = customSkills.find(s => s.name === n);
       if (fromCustom) return { name: fromCustom.name, category: fromCustom.category || 'custom', color: fromCustom.color || '#F59E0B', description: fromCustom.description || 'Custom skill' };
-      // Fallback: treat as unknown custom skill
       return { name: n, category: 'custom', color: '#F59E0B', description: 'Custom skill' };
     }).filter(Boolean);
 

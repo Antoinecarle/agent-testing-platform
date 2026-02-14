@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   User, Shield, Zap, MessageSquare, GitBranch, Wrench,
   Cpu, Settings, Sparkles, Check, Loader2, PenTool, ArrowRight,
+  Linkedin, X, ExternalLink, Link as LinkIcon,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -188,6 +189,14 @@ export default function Personaboarding() {
   const [createdAgent, setCreatedAgent] = useState(null);
   const [constellationReady, setConstellationReady] = useState(false);
 
+  // LinkedIn / Source mode
+  const [sourceMode, setSourceMode] = useState(null); // null | 'linkedin' | 'manual'
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [linkedinLoading, setLinkedinLoading] = useState(false);
+  const [linkedinSuggestions, setLinkedinSuggestions] = useState(null);
+  const [linkedinPhase, setLinkedinPhase] = useState('input');
+  const [aiSkillsLoading, setAiSkillsLoading] = useState(false);
+
   // Narrative history
   const [history, setHistory] = useState([]);
 
@@ -217,11 +226,77 @@ export default function Personaboarding() {
     if (step === 0 && !typing) setTimeout(() => inputRef.current?.focus(), 100);
   }, [step, typing]);
 
+  // ── LinkedIn & AI handlers ─────────────────────────────────────────────
+  async function handleLinkedinAnalyze() {
+    if (!linkedinUrl.trim()) return;
+    setLinkedinLoading(true);
+    setLinkedinPhase('analyzing');
+    setError(null);
+    try {
+      const res = await api('/api/personaboarding/linkedin-analyze', {
+        method: 'POST',
+        body: JSON.stringify({ url: linkedinUrl.trim() }),
+      });
+      setLinkedinSuggestions(res.suggestions);
+      if (res.suggestions?.displayName) setDisplayName(res.suggestions.displayName);
+      setLinkedinPhase('results');
+    } catch (err) {
+      setError(err.message || "Impossible d'analyser ce profil LinkedIn");
+      setLinkedinPhase('input');
+    }
+    setLinkedinLoading(false);
+  }
+
+  function handleLinkedinContinue() {
+    setLinkedinPhase('done');
+    setSourceMode('linkedin-done');
+    // Pre-fill multi-select from suggestions
+    if (linkedinSuggestions?.tools) setSelectedTools(linkedinSuggestions.tools);
+  }
+
+  function handleManualMode() {
+    setSourceMode('manual');
+  }
+
+  async function fetchAiSkills(roleId) {
+    setAiSkillsLoading(true);
+    try {
+      const res = await api('/api/personaboarding/ai-suggest-skills', {
+        method: 'POST',
+        body: JSON.stringify({
+          role: roleId,
+          linkedinData: linkedinSuggestions || null,
+        }),
+      });
+      const newSkills = res.skills || [];
+      setSkills(newSkills);
+      // Auto-select LinkedIn-suggested skills
+      if (linkedinSuggestions?.skills?.length > 0) {
+        const suggestedNames = linkedinSuggestions.skills.map(s => s.name.toLowerCase());
+        const matching = newSkills
+          .filter(s => suggestedNames.includes(s.name.toLowerCase()))
+          .map(s => s.name);
+        setSelectedSkills(matching);
+      }
+    } catch {
+      const roleData = allRoles.find(ar => ar.id === roleId);
+      setSkills(roleData?.skills || []);
+    }
+    setAiSkillsLoading(false);
+  }
+
   // ── Narrative prompts ────────────────────────────────────────────────────
+  const hasLinkedin = !!linkedinSuggestions;
   const prompts = [
-    "Commençons la genèse. Quel sera le nom de votre agent ?",
-    `Je m'appellerai ${displayName}. Quel rôle souhaitez-vous me confier ?`,
-    `En tant que ${role?.label || '...'}, j'aurai besoin de compétences spécifiques. Quelles sont les miennes ?`,
+    hasLinkedin
+      ? `LinkedIn m'a parlé de vous. Confirmez le nom de votre agent ?`
+      : "Commençons la genèse. Quel sera le nom de votre agent ?",
+    hasLinkedin
+      ? `${displayName} est un beau nom. Votre profil suggère un rôle. Lequel vous correspond ?`
+      : `Je m'appellerai ${displayName}. Quel rôle souhaitez-vous me confier ?`,
+    hasLinkedin
+      ? `En tant que ${role?.label || '...'}, voici les compétences suggérées par votre profil. Validez ou personnalisez.`
+      : `En tant que ${role?.label || '...'}, j'aurai besoin de compétences spécifiques. Quelles sont les miennes ?`,
     `Mes ${selectedSkills.length} compétences sont acquises. Comment souhaitez-vous que je communique ?`,
     `Style ${commStyle?.label || '...'} noté. Quelle méthodologie de travail me guidera ?`,
     `Méthodologie ${methodology?.label || '...'} intégrée. De quels outils aurai-je besoin ?`,
@@ -248,10 +323,9 @@ export default function Personaboarding() {
 
   function handleRoleSelect(r) {
     setRole(r);
-    const roleData = allRoles.find(ar => ar.id === r.id);
-    setSkills(roleData?.skills || []);
     setSelectedSkills([]);
     advance(`${displayName} sera ${r.label}.`);
+    fetchAiSkills(r.id);
   }
 
   function handleSkillsValidate() {
@@ -297,6 +371,7 @@ export default function Personaboarding() {
           displayName,
           role: role.id,
           selectedSkills,
+          skillsData: skills,
           commStyle: commStyle.id,
           methodology: methodology.id,
           selectedTools,
@@ -330,6 +405,7 @@ export default function Personaboarding() {
           role: role.id,
           selectedSkills,
           customSkills,
+          skillsData: skills,
           commStyle: commStyle.id,
           methodology: methodology.id,
           selectedTools,
@@ -369,6 +445,264 @@ export default function Personaboarding() {
       gptData ? 'Enhanced' : null,
       success ? 'Créé' : null,
     ];
+  }
+
+  // ── Source Picker ───────────────────────────────────────────────────────
+  function renderSourcePicker() {
+    const [hovLi, setHovLi] = useState(false);
+    const [hovMan, setHovMan] = useState(false);
+    return (
+      <div style={{ animation: 'fadeInUp 0.5s ease' }}>
+        <div style={{
+          fontSize: '20px', fontWeight: 700, color: t.tp, marginBottom: '8px',
+          letterSpacing: '-0.02em',
+        }}>
+          Comment souhaitez-vous créer votre agent ?
+        </div>
+        <p style={{ fontSize: '13px', color: t.tm, marginBottom: '28px', lineHeight: '1.6' }}>
+          Importez votre profil LinkedIn pour des suggestions intelligentes, ou créez manuellement.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* LinkedIn Card */}
+          <button
+            onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('input'); }}
+            onMouseEnter={() => setHovLi(true)}
+            onMouseLeave={() => setHovLi(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '16px',
+              padding: '20px 24px', backgroundColor: hovLi ? '#1e3a5f20' : t.surface,
+              border: `1px solid ${hovLi ? '#3B82F640' : t.border}`,
+              borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
+              transition: 'all 0.25s ease',
+              boxShadow: hovLi ? '0 0 20px rgba(59,130,246,0.1)' : 'none',
+            }}
+          >
+            <div style={{
+              width: 48, height: 48, borderRadius: '12px',
+              backgroundColor: '#0A66C215', border: '1px solid #0A66C230',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Linkedin size={22} color="#0A66C2" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: t.tp, marginBottom: '4px' }}>
+                Importer depuis LinkedIn
+              </div>
+              <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.5' }}>
+                Collez votre URL LinkedIn — l'IA analysera votre profil et suggérera nom, rôle, compétences et plus.
+              </div>
+            </div>
+            <ArrowRight size={18} color={hovLi ? '#3B82F6' : t.tm} style={{ transition: 'color 0.2s', flexShrink: 0 }} />
+          </button>
+
+          {/* Manual Card */}
+          <button
+            onClick={handleManualMode}
+            onMouseEnter={() => setHovMan(true)}
+            onMouseLeave={() => setHovMan(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '16px',
+              padding: '20px 24px', backgroundColor: hovMan ? t.surfaceEl : t.surface,
+              border: `1px solid ${hovMan ? t.borderS : t.border}`,
+              borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
+              transition: 'all 0.25s ease',
+            }}
+          >
+            <div style={{
+              width: 48, height: 48, borderRadius: '12px',
+              backgroundColor: t.violetG, border: `1px solid ${t.violetM}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <PenTool size={20} color={t.violet} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: t.tp, marginBottom: '4px' }}>
+                Création manuelle
+              </div>
+              <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.5' }}>
+                Configurez chaque aspect de votre agent étape par étape, en toute liberté.
+              </div>
+            </div>
+            <ArrowRight size={18} color={hovMan ? t.ts : t.tm} style={{ transition: 'color 0.2s', flexShrink: 0 }} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── LinkedIn Flow ─────────────────────────────────────────────────────
+  function renderLinkedInFlow() {
+    return (
+      <div style={{ animation: 'fadeInUp 0.4s ease' }}>
+        {linkedinPhase === 'input' && (
+          <div>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px',
+              color: '#60A5FA', fontSize: '12px', fontWeight: 600,
+            }}>
+              <Linkedin size={15} /> Import LinkedIn
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 600, color: t.tp, marginBottom: '6px' }}>
+              Collez votre URL LinkedIn
+            </div>
+            <p style={{ fontSize: '13px', color: t.tm, marginBottom: '20px', lineHeight: '1.5' }}>
+              L'IA analysera les métadonnées de votre profil pour suggérer automatiquement les champs.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                autoFocus
+                style={{
+                  backgroundColor: t.bg, border: `1px solid ${t.borderS}`,
+                  borderRadius: '8px', padding: '12px 16px', color: '#fff',
+                  fontSize: '14px', flex: 1, outline: 'none', fontFamily: t.font,
+                  transition: 'border-color 0.2s',
+                }}
+                onFocus={e => e.target.style.borderColor = '#3B82F6'}
+                onBlur={e => e.target.style.borderColor = t.borderS}
+                placeholder="https://linkedin.com/in/votre-profil"
+                value={linkedinUrl}
+                onChange={e => setLinkedinUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleLinkedinAnalyze()}
+              />
+              <button
+                disabled={!linkedinUrl.trim() || !linkedinUrl.includes('linkedin.com/in/')}
+                onClick={handleLinkedinAnalyze}
+                style={{
+                  backgroundColor: linkedinUrl.includes('linkedin.com/in/') ? '#3B82F6' : t.surfaceEl,
+                  color: '#fff', border: 'none', borderRadius: '8px', padding: '0 20px',
+                  fontSize: '13px', fontWeight: 600, cursor: linkedinUrl.includes('linkedin.com/in/') ? 'pointer' : 'default',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  transition: 'all 0.2s', fontFamily: t.font,
+                }}
+              >
+                Analyser <ExternalLink size={13} />
+              </button>
+            </div>
+            {error && <p style={{ fontSize: '12px', color: t.danger, marginTop: '10px' }}>{error}</p>}
+            <button
+              onClick={handleManualMode}
+              style={{
+                background: 'none', border: 'none', color: t.tm, fontSize: '12px',
+                cursor: 'pointer', marginTop: '16px', padding: 0, fontFamily: t.font,
+                textDecoration: 'underline', textUnderlineOffset: '3px',
+              }}
+            >
+              Passer et créer manuellement
+            </button>
+          </div>
+        )}
+
+        {linkedinPhase === 'analyzing' && (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px',
+            padding: '40px 20px', animation: 'fadeInUp 0.4s ease',
+          }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%',
+              backgroundColor: '#1e3a5f20', border: '2px solid #3B82F640',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Linkedin size={28} color="#3B82F6" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: t.tp, marginBottom: '6px' }}>
+                Analyse de votre profil LinkedIn...
+              </div>
+              <div style={{ fontSize: '12px', color: t.tm }}>
+                Extraction des métadonnées et génération des suggestions
+              </div>
+            </div>
+            <Loader2 size={20} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
+          </div>
+        )}
+
+        {linkedinPhase === 'results' && linkedinSuggestions && (
+          <div style={{ animation: 'fadeInUp 0.4s ease' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px',
+              color: t.success, fontSize: '13px', fontWeight: 600,
+            }}>
+              <Check size={15} /> Profil analysé avec succès
+            </div>
+
+            {linkedinSuggestions.summary && (
+              <div style={{
+                padding: '14px 18px', backgroundColor: t.surface, borderRadius: '10px',
+                border: `1px solid ${t.border}`, marginBottom: '20px',
+                fontSize: '13px', color: t.ts, lineHeight: '1.6', fontStyle: 'italic',
+              }}>
+                "{linkedinSuggestions.summary}"
+              </div>
+            )}
+
+            {/* Suggestion Preview Cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+              {[
+                { label: 'Nom', value: linkedinSuggestions.displayName, icon: <User size={13} /> },
+                { label: 'Rôle', value: linkedinSuggestions.role?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), icon: <Shield size={13} /> },
+                { label: 'Compétences', value: `${linkedinSuggestions.skills?.length || 0} détectées`, icon: <Zap size={13} /> },
+                { label: 'Style', value: linkedinSuggestions.commStyle?.charAt(0).toUpperCase() + linkedinSuggestions.commStyle?.slice(1), icon: <MessageSquare size={13} /> },
+              ].map((item, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '10px 14px', backgroundColor: t.surface, borderRadius: '8px',
+                  border: `1px solid ${t.border}`,
+                }}>
+                  <div style={{ color: '#3B82F6' }}>{item.icon}</div>
+                  <span style={{ fontSize: '11px', color: t.tm, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: '90px' }}>
+                    {item.label}
+                  </span>
+                  <span style={{ fontSize: '13px', color: t.tp, fontWeight: 500 }}>
+                    {item.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize: '11px', color: t.tm, marginBottom: '16px', lineHeight: '1.5' }}>
+              Ces suggestions pré-rempliront les étapes suivantes. Vous pourrez modifier ou rejeter chaque suggestion.
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={handleLinkedinContinue}
+                style={{
+                  backgroundColor: '#3B82F6', color: '#fff', border: 'none', borderRadius: '8px',
+                  padding: '12px 24px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '8px', fontFamily: t.font,
+                  transition: 'all 0.2s',
+                }}
+              >
+                Continuer avec ces suggestions <ArrowRight size={14} />
+              </button>
+              <button
+                onClick={handleManualMode}
+                style={{
+                  backgroundColor: t.surface, color: t.ts, border: `1px solid ${t.border}`,
+                  borderRadius: '8px', padding: '12px 18px', fontSize: '13px', fontWeight: 500,
+                  cursor: 'pointer', fontFamily: t.font, transition: 'all 0.2s',
+                }}
+              >
+                Ignorer
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Suggestion Badge ──────────────────────────────────────────────────
+  function SuggestionBadge({ label }) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px',
+        padding: '8px 14px', backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: '8px',
+        border: '1px solid rgba(59,130,246,0.12)', fontSize: '12px', color: '#60A5FA',
+      }}>
+        <Linkedin size={13} /> Suggestion : <strong style={{ color: '#93C5FD' }}>{label}</strong>
+      </div>
+    );
   }
 
   // ── Render chip area per step ────────────────────────────────────────────
@@ -418,15 +752,41 @@ export default function Personaboarding() {
       case 1:
         if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
-            {options.roles.map(r => (
-              <Chip key={r.id} label={r.label} subtitle={`${r.skillCount} compétences`}
-                selected={role?.id === r.id} onClick={() => handleRoleSelect(r)} />
-            ))}
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            {linkedinSuggestions?.role && (
+              <SuggestionBadge label={options.roles.find(r => r.id === linkedinSuggestions.role)?.label || linkedinSuggestions.role} />
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {options.roles.map(r => (
+                <Chip key={r.id} label={r.label} subtitle={`${r.skillCount} compétences`}
+                  selected={role?.id === r.id} onClick={() => handleRoleSelect(r)}
+                  color={linkedinSuggestions?.role === r.id ? '#3B82F6' : undefined} />
+              ))}
+            </div>
           </div>
         );
 
       case 2:
+        if (aiSkillsLoading) return (
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '14px', padding: '20px',
+              backgroundColor: t.surface, borderRadius: '10px', border: `1px solid ${t.violetM}`,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                backgroundColor: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Sparkles size={16} color={t.violet} style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', color: t.tp, fontWeight: 500 }}>L'IA génère vos compétences...</div>
+                <div style={{ fontSize: '11px', color: t.tm, marginTop: '2px' }}>Analyse du profil et du rôle en cours</div>
+              </div>
+              <Loader2 size={16} color={t.violet} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
+            </div>
+          </div>
+        );
         if (skills.length === 0) return <LoadingText text="Chargement des compétences..." />;
         return (
           <div style={{ marginTop: '20px', ...fadeIn }}>
@@ -479,22 +839,34 @@ export default function Personaboarding() {
       case 3:
         if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
-            {options.commStyles.map(cs => (
-              <Chip key={cs.id} label={cs.label} subtitle={cs.description}
-                selected={commStyle?.id === cs.id} onClick={() => handleCommStyleSelect(cs)} />
-            ))}
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            {linkedinSuggestions?.commStyle && (
+              <SuggestionBadge label={options.commStyles.find(c => c.id === linkedinSuggestions.commStyle)?.label || linkedinSuggestions.commStyle} />
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {options.commStyles.map(cs => (
+                <Chip key={cs.id} label={cs.label} subtitle={cs.description}
+                  selected={commStyle?.id === cs.id} onClick={() => handleCommStyleSelect(cs)}
+                  color={linkedinSuggestions?.commStyle === cs.id ? '#3B82F6' : undefined} />
+              ))}
+            </div>
           </div>
         );
 
       case 4:
         if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '20px', ...fadeIn }}>
-            {options.methodologies.map(m => (
-              <Chip key={m.id} label={m.label} subtitle={m.description}
-                selected={methodology?.id === m.id} onClick={() => handleMethodologySelect(m)} />
-            ))}
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            {linkedinSuggestions?.methodology && (
+              <SuggestionBadge label={options.methodologies.find(m => m.id === linkedinSuggestions.methodology)?.label || linkedinSuggestions.methodology} />
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {options.methodologies.map(m => (
+                <Chip key={m.id} label={m.label} subtitle={m.description}
+                  selected={methodology?.id === m.id} onClick={() => handleMethodologySelect(m)}
+                  color={linkedinSuggestions?.methodology === m.id ? '#3B82F6' : undefined} />
+              ))}
+            </div>
           </div>
         );
 
@@ -535,11 +907,13 @@ export default function Personaboarding() {
       case 6:
         if (!options) return <LoadingText />;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px', ...fadeIn }}>
-            {options.models.map(m => (
-              <Chip key={m.id} label={m.label} subtitle={m.description}
-                selected={model?.id === m.id} onClick={() => handleModelSelect(m)} />
-            ))}
+          <div style={{ marginTop: '20px', ...fadeIn }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {options.models.map(m => (
+                <Chip key={m.id} label={m.label} subtitle={m.description}
+                  selected={model?.id === m.id} onClick={() => handleModelSelect(m)} />
+              ))}
+            </div>
           </div>
         );
 
@@ -710,22 +1084,26 @@ export default function Personaboarding() {
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px',
             padding: '4px 12px', borderRadius: '100px',
-            backgroundColor: t.violetM, border: `1px solid rgba(139,92,246,0.3)`,
-            color: t.violet, fontSize: '10px', fontWeight: 700,
+            backgroundColor: linkedinSuggestions ? 'rgba(59,130,246,0.15)' : t.violetM,
+            border: `1px solid ${linkedinSuggestions ? 'rgba(59,130,246,0.3)' : 'rgba(139,92,246,0.3)'}`,
+            color: linkedinSuggestions ? '#60A5FA' : t.violet,
+            fontSize: '10px', fontWeight: 700,
             textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px',
           }}>
-            <Sparkles size={11} /> Persona Onboarding
+            {linkedinSuggestions ? <><Linkedin size={11} /> LinkedIn Import</> : <><Sparkles size={11} /> Persona Onboarding</>}
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
             Créer votre agent personnel
           </h1>
           <p style={{ fontSize: '13px', color: t.tm, marginTop: '6px', margin: '6px 0 0' }}>
-            Chaque choix construit l'histoire et les capacités de votre agent
+            {linkedinSuggestions
+              ? 'Validez ou personnalisez chaque suggestion issue de votre profil'
+              : 'Chaque choix construit l\'histoire et les capacités de votre agent'}
           </p>
         </div>
 
         {/* Progress dots */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', opacity: sourceMode === null || (sourceMode === 'linkedin' && linkedinPhase !== 'done') ? 0.2 : 1, transition: 'opacity 0.3s' }}>
           {Array.from({ length: totalSteps }).map((_, i) => (
             <div key={i} style={{
               width: i <= step ? '22px' : '6px', height: '4px', borderRadius: '100px',
@@ -738,37 +1116,44 @@ export default function Personaboarding() {
 
         {/* Scrollable narrative area */}
         <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
-          {/* History lines */}
-          {history.map((entry, idx) => (
-            <p key={idx} style={{
-              margin: '0 0 10px', fontSize: '15px', lineHeight: '1.7',
-              color: t.ts, opacity: 0.5, fontStyle: 'italic',
-            }}>
-              {entry}
-            </p>
-          ))}
+          {sourceMode === null ? (
+            renderSourcePicker()
+          ) : sourceMode === 'linkedin' && linkedinPhase !== 'done' ? (
+            renderLinkedInFlow()
+          ) : (
+            <>
+              {/* History lines */}
+              {history.map((entry, idx) => (
+                <p key={idx} style={{
+                  margin: '0 0 10px', fontSize: '15px', lineHeight: '1.7',
+                  color: t.ts, opacity: 0.5, fontStyle: 'italic',
+                }}>
+                  {entry}
+                </p>
+              ))}
 
-          {/* Current typing line */}
-          <p style={{
-            margin: '0 0 4px', fontSize: '17px', lineHeight: '1.7',
-            color: t.tp, fontWeight: 500,
-            display: 'flex', gap: step === 8 ? '10px' : '0',
-          }}>
-            {step === 8 && (
-              <PenTool size={18} style={{ color: t.violet, marginTop: '4px', flexShrink: 0 }} />
-            )}
-            <TypewriterText
-              key={`step-${step}`}
-              text={prompts[step] || ''}
-              onComplete={() => setTyping(false)}
-            />
-          </p>
+              {/* Current typing line */}
+              <p style={{
+                margin: '0 0 4px', fontSize: '17px', lineHeight: '1.7',
+                color: t.tp, fontWeight: 500,
+                display: 'flex', gap: step === 8 ? '10px' : '0',
+              }}>
+                {step === 8 && (
+                  <PenTool size={18} style={{ color: t.violet, marginTop: '4px', flexShrink: 0 }} />
+                )}
+                <TypewriterText
+                  key={`step-${step}`}
+                  text={prompts[step] || ''}
+                  onComplete={() => setTyping(false)}
+                />
+              </p>
 
-          {/* Input area */}
-          <div style={{ minHeight: '220px', marginTop: '8px' }}>
-            {renderInput()}
-          </div>
-
+              {/* Input area */}
+              <div style={{ minHeight: '220px', marginTop: '8px' }}>
+                {renderInput()}
+              </div>
+            </>
+          )}
           <div ref={scrollRef} style={{ height: '20px' }} />
         </div>
       </div>
