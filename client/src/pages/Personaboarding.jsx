@@ -1211,8 +1211,6 @@ export default function Personaboarding() {
                 />
               </div>
             </div>
-            {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
-            <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label={`Valider ${selectedSkills.length} compétence${selectedSkills.length > 1 ? 's' : ''}`} />
           </div>
         );
 
@@ -1280,7 +1278,6 @@ export default function Personaboarding() {
                 </div>
               );
             })}
-            <ValidateButton disabled={selectedTools.length === 0} onClick={handleToolsValidate} label="Valider les outils" />
           </div>
         );
 
@@ -1309,44 +1306,29 @@ export default function Personaboarding() {
         );
 
       case 8:
+        if (!enhancing) return null;
         return (
           <div style={{ marginTop: '24px', ...fadeIn }}>
-            {enhancing ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '14px', padding: '20px',
+              backgroundColor: t.surface, borderRadius: '10px', border: `1px solid ${t.violetM}`,
+            }}>
               <div style={{
-                display: 'flex', alignItems: 'center', gap: '14px', padding: '20px',
-                backgroundColor: t.surface, borderRadius: '10px', border: `1px solid ${t.violetM}`,
+                width: 36, height: 36, borderRadius: '50%',
+                backgroundColor: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: '50%',
-                  backgroundColor: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <PenTool size={16} color={t.violet} style={{ animation: 'quillWrite 1s ease-in-out infinite' }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '13px', color: t.tp, fontWeight: 500 }}>
-                    L'IA compose votre agent...
-                  </div>
-                  <div style={{ fontSize: '11px', color: t.tm, marginTop: '4px' }}>
-                    Optimisation de la matrice comportementale
-                  </div>
-                </div>
-                <Loader2 size={16} color={t.violet} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
+                <PenTool size={16} color={t.violet} style={{ animation: 'quillWrite 1s ease-in-out infinite' }} />
               </div>
-            ) : (
-              <button
-                onClick={handleAiEnhance}
-                style={{
-                  backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
-                  padding: '14px 32px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '10px', fontFamily: t.font,
-                  boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
-                }}
-                onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'}
-                onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                <Sparkles size={16} /> Lancer l'amélioration IA
-              </button>
-            )}
+              <div>
+                <div style={{ fontSize: '13px', color: t.tp, fontWeight: 500 }}>
+                  L'IA compose votre agent...
+                </div>
+                <div style={{ fontSize: '11px', color: t.tm, marginTop: '4px' }}>
+                  Optimisation de la matrice comportementale
+                </div>
+              </div>
+              <Loader2 size={16} color={t.violet} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
+            </div>
           </div>
         );
 
@@ -1399,52 +1381,102 @@ export default function Personaboarding() {
                     />
                   </div>
                 )}
-                {constellationReady && (
-                  <button
-                    onClick={() => navigate(`/agents/${createdAgent?.name || displayName.toLowerCase().replace(/\s+/g, '-')}`)}
-                    style={{
-                      backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
-                      padding: '12px 28px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: '8px', fontFamily: t.font,
-                      boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
-                      animation: 'fadeInUp 0.5s ease',
-                    }}
-                    onMouseOver={e => e.currentTarget.style.transform = 'scale(1.03)'}
-                    onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
-                  >
-                    <Sparkles size={15} /> Découvrir {displayName}
-                  </button>
-                )}
               </div>
-            ) : (
-              <>
-                <button
-                  onClick={handleCreate}
-                  disabled={submitting}
-                  style={{
-                    backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
-                    padding: '14px 36px', fontSize: '15px', fontWeight: 600,
-                    cursor: submitting ? 'wait' : 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    fontFamily: t.font, boxShadow: `0 0 30px ${t.violetG}`,
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseOver={e => { if (!submitting) e.currentTarget.style.transform = 'scale(1.03)'; }}
-                  onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
-                >
-                  {submitting ? (
-                    <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Création en cours...</>
-                  ) : (
-                    <><Sparkles size={18} /> Créer {displayName}</>
-                  )}
-                </button>
-                {error && <span style={{ fontSize: '12px', color: t.danger }}>{error}</span>}
-              </>
-            )}
+            ) : null}
           </div>
         );
 
       default: return null;
+    }
+  }
+
+  // ── Action footer (always visible at bottom) ────────────────────────────
+  function renderActionFooter() {
+    if (typing) return null;
+    if (sourceMode === null || sourceMode === 'oauth-headline' || (sourceMode === 'linkedin' && linkedinPhase !== 'done')) return null;
+
+    switch (step) {
+      case 2:
+        if (aiSkillsLoading || skills.length === 0) return null;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
+            <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label={`Valider ${selectedSkills.length} compétence${selectedSkills.length > 1 ? 's' : ''}`} />
+          </div>
+        );
+
+      case 5:
+        if (!options) return null;
+        return (
+          <ValidateButton disabled={selectedTools.length === 0} onClick={handleToolsValidate} label="Valider les outils" />
+        );
+
+      case 8:
+        if (enhancing) return null;
+        return (
+          <button
+            onClick={handleAiEnhance}
+            style={{
+              backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
+              padding: '14px 32px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '10px', fontFamily: t.font,
+              boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
+            }}
+            onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'}
+            onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            <Sparkles size={16} /> Lancer l'amélioration IA
+          </button>
+        );
+
+      case 9:
+        if (success) {
+          if (!constellationReady) return null;
+          return (
+            <button
+              onClick={() => navigate(`/agents/${createdAgent?.name || displayName.toLowerCase().replace(/\s+/g, '-')}`)}
+              style={{
+                backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
+                padding: '12px 28px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '8px', fontFamily: t.font,
+                boxShadow: `0 0 24px ${t.violetG}`, transition: 'all 0.2s',
+                animation: 'fadeInUp 0.5s ease',
+              }}
+              onMouseOver={e => e.currentTarget.style.transform = 'scale(1.03)'}
+              onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              <Sparkles size={15} /> Découvrir {displayName}
+            </button>
+          );
+        }
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleCreate}
+              disabled={submitting}
+              style={{
+                backgroundColor: t.violet, color: '#fff', border: 'none', borderRadius: '10px',
+                padding: '14px 36px', fontSize: '15px', fontWeight: 600,
+                cursor: submitting ? 'wait' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: '10px',
+                fontFamily: t.font, boxShadow: `0 0 30px ${t.violetG}`,
+                transition: 'all 0.2s',
+              }}
+              onMouseOver={e => { if (!submitting) e.currentTarget.style.transform = 'scale(1.03)'; }}
+              onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              {submitting ? (
+                <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Création en cours...</>
+              ) : (
+                <><Sparkles size={18} /> Créer {displayName}</>
+              )}
+            </button>
+            {error && <span style={{ fontSize: '12px', color: t.danger }}>{error}</span>}
+          </div>
+        );
+
+      default:
+        return null;
     }
   }
 
@@ -1659,6 +1691,21 @@ export default function Personaboarding() {
             )}
             <div ref={scrollRef} style={{ height: '20px' }} />
           </div>
+
+          {/* Action footer — always visible at bottom */}
+          {(() => {
+            const footer = renderActionFooter();
+            if (!footer) return null;
+            return (
+              <div style={{
+                flexShrink: 0,
+                padding: '16px 0',
+                borderTop: `1px solid ${t.border}`,
+              }}>
+                {footer}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
