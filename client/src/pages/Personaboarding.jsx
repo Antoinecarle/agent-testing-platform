@@ -1388,16 +1388,9 @@ export default function Personaboarding() {
                 {/* Inline Final Constellation */}
                 {createdSkills.length > 0 && (
                   <div style={{
-                    width: '100%', maxWidth: '460px', minHeight: '360px', marginTop: '8px',
-                    borderRadius: '12px', border: `1px solid ${t.border}`,
-                    backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
-                    marginLeft: 'auto', marginRight: 'auto',
+                    width: '100%', marginTop: '8px',
+                    position: 'relative', overflow: 'hidden',
                   }}>
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
-                      backgroundSize: '24px 24px', opacity: 0.4, pointerEvents: 'none',
-                    }} />
                     <SkillConstellation
                       agentName={displayName}
                       roleLabel={role?.label || ''}
@@ -1907,7 +1900,10 @@ function SkillConstellation({ agentName, roleLabel, skills = [], onComplete }) {
   const SIZE = 420;
   const CX = SIZE / 2;
   const CY = SIZE / 2;
-  const ORBIT = 150;
+  const ORBIT = 120;
+  const VB_PAD_X = 160;
+  const VB_PAD_Y = 20;
+  const VB = `${-VB_PAD_X} ${-VB_PAD_Y} ${SIZE + VB_PAD_X * 2} ${SIZE + VB_PAD_Y * 2}`;
   const cbRef = useRef(onComplete);
   cbRef.current = onComplete;
 
@@ -1932,8 +1928,8 @@ function SkillConstellation({ agentName, roleLabel, skills = [], onComplete }) {
   });
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '70%', height: '70%', overflow: 'visible' }}>
+    <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg viewBox={VB} style={{ width: '100%', overflow: 'hidden' }}>
         <defs>
           <filter id="conGlow">
             <feGaussianBlur stdDeviation="6" result="b" />
