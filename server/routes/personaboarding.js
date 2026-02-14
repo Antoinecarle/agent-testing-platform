@@ -178,6 +178,99 @@ Return ONLY valid JSON:
   }
 }
 
+// ── Fetch LinkedIn page with multiple strategies ────────────────────────────
+async function fetchLinkedInPage(url, username) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
+  };
+
+  // Strategy 1: Direct fetch with Googlebot UA (LinkedIn sometimes allows it)
+  const strategies = [
+    { name: 'googlebot', url, headers },
+    { name: 'linkedin-voyager', url, headers: { ...headers, 'User-Agent': 'LinkedInBot/1.0 (compatible; Mozilla/5.0; +https://www.linkedin.com)' } },
+    { name: 'google-cache', url: `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`, headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } },
+  ];
+
+  for (const strat of strategies) {
+    try {
+      console.log(`[Personaboarding] Trying ${strat.name} for ${username}...`);
+      const response = await fetch(strat.url, {
+        headers: strat.headers,
+        signal: AbortSignal.timeout(10000),
+        redirect: 'follow',
+      });
+      if (response.ok || response.status === 200) {
+        const html = await response.text();
+        // Check if we got real content (not auth wall)
+        if (html.length > 5000 && !html.includes('authwall') && !html.includes('Join LinkedIn')) {
+          console.log(`[Personaboarding] ${strat.name} succeeded (${html.length} bytes)`);
+          return html;
+        }
+        // Even auth wall HTML might contain og:image in meta tags
+        const ogImg = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
+        if (ogImg) {
+          console.log(`[Personaboarding] ${strat.name} got og:image from partial HTML`);
+          return html;
+        }
+      }
+    } catch (err) {
+      console.warn(`[Personaboarding] ${strat.name} failed:`, err.message);
+    }
+  }
+
+  return null;
+}
+
+// ── Generate profile pic with Gemini if LinkedIn fails ──────────────────────
+async function generateProfilePicWithGemini(displayName, role) {
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const prompt = `Professional headshot portrait photo of a person named ${displayName} who works as a ${role || 'professional'}. Clean background, professional lighting, realistic, high quality portrait. LinkedIn-style professional photo.`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.warn(`[Personaboarding] Gemini image API error: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!imagePart) return null;
+
+    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
+    const mimeType = imagePart.inlineData.mimeType || 'image/png';
+    const ext = mimeType.includes('png') ? '.png' : '.jpg';
+    const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
+    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+    const filename = `gemini-profile-${slugify(displayName)}-${Date.now()}${ext}`;
+    const fsPromises = require('fs').promises;
+    await fsPromises.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
+    const profileUrl = `/uploads/agent-creator/${filename}`;
+    console.log(`[Personaboarding] Generated profile pic with Gemini: ${profileUrl} (${imageBuffer.length} bytes)`);
+    return profileUrl;
+  } catch (err) {
+    console.warn(`[Personaboarding] Gemini profile pic generation failed:`, err.message);
+    return null;
+  }
+}
+
 // POST /api/personaboarding/linkedin-analyze
 router.post('/linkedin-analyze', async (req, res) => {
   try {
@@ -191,32 +284,20 @@ router.post('/linkedin-analyze', async (req, res) => {
     let pageData = { username };
     let ogImage = null;
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-        },
-        signal: AbortSignal.timeout(10000),
-        redirect: 'follow',
-      });
-      if (response.ok) {
-        const html = await response.text();
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
-        const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
-        const ogDescMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i);
-        const ogImageMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
-        pageData.title = ogTitleMatch?.[1] || titleMatch?.[1] || '';
-        pageData.description = ogDescMatch?.[1] || descMatch?.[1] || '';
-        ogImage = ogImageMatch?.[1] || null;
-      }
-    } catch (fetchErr) {
-      console.warn('[Personaboarding] LinkedIn fetch warning:', fetchErr.message);
+    // Try multiple strategies to fetch LinkedIn page
+    const html = await fetchLinkedInPage(url, username);
+    if (html) {
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
+      const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+      const ogDescMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i);
+      const ogImageMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
+      pageData.title = ogTitleMatch?.[1] || titleMatch?.[1] || '';
+      pageData.description = ogDescMatch?.[1] || descMatch?.[1] || '';
+      ogImage = ogImageMatch?.[1] || null;
     }
 
-    // Download og:image (LinkedIn profile pic) if found
+    // Download og:image if found
     let profileImageUrl = null;
     if (ogImage) {
       try {
@@ -242,7 +323,18 @@ router.post('/linkedin-analyze', async (req, res) => {
       }
     }
 
+    // Analyze with GPT first (to get displayName/role for Gemini fallback)
     const suggestions = await analyzeLinkedInWithGPT(pageData, url);
+
+    // If no profile pic from LinkedIn, generate one with Gemini
+    if (!profileImageUrl && suggestions.displayName) {
+      console.log(`[Personaboarding] No LinkedIn og:image found, generating with Gemini...`);
+      profileImageUrl = await generateProfilePicWithGemini(
+        suggestions.displayName,
+        suggestions.role?.replace(/-/g, ' ') || ''
+      );
+    }
+
     if (profileImageUrl) {
       suggestions.profileImageUrl = profileImageUrl;
     }
