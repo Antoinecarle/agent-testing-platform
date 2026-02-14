@@ -23,11 +23,6 @@ const KEYFRAMES = `
 @keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
 @keyframes pulse { 0%,100% { transform:scale(1); opacity:0.3; } 50% { transform:scale(1.25); opacity:0.6; } }
 @keyframes cursorBlink { 0%,100% { opacity:1; } 50% { opacity:0; } }
-@keyframes nodeGlow { 0%,100% { filter:drop-shadow(0 0 6px rgba(139,92,246,0.4)); } 50% { filter:drop-shadow(0 0 14px rgba(139,92,246,0.8)); } }
-@keyframes drawPath {
-  from { stroke-dashoffset: var(--path-len); }
-  to { stroke-dashoffset: 0; }
-}
 @keyframes quillWrite {
   0% { transform:translateX(0) rotate(0deg); }
   25% { transform:translateX(3px) rotate(-3deg); }
@@ -57,6 +52,22 @@ const KEYFRAMES = `
   0% { opacity:0; r:1; }
   15% { opacity:0.5; }
   100% { opacity:0; r:0; transform:translate(var(--dx),var(--dy)); }
+}
+@keyframes phaseReveal {
+  0% { opacity:0; transform:translateY(20px) scale(0.97); filter:blur(6px); }
+  100% { opacity:1; transform:translateY(0) scale(1); filter:blur(0); }
+}
+@keyframes phasePulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(139,92,246,0.3); }
+  50% { box-shadow:0 0 0 8px rgba(139,92,246,0); }
+}
+@keyframes phaseLineGrow {
+  from { transform:scaleY(0); }
+  to { transform:scaleY(1); }
+}
+@keyframes bookGlow {
+  0%,100% { box-shadow:0 0 40px rgba(139,92,246,0.03), 0 0 80px rgba(139,92,246,0.02); }
+  50% { box-shadow:0 0 60px rgba(139,92,246,0.06), 0 0 120px rgba(139,92,246,0.03); }
 }
 `;
 
@@ -1240,6 +1251,7 @@ export default function Personaboarding() {
   // ── Render ──────────────────────────────────────────────────────────────
   const totalSteps = STEP_META.length;
   const nodeValues = getNodeValues();
+  const showPhases = sourceMode !== null && !(sourceMode === 'linkedin' && linkedinPhase !== 'done');
 
   return (
     <div style={{
@@ -1248,141 +1260,191 @@ export default function Personaboarding() {
     }}>
       <style>{KEYFRAMES}</style>
 
-      {/* ── LEFT: Narrative Book ─────────────────────────────────────────── */}
-      <div style={{
-        flex: '0 0 55%', display: 'flex', flexDirection: 'column',
-        borderRight: `1px solid ${t.border}`, padding: '36px 40px',
-        overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            padding: '4px 12px', borderRadius: '100px',
-            backgroundColor: linkedinSuggestions ? 'rgba(59,130,246,0.15)' : t.violetM,
-            border: `1px solid ${linkedinSuggestions ? 'rgba(59,130,246,0.3)' : 'rgba(139,92,246,0.3)'}`,
-            color: linkedinSuggestions ? '#60A5FA' : t.violet,
-            fontSize: '10px', fontWeight: 700,
-            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px',
-          }}>
-            {linkedinSuggestions ? <><Linkedin size={11} /> LinkedIn Import</> : <><Sparkles size={11} /> Persona Onboarding</>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            {linkedinSuggestions?.profileImageUrl && sourceMode === 'linkedin-done' && (
-              <img
-                src={linkedinSuggestions.profileImageUrl}
-                alt=""
-                style={{
-                  width: '48px', height: '48px', borderRadius: '50%',
-                  objectFit: 'cover', border: `2px solid ${t.violet}40`,
-                  boxShadow: `0 4px 16px ${t.violetG}`, flexShrink: 0,
-                }}
-              />
-            )}
-            <div>
-              <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
-                Créer votre agent personnel
-              </h1>
-              <p style={{ fontSize: '13px', color: t.tm, marginTop: '6px', margin: '6px 0 0' }}>
-                {linkedinSuggestions
-                  ? 'Validez ou personnalisez chaque suggestion issue de votre profil'
-                  : 'Chaque choix construit l\'histoire et les capacités de votre agent'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Progress dots */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', opacity: sourceMode === null || (sourceMode === 'linkedin' && linkedinPhase !== 'done') ? 0.2 : 1, transition: 'opacity 0.3s' }}>
-          {Array.from({ length: totalSteps }).map((_, i) => (
-            <div key={i} style={{
-              width: i <= step ? '22px' : '6px', height: '4px', borderRadius: '100px',
-              backgroundColor: i < step ? t.violet : i === step ? t.violet : t.surfaceEl,
-              opacity: i < step ? 0.5 : i === step ? 1 : 0.25,
-              transition: 'all 0.4s ease',
-            }} />
-          ))}
-        </div>
-
-        {/* Scrollable narrative area */}
-        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
-          {sourceMode === null ? (
-            renderSourcePicker()
-          ) : sourceMode === 'linkedin' && linkedinPhase !== 'done' ? (
-            renderLinkedInFlow()
-          ) : (
-            <>
-              {/* History lines */}
-              {history.map((entry, idx) => (
-                <p key={idx} style={{
-                  margin: '0 0 10px', fontSize: '15px', lineHeight: '1.7',
-                  color: t.ts, opacity: 0.5, fontStyle: 'italic',
-                }}>
-                  {entry}
-                </p>
-              ))}
-
-              {/* Current typing line */}
-              <p style={{
-                margin: '0 0 4px', fontSize: '17px', lineHeight: '1.7',
-                color: t.tp, fontWeight: 500,
-                display: 'flex', gap: step === 8 ? '10px' : '0',
-              }}>
-                {step === 8 && (
-                  <PenTool size={18} style={{ color: t.violet, marginTop: '4px', flexShrink: 0 }} />
+      {/* ── LEFT: Phase Timeline Sidebar ──────────────────────────────────── */}
+      {showPhases && (
+        <div style={{
+          flex: '0 0 56px', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          paddingTop: '16px', paddingBottom: '16px',
+          borderRight: `1px solid ${t.border}`,
+          background: `linear-gradient(180deg, ${t.surface} 0%, ${t.bg} 100%)`,
+          overflowY: 'auto', overflowX: 'hidden',
+          scrollbarWidth: 'none',
+        }}>
+          {STEP_META.map((meta, i) => {
+            const isActive = step === i;
+            const isComplete = step > i;
+            const isFuture = step < i;
+            const IconComp = meta.Icon;
+            const val = nodeValues[i];
+            return (
+              <React.Fragment key={meta.id}>
+                {/* Connector line */}
+                {i > 0 && (
+                  <div style={{
+                    width: '2px', height: '12px', flexShrink: 0,
+                    background: isComplete ? `linear-gradient(180deg, ${t.violet}, ${t.violet}80)` : t.border,
+                    borderRadius: '1px',
+                    transformOrigin: 'top',
+                    animation: isComplete ? 'phaseLineGrow 0.4s ease-out forwards' : 'none',
+                  }} />
                 )}
-                <TypewriterText
-                  key={`step-${step}`}
-                  text={prompts[step] || ''}
-                  onComplete={() => setTyping(false)}
-                />
-              </p>
-
-              {/* Input area */}
-              <div style={{ minHeight: '220px', marginTop: '8px' }}>
-                {renderInput()}
-              </div>
-            </>
-          )}
-          <div ref={scrollRef} style={{ height: '20px' }} />
+                {/* Phase icon node */}
+                <div
+                  title={`${meta.label}${val ? ` — ${val}` : ''}`}
+                  style={{
+                    width: isActive ? '34px' : '30px', height: isActive ? '34px' : '30px',
+                    borderRadius: '50%', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    position: 'relative', cursor: 'default',
+                    background: isComplete ? t.violet : isActive ? t.surfaceEl : t.surface,
+                    border: `2px solid ${isComplete ? t.violet : isActive ? t.violet : t.border}`,
+                    transition: 'all 0.4s cubic-bezier(0.34,1.56,0.64,1)',
+                    animation: isActive ? 'phasePulse 2s ease-in-out infinite' : 'none',
+                    boxShadow: isActive ? `0 0 16px ${t.violetG}` : isComplete ? `0 0 8px rgba(139,92,246,0.15)` : 'none',
+                  }}
+                >
+                  {isComplete ? (
+                    <Check size={14} color="#fff" strokeWidth={3} />
+                  ) : (
+                    <IconComp size={14} color={isActive ? t.violet : isFuture ? t.tm : t.ts} />
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          })}
         </div>
-      </div>
+      )}
 
-      {/* ── RIGHT: Flow Graph ────────────────────────────────────────────── */}
+      {/* ── CENTER: The Book ──────────────────────────────────────────────── */}
       <div style={{
-        flex: '0 0 45%', background: '#0a0a0a', position: 'relative',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden',
+        flex: 1, display: 'flex', flexDirection: 'column',
+        overflow: 'hidden', position: 'relative',
       }}>
-        {/* Dot grid background */}
+        {/* Subtle ambient background */}
         <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
-          backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+          background: `radial-gradient(ellipse 60% 50% at 50% 30%, rgba(139,92,246,0.04) 0%, transparent 70%)`,
         }} />
 
-        {/* Ambient violet glow */}
+        {/* Book content */}
         <div style={{
-          position: 'absolute', top: '30%', left: '30%',
-          width: '200px', height: '200px', borderRadius: '50%',
-          background: `radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)`,
-          pointerEvents: 'none', filter: 'blur(40px)',
-        }} />
+          flex: 1, display: 'flex', flexDirection: 'column',
+          maxWidth: '720px', width: '100%', margin: '0 auto',
+          padding: '0 48px', position: 'relative', zIndex: 1,
+          animation: 'bookGlow 6s ease-in-out infinite',
+        }}>
+          {/* Header - fixed (non-scrollable) */}
+          <div style={{ flexShrink: 0, paddingTop: '28px', paddingBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                padding: '4px 12px', borderRadius: '100px',
+                backgroundColor: linkedinSuggestions ? 'rgba(59,130,246,0.15)' : t.violetM,
+                border: `1px solid ${linkedinSuggestions ? 'rgba(59,130,246,0.3)' : 'rgba(139,92,246,0.3)'}`,
+                color: linkedinSuggestions ? '#60A5FA' : t.violet,
+                fontSize: '10px', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.06em',
+              }}>
+                {linkedinSuggestions ? <><Linkedin size={11} /> LinkedIn Import</> : <><Sparkles size={11} /> Persona Onboarding</>}
+              </div>
+              {linkedinSuggestions?.profileImageUrl && sourceMode === 'linkedin-done' && (
+                <img
+                  src={linkedinSuggestions.profileImageUrl}
+                  alt=""
+                  style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    objectFit: 'cover', border: `2px solid ${t.violet}40`,
+                    boxShadow: `0 4px 16px ${t.violetG}`, flexShrink: 0,
+                  }}
+                />
+              )}
+              <div style={{ flex: 1 }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
+                  Créer votre agent personnel
+                </h1>
+              </div>
+            </div>
 
-        {/* Flow Graph — always visible */}
-        <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <FlowGraphWithValues currentStep={step} nodeValues={nodeValues} />
-        </div>
-
-        {/* Step counter */}
-        {!success && (
-          <div style={{
-            position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-            fontSize: '11px', color: t.tm, fontFamily: t.mono,
-          }}>
-            {step + 1} / {totalSteps}
+            {/* Progress bar */}
+            {showPhases && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+              }}>
+                <div style={{
+                  flex: 1, height: '3px', borderRadius: '100px', backgroundColor: t.surfaceEl,
+                  overflow: 'hidden', position: 'relative',
+                }}>
+                  <div style={{
+                    position: 'absolute', left: 0, top: 0, height: '100%',
+                    width: `${((step) / (totalSteps - 1)) * 100}%`,
+                    background: `linear-gradient(90deg, ${t.violet}, #A78BFA)`,
+                    borderRadius: '100px',
+                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: '10px', color: t.violet, fontWeight: 600, flexShrink: 0,
+                }}>
+                  {STEP_META[step]?.label}
+                </span>
+                <span style={{
+                  fontSize: '10px', color: t.tm, fontFamily: t.mono, flexShrink: 0,
+                }}>
+                  {step + 1}/{totalSteps}
+                </span>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Scrollable narrative area */}
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+            {sourceMode === null ? (
+              renderSourcePicker()
+            ) : sourceMode === 'linkedin' && linkedinPhase !== 'done' ? (
+              renderLinkedInFlow()
+            ) : (
+              <>
+                {/* History lines */}
+                {history.map((entry, idx) => (
+                  <p key={idx} style={{
+                    margin: '0 0 10px', fontSize: '15px', lineHeight: '1.7',
+                    color: t.ts, opacity: 0.5, fontStyle: 'italic',
+                  }}>
+                    {entry}
+                  </p>
+                ))}
+
+                {/* Current phase content with reveal animation */}
+                <div key={`phase-${step}`} style={{
+                  animation: 'phaseReveal 0.5s ease-out forwards',
+                }}>
+                  {/* Current typing line */}
+                  <p style={{
+                    margin: '0 0 4px', fontSize: '17px', lineHeight: '1.7',
+                    color: t.tp, fontWeight: 500,
+                    display: 'flex', gap: step === 8 ? '10px' : '0',
+                  }}>
+                    {step === 8 && (
+                      <PenTool size={18} style={{ color: t.violet, marginTop: '4px', flexShrink: 0 }} />
+                    )}
+                    <TypewriterText
+                      key={`step-${step}`}
+                      text={prompts[step] || ''}
+                      onComplete={() => setTyping(false)}
+                    />
+                  </p>
+
+                  {/* Input area */}
+                  <div style={{ minHeight: '220px', marginTop: '8px' }}>
+                    {renderInput()}
+                  </div>
+                </div>
+              </>
+            )}
+            <div ref={scrollRef} style={{ height: '20px' }} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1435,94 +1497,6 @@ function ValidateButton({ disabled, onClick, label }) {
   );
 }
 
-// ── Flow Graph with node values ─────────────────────────────────────────
-function FlowGraphWithValues({ currentStep, nodeValues }) {
-  const nodeSpacing = 64;
-  const cx = 90;
-  const startY = 40;
-  const svgH = startY + (STEP_META.length - 1) * nodeSpacing + 40;
-  const nodes = STEP_META.map((s, i) => ({ ...s, x: cx, y: startY + i * nodeSpacing }));
-
-  return (
-    <svg width="230" height={svgH} style={{ overflow: 'visible' }}>
-      <defs>
-        <linearGradient id="pathGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={t.violet} />
-          <stop offset="100%" stopColor="#6D28D9" />
-        </linearGradient>
-      </defs>
-
-      {/* Bezier paths */}
-      {nodes.map((node, i) => {
-        if (i >= nodes.length - 1) return null;
-        const next = nodes[i + 1];
-        const midY = (node.y + next.y) / 2;
-        const d = `M ${node.x} ${node.y + 18} C ${node.x} ${midY}, ${next.x} ${midY}, ${next.x} ${next.y - 18}`;
-        const isComplete = currentStep > i;
-        return (
-          <g key={`p-${i}`}>
-            <path d={d} fill="none" stroke={t.border} strokeWidth="1.5" />
-            {isComplete && (
-              <path
-                d={d} fill="none" stroke="url(#pathGrad)" strokeWidth="2"
-                strokeDasharray="120"
-                style={{ '--path-len': 120, animation: 'drawPath 0.8s ease-out forwards' }}
-              />
-            )}
-          </g>
-        );
-      })}
-
-      {/* Nodes */}
-      {nodes.map((node, i) => {
-        const isActive = currentStep === i;
-        const isComplete = currentStep > i;
-        const IconComp = node.Icon;
-        const val = nodeValues[i];
-        return (
-          <g key={node.id}>
-            {isActive && (
-              <circle cx={node.x} cy={node.y} r="22" fill="none"
-                stroke={t.violet} strokeWidth="1" opacity="0.4"
-                style={{ transformOrigin: `${node.x}px ${node.y}px`, animation: 'pulse 2s ease-in-out infinite' }}
-              />
-            )}
-            <circle
-              cx={node.x} cy={node.y} r="18"
-              fill={isComplete ? t.violet : isActive ? t.surfaceEl : t.surface}
-              stroke={isComplete || isActive ? t.violet : t.border}
-              strokeWidth={isActive ? 2 : 1.5}
-              style={isComplete ? { animation: 'nodeGlow 3s ease-in-out infinite' } : {}}
-            />
-            <foreignObject x={node.x - 9} y={node.y - 9} width="18" height="18">
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: isComplete ? '#fff' : isActive ? t.violet : t.tm,
-                width: '100%', height: '100%',
-              }}>
-                <IconComp size={13} />
-              </div>
-            </foreignObject>
-            <text x={node.x + 30} y={node.y + 4} style={{
-              fontSize: '11px', fontWeight: isActive ? 600 : 400,
-              fill: isActive ? t.tp : isComplete ? t.ts : t.tm,
-              fontFamily: t.font,
-            }}>
-              {node.label}
-            </text>
-            {isComplete && val && (
-              <text x={node.x + 30} y={node.y + 16} style={{
-                fontSize: '9px', fill: t.violet, fontFamily: t.mono, opacity: 0.7,
-              }}>
-                {val.length > 20 ? val.slice(0, 20) + '…' : val}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
 
 // ── Interactive Constellation (Step 2 — skill selection) ────────────────
 function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills, customSkills, onToggleSkill, onAddCustomSkill, onRemoveCustomSkill }) {
