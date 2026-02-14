@@ -219,6 +219,22 @@ export default function AgentDetail() {
   const [deployLoading, setDeployLoading] = useState(false);
   const [deployApiKey, setDeployApiKey] = useState(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [copiedField, setCopiedField] = useState(null);
+  const [savedApiKey, setSavedApiKey] = useState(null);
+
+  // Load saved API key from localStorage
+  useEffect(() => {
+    try {
+      const key = localStorage.getItem(`mcp_key_${name}`);
+      if (key) setSavedApiKey(key);
+    } catch (_) {}
+  }, [name]);
+
+  const copyToClipboard = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -343,7 +359,9 @@ export default function AgentDetail() {
       });
       setDeployment(result.deployment);
       setDeployApiKey(result.apiKey);
+      setSavedApiKey(result.apiKey);
       setShowApiKey(true);
+      try { localStorage.setItem(`mcp_key_${name}`, result.apiKey); } catch (_) {}
     } catch (err) {
       alert(err.message || 'Deploy failed');
     } finally {
@@ -985,6 +1003,7 @@ export default function AgentDetail() {
                 </button>
               </div>
             ) : (
+              <>
               <div style={{
                 background: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
                 overflow: 'hidden',
@@ -1123,6 +1142,106 @@ export default function AgentDetail() {
                   </button>
                 </div>
               </div>
+
+              {/* Test in your LLM - Copyable prompts */}
+              {(() => {
+                const apiKey = savedApiKey || deployApiKey || 'YOUR_API_KEY';
+                const baseUrl = window.location.origin;
+                const endpoint = `${baseUrl}/mcp/${deployment.slug}/api/chat`;
+                const agentDisplayName = agent.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                const curlCmd = `curl -X POST ${endpoint} \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"messages":[{"role":"user","content":"Hello!"}]}'`;
+
+                const claudePrompt = `You have access to an AI agent "${agentDisplayName}" via HTTP API.
+
+Endpoint: ${endpoint}
+API Key: ${apiKey}
+
+To interact with this agent, make HTTP POST requests:
+
+curl -X POST ${endpoint} \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"messages":[{"role":"user","content":"YOUR_MESSAGE"}]}'
+
+The response will contain the agent's reply in: response.choices[0].message.content
+
+Use this agent when you need help with: ${agent.description || 'specialized tasks'}.`;
+
+                const gptPrompt = `You are connected to an external AI agent "${agentDisplayName}".
+
+To call this agent, use the following HTTP API:
+- Method: POST
+- URL: ${endpoint}
+- Headers: Authorization: Bearer ${apiKey}, Content-Type: application/json
+- Body: {"messages":[{"role":"user","content":"YOUR_MESSAGE"}]}
+
+The agent responds with: {"choices":[{"message":{"content":"RESPONSE"}}]}
+
+Agent description: ${agent.description || 'Specialized AI agent'}.
+Use this agent to delegate tasks matching its expertise.`;
+
+                const CopyBlock = ({ label, value, fieldKey }) => (
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '10px', color: t.tm, fontWeight: '600', textTransform: 'uppercase' }}>{label}</span>
+                      <button
+                        onClick={() => copyToClipboard(value, fieldKey)}
+                        style={{
+                          background: copiedField === fieldKey ? 'rgba(34,197,94,0.15)' : t.surfaceEl,
+                          border: `1px solid ${copiedField === fieldKey ? 'rgba(34,197,94,0.3)' : t.border}`,
+                          color: copiedField === fieldKey ? t.success : t.ts,
+                          padding: '3px 8px', fontSize: '9px', fontWeight: '600', borderRadius: '4px',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <Copy size={9} />{copiedField === fieldKey ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <div
+                      onClick={() => copyToClipboard(value, fieldKey)}
+                      style={{
+                        fontFamily: t.mono, fontSize: '10px', color: t.ts,
+                        background: 'rgba(0,0,0,0.3)', padding: '8px 10px', borderRadius: '6px',
+                        whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: '1.5',
+                        cursor: 'pointer', border: `1px solid ${t.border}`,
+                        maxHeight: '120px', overflowY: 'auto',
+                        transition: 'border-color 0.2s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = t.violet}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+                    >
+                      {value}
+                    </div>
+                  </div>
+                );
+
+                return (
+                  <div style={{
+                    marginTop: '12px', background: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                    }}>
+                      <Zap size={12} style={{ color: t.violet }} />
+                      <span style={{ fontSize: '11px', fontWeight: '600' }}>Test in your LLM</span>
+                    </div>
+                    <div style={{ padding: '12px 14px' }}>
+                      <CopyBlock label="API Token" value={apiKey} fieldKey="token" />
+                      <CopyBlock label="Curl Command" value={curlCmd} fieldKey="curl" />
+                      <CopyBlock label="Prompt for Claude" value={claudePrompt} fieldKey="claude" />
+                      <CopyBlock label="Prompt for ChatGPT" value={gptPrompt} fieldKey="gpt" />
+                    </div>
+                  </div>
+                );
+              })()}
+              </>
             )}
           </div>
 
