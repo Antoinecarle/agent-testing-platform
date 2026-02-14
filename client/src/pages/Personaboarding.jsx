@@ -203,7 +203,7 @@ export default function Personaboarding() {
   const [customRoleInput, setCustomRoleInput] = useState('');
 
   // LinkedIn / Source mode
-  const [sourceMode, setSourceMode] = useState(null); // null | 'linkedin' | 'manual'
+  const [sourceMode, setSourceMode] = useState(null); // null | 'linkedin' | 'manual' | 'linkedin-done' | 'oauth-headline'
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [linkedinLoading, setLinkedinLoading] = useState(false);
   const [linkedinSuggestions, setLinkedinSuggestions] = useState(null);
@@ -211,6 +211,8 @@ export default function Personaboarding() {
   const [aiSkillsLoading, setAiSkillsLoading] = useState(false);
   const [profilePicUploading, setProfilePicUploading] = useState(false);
   const profilePicInputRef = useRef(null);
+  const [oauthProfile, setOauthProfile] = useState(null); // stores raw OAuth data
+  const [oauthHeadline, setOauthHeadline] = useState('');
 
   // Narrative history
   const [history, setHistory] = useState([]);
@@ -239,24 +241,14 @@ export default function Personaboarding() {
       } else if (linkedinDataParam) {
         try {
           const profile = JSON.parse(decodeURIComponent(linkedinDataParam));
-          // Clean URL
           window.history.replaceState({}, '', '/personaboarding');
-          // Analyze OAuth profile data with GPT
-          setSourceMode('linkedin');
-          setLinkedinPhase('analyzing');
-          setLinkedinLoading(true);
-          const res = await api('/api/personaboarding/linkedin/analyze-oauth', {
-            method: 'POST',
-            body: JSON.stringify(profile),
-          });
-          setLinkedinSuggestions(res.suggestions);
-          if (res.suggestions?.displayName) setDisplayName(res.suggestions.displayName);
-          setLinkedinPhase('results');
-          setLinkedinLoading(false);
+          // Store OAuth profile and show headline input step
+          setOauthProfile(profile);
+          setSourceMode('oauth-headline');
+          if (profile.given_name) setDisplayName(profile.given_name);
         } catch (err) {
           console.error('LinkedIn OAuth data processing failed:', err);
           setError("Erreur lors du traitement des données LinkedIn");
-          setLinkedinLoading(false);
           window.history.replaceState({}, '', '/personaboarding');
         }
       }
@@ -272,6 +264,28 @@ export default function Personaboarding() {
   useEffect(() => {
     if (step === 0 && !typing) setTimeout(() => inputRef.current?.focus(), 100);
   }, [step, typing]);
+
+  // ── LinkedIn OAuth: analyze with headline ─────────────────────────────
+  async function handleOAuthAnalyze() {
+    if (!oauthProfile) return;
+    setLinkedinLoading(true);
+    setSourceMode('linkedin');
+    setLinkedinPhase('analyzing');
+    setError(null);
+    try {
+      const res = await api('/api/personaboarding/linkedin/analyze-oauth', {
+        method: 'POST',
+        body: JSON.stringify({ ...oauthProfile, headline: oauthHeadline.trim() || undefined }),
+      });
+      setLinkedinSuggestions(res.suggestions);
+      if (res.suggestions?.displayName) setDisplayName(res.suggestions.displayName);
+      setLinkedinPhase('results');
+    } catch (err) {
+      setError(err.message || "Erreur lors de l'analyse");
+      setSourceMode('oauth-headline');
+    }
+    setLinkedinLoading(false);
+  }
 
   // ── LinkedIn OAuth handler ────────────────────────────────────────────
   async function handleLinkedinOAuth() {
@@ -637,6 +651,102 @@ export default function Personaboarding() {
               </div>
             </div>
             <ArrowRight size={18} color={t.tm} style={{ flexShrink: 0 }} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── OAuth Headline Step ───────────────────────────────────────────────
+  function renderOAuthHeadlineStep() {
+    return (
+      <div style={{ animation: 'fadeInUp 0.5s ease' }}>
+        {/* Profile card */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '16px',
+          padding: '20px', backgroundColor: t.surface, border: `1px solid ${t.border}`,
+          borderRadius: '12px', marginBottom: '24px',
+        }}>
+          {oauthProfile?.picture ? (
+            <img
+              src={oauthProfile.picture}
+              alt={oauthProfile.name}
+              style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${t.violet}` }}
+            />
+          ) : (
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%', backgroundColor: t.violetG,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: `2px solid ${t.violet}`,
+            }}>
+              <User size={24} color={t.violet} />
+            </div>
+          )}
+          <div>
+            <div style={{ fontSize: '18px', fontWeight: 700, color: t.tp }}>{oauthProfile?.name}</div>
+            <div style={{ fontSize: '13px', color: t.ts }}>{oauthProfile?.email || 'LinkedIn Connected'}</div>
+          </div>
+          <div style={{
+            marginLeft: 'auto', padding: '4px 12px', borderRadius: '100px',
+            backgroundColor: '#22c55e18', border: '1px solid #22c55e30',
+            fontSize: '11px', fontWeight: 600, color: '#22c55e',
+          }}>
+            <Check size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+            Connecté
+          </div>
+        </div>
+
+        {/* Headline input */}
+        <div style={{ fontSize: '16px', fontWeight: 600, color: t.tp, marginBottom: '6px' }}>
+          Quel est votre poste actuel ?
+        </div>
+        <p style={{ fontSize: '13px', color: t.tm, marginBottom: '16px', lineHeight: '1.5' }}>
+          Décrivez brièvement votre rôle pour que l'IA génère des compétences précises.
+        </p>
+        <input
+          autoFocus
+          style={{
+            backgroundColor: t.bg, border: `1px solid ${t.borderS}`,
+            borderRadius: '8px', padding: '14px 16px', color: '#fff',
+            fontSize: '15px', width: '100%', outline: 'none', fontFamily: t.font,
+            transition: 'border-color 0.2s', boxSizing: 'border-box',
+            marginBottom: '12px',
+          }}
+          onFocus={e => e.target.style.borderColor = t.violet}
+          onBlur={e => e.target.style.borderColor = t.borderS}
+          placeholder="ex: Data & AI Consultant, Product Manager, Full-Stack Developer..."
+          value={oauthHeadline}
+          onChange={e => setOauthHeadline(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && oauthHeadline.trim() && handleOAuthAnalyze()}
+        />
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={handleOAuthAnalyze}
+            disabled={linkedinLoading}
+            style={{
+              flex: 1, padding: '12px 20px', backgroundColor: oauthHeadline.trim() ? t.violet : t.surfaceEl,
+              color: '#fff', border: 'none', borderRadius: '8px',
+              fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              transition: 'all 0.2s',
+            }}
+          >
+            {linkedinLoading ? (
+              <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analyse en cours...</>
+            ) : (
+              <><Sparkles size={16} /> Analyser mon profil</>
+            )}
+          </button>
+          <button
+            onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('analyzing'); handleOAuthAnalyze(); }}
+            disabled={linkedinLoading}
+            style={{
+              padding: '12px 16px', backgroundColor: 'transparent',
+              color: t.ts, border: `1px solid ${t.border}`, borderRadius: '8px',
+              fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s',
+            }}
+          >
+            Passer
           </button>
         </div>
       </div>
@@ -1329,7 +1439,7 @@ export default function Personaboarding() {
   // ── Render ──────────────────────────────────────────────────────────────
   const totalSteps = STEP_META.length;
   const nodeValues = getNodeValues();
-  const showPhases = sourceMode !== null && !(sourceMode === 'linkedin' && linkedinPhase !== 'done');
+  const showPhases = sourceMode !== null && sourceMode !== 'oauth-headline' && !(sourceMode === 'linkedin' && linkedinPhase !== 'done');
 
   return (
     <div style={{
@@ -1492,6 +1602,8 @@ export default function Personaboarding() {
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
             {sourceMode === null ? (
               renderSourcePicker()
+            ) : sourceMode === 'oauth-headline' ? (
+              renderOAuthHeadlineStep()
             ) : sourceMode === 'linkedin' && linkedinPhase !== 'done' ? (
               renderLinkedInFlow()
             ) : (

@@ -237,7 +237,7 @@ router.get('/linkedin/callback', async (req, res) => {
 // POST /api/personaboarding/linkedin/analyze-oauth — analyze OAuth profile data with GPT
 router.post('/linkedin/analyze-oauth', async (req, res) => {
   try {
-    const { name, given_name, family_name, email, picture } = req.body;
+    const { name, given_name, family_name, email, picture, headline } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'No profile name provided' });
     }
@@ -248,16 +248,23 @@ router.post('/linkedin/analyze-oauth', async (req, res) => {
       given_name ? `First name: ${given_name}` : '',
       family_name ? `Last name: ${family_name}` : '',
       email ? `Email domain: ${email.split('@')[1]}` : '',
+      headline ? `Job/headline (self-described): ${headline}` : '',
     ].filter(Boolean);
+
+    const hasHeadline = !!headline;
 
     const prompt = `Analyze this person's profile and create a personalized AI agent configuration.
 
 ${contextParts.join('\n')}
 
-Based on the person's name and available information, suggest:
+${hasHeadline
+  ? `Use the job/headline they described to determine their EXACT professional role and generate skills that match precisely.`
+  : `I only have basic identity info. Create a well-rounded professional agent profile.`}
+
+Based on ALL available information, suggest:
 1. A display name (FIRST NAME only)
-2. The best professional role as kebab-case slug (e.g. "product-manager", "developer", "designer")
-3. 10-12 specific professional skills with categories and colors
+2. The best professional role as a kebab-case slug (e.g. "product-manager", "data-scientist", "frontend-developer", "growth-hacker", "ux-researcher", "cto", "sales-engineer"). Be specific and creative — do NOT limit to a predefined list.
+3. 10-12 specific professional skills with categories and colors — make them RELEVANT to the detected role
 4. Communication style from: formal, casual, technical, empathetic, direct
 5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
 6. Suggested tools from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
@@ -272,12 +279,12 @@ Return ONLY valid JSON:
   "commStyle": "style-id",
   "methodology": "methodology-id",
   "tools": ["Tool1", "Tool2"],
-  "summary": "Brief professional summary in French (2-3 sentences)"
+  "summary": "Brief professional summary of this person in French (2-3 sentences)"
 }`;
 
     const response = await callGPT5(
       [
-        { role: 'system', content: 'You are an expert at creating AI agent configurations from professional profiles. Return ONLY valid JSON with exactly 10-12 skills.' },
+        { role: 'system', content: 'You are an expert at creating AI agent configurations from professional profiles. When given a job headline, use it as the primary source for role and skill determination. Always return exactly 10-12 skills. Return ONLY valid JSON.' },
         { role: 'user', content: prompt },
       ],
       { max_completion_tokens: 4000, responseFormat: 'json' }
