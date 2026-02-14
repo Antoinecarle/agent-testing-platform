@@ -734,157 +734,257 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       display: flex; align-items: center; gap: 4px;
     }
 
-    /* ===== CHAT CTA ===== */
-    .chat-cta {
-      padding: 100px 0; position: relative; overflow: hidden;
+    /* ===== INLINE CHAT SECTION ===== */
+    .chat-section {
+      padding: 120px 0 100px; position: relative; overflow: hidden;
     }
-    .chat-cta::before {
+    .chat-section::before {
       content: ''; position: absolute; inset: 0;
-      background: radial-gradient(ellipse 70% 50% at 50% 50%, ${color}12 0%, transparent 70%);
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, ${color}10 0%, transparent 60%),
+        radial-gradient(circle at 20% 80%, ${color}08 0%, transparent 40%),
+        radial-gradient(circle at 80% 20%, #a78bfa08 0%, transparent 40%);
       pointer-events: none;
     }
-    .chat-cta-inner {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 60px;
-      align-items: center; position: relative; z-index: 1;
+    .chat-section::after {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent 0%, ${color}33 50%, transparent 100%);
     }
-    .chat-cta-text { }
-    .chat-cta-label {
+    .chat-section-header {
+      text-align: center; margin-bottom: 56px; position: relative; z-index: 1;
+    }
+    .chat-section-label {
       display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 16px; border-radius: 100px; font-size: 12px; font-weight: 600;
-      background: ${color}15; color: var(--primary); border: 1px solid ${color}33;
-      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 24px;
+      padding: 8px 20px; border-radius: 100px; font-size: 12px; font-weight: 600;
+      background: linear-gradient(135deg, ${color}18 0%, ${color}08 100%);
+      color: var(--primary); border: 1px solid ${color}33;
+      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 28px;
     }
-    .chat-cta-label .pulse-dot {
+    .chat-section-label .pulse-dot {
       width: 8px; height: 8px; border-radius: 50%; background: var(--success);
-      animation: pulse 2s infinite;
+      box-shadow: 0 0 8px rgba(34,197,94,0.5); animation: pulse 2s infinite;
     }
-    .chat-cta h2 {
-      font-size: clamp(32px, 4vw, 52px); font-weight: 800; line-height: 1.1;
+    .chat-section-header h2 {
+      font-size: clamp(36px, 5vw, 56px); font-weight: 800; line-height: 1.1;
       margin-bottom: 20px;
     }
-    .chat-cta h2 .gradient-text {
-      background: linear-gradient(135deg, var(--primary) 0%, ${color}cc 50%, #a78bfa 100%);
+    .chat-section-header .gradient-text {
+      background: linear-gradient(135deg, var(--primary) 0%, #a78bfa 50%, ${color}cc 100%);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-size: 200% auto;
+      animation: gradientShift 4s ease infinite;
     }
-    .chat-cta .cta-desc {
-      font-size: 16px; color: var(--text-muted); line-height: 1.7;
-      margin-bottom: 32px; max-width: 480px;
+    @keyframes gradientShift {
+      0% { background-position: 0% center; }
+      50% { background-position: 100% center; }
+      100% { background-position: 0% center; }
     }
-    .chat-cta-badges {
-      display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 36px;
+    .chat-section-header p {
+      font-size: 17px; color: var(--text-muted); max-width: 580px;
+      margin: 0 auto; line-height: 1.7;
     }
-    .cta-badge {
+    .chat-section-badges {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px;
+    }
+    .chat-badge {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 500;
-      background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+      padding: 8px 18px; border-radius: 100px; font-size: 13px; font-weight: 500;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      color: var(--text-muted); backdrop-filter: blur(8px);
     }
-    .cta-badge .badge-icon { font-size: 16px; }
-    .chat-cta-btn {
-      display: inline-flex; align-items: center; gap: 10px;
-      padding: 16px 36px; border-radius: 14px; font-size: 17px; font-weight: 700;
-      background: linear-gradient(135deg, var(--primary) 0%, ${color}cc 100%);
-      color: #fff; border: none; cursor: pointer;
-      box-shadow: 0 4px 32px ${color}44, 0 0 0 1px ${color}22;
-      transition: all 0.3s; text-decoration: none;
-    }
-    .chat-cta-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 48px ${color}66, 0 0 0 1px ${color}44;
-    }
-    .chat-cta-btn .btn-arrow {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; border-radius: 50%;
-      background: rgba(255,255,255,0.2); transition: transform 0.3s;
-    }
-    .chat-cta-btn:hover .btn-arrow { transform: translateX(3px); }
-    .chat-cta-sub {
-      margin-top: 14px; font-size: 12px; color: var(--text-dim);
-    }
+    .chat-badge-icon { font-size: 15px; }
 
-    /* Chat CTA Preview (mock chat window) */
-    .chat-cta-preview {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 20px;
-      overflow: hidden; box-shadow: 0 20px 80px rgba(0,0,0,0.5), 0 0 60px ${color}08;
-      position: relative;
+    /* Inline Chat Container */
+    .inline-chat-wrapper {
+      position: relative; z-index: 1; max-width: 820px; margin: 0 auto;
     }
-    .chat-cta-preview::after {
-      content: ''; position: absolute; inset: -1px; border-radius: 20px;
-      background: linear-gradient(135deg, ${color}33 0%, transparent 40%, transparent 60%, ${color}22 100%);
-      pointer-events: none; z-index: 0;
+    .inline-chat-glow {
+      position: absolute; inset: -2px; border-radius: 26px; z-index: 0;
+      background: linear-gradient(135deg, ${color}55 0%, transparent 30%, transparent 70%, #a78bfa44 100%);
+      opacity: 0.6; filter: blur(1px);
+      animation: glowPulse 4s ease-in-out infinite;
     }
-    .chat-preview-header {
-      padding: 16px 20px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 12px;
-      background: rgba(255,255,255,0.02); position: relative; z-index: 1;
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
     }
-    .chat-preview-avatar {
-      width: 40px; height: 40px; border-radius: 12px;
-      background: linear-gradient(135deg, var(--primary-light), ${color}22);
+    .inline-chat {
+      position: relative; z-index: 1; border-radius: 24px; overflow: hidden;
+      background: rgba(9,9,11,0.85); border: 1px solid ${color}22;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      box-shadow:
+        0 24px 80px rgba(0,0,0,0.5),
+        0 0 60px ${color}08,
+        inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .inline-chat-header {
+      padding: 18px 24px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%);
+    }
+    .inline-chat-header-left { display: flex; align-items: center; gap: 14px; }
+    .inline-chat-avatar {
+      width: 44px; height: 44px; border-radius: 14px;
+      background: linear-gradient(135deg, ${color}33 0%, ${color}11 100%);
       display: flex; align-items: center; justify-content: center;
-      font-size: 20px; border: 1px solid ${color}33;
+      font-size: 22px; border: 1px solid ${color}33;
+      box-shadow: 0 0 20px ${color}22;
     }
-    .chat-preview-info h4 {
-      font-size: 15px; font-weight: 600; margin: 0;
+    .inline-chat-info h4 {
+      font-size: 16px; font-weight: 700; margin: 0; color: var(--text);
     }
-    .chat-preview-info .status {
-      font-size: 11px; color: var(--success); display: flex; align-items: center; gap: 4px;
+    .inline-chat-info .online-status {
+      font-size: 12px; color: var(--success); display: flex; align-items: center; gap: 5px;
+      margin-top: 2px;
     }
-    .chat-preview-info .status::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: var(--success); display: inline-block;
+    .inline-chat-info .online-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+      box-shadow: 0 0 6px rgba(34,197,94,0.5); animation: pulse 2s infinite;
     }
-    .chat-preview-body {
-      padding: 20px; display: flex; flex-direction: column; gap: 14px;
-      min-height: 280px; position: relative; z-index: 1;
+    .inline-chat-header-right { display: flex; align-items: center; gap: 10px; }
+    .inline-chat-tag {
+      padding: 4px 12px; border-radius: 100px; font-size: 11px; font-weight: 600;
+      background: ${color}15; color: var(--primary); border: 1px solid ${color}33;
     }
-    .preview-msg {
-      display: flex; gap: 10px; animation: previewFadeIn 0.6s ease forwards;
-      opacity: 0;
+    .inline-chat-clear-btn {
+      padding: 5px 12px; border-radius: 8px; font-size: 11px; font-weight: 500;
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      cursor: pointer; transition: all 0.2s; display: none;
     }
-    .preview-msg.user { flex-direction: row-reverse; }
-    .preview-msg:nth-child(1) { animation-delay: 0.3s; }
-    .preview-msg:nth-child(2) { animation-delay: 1.2s; }
-    .preview-msg:nth-child(3) { animation-delay: 2.1s; }
-    @keyframes previewFadeIn {
-      from { opacity: 0; transform: translateY(10px); }
+    .inline-chat-clear-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Messages */
+    .inline-chat-messages {
+      height: 420px; overflow-y: auto; padding: 24px; scroll-behavior: smooth;
+      background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, transparent 20%, transparent 80%, rgba(0,0,0,0.1) 100%);
+    }
+    .inline-chat-messages::-webkit-scrollbar { width: 4px; }
+    .inline-chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .inline-chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .inline-chat-messages::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+    .inline-welcome {
+      text-align: center; padding: 40px 20px;
+    }
+    .inline-welcome-avatar {
+      width: 72px; height: 72px; border-radius: 20px; margin: 0 auto 20px;
+      background: linear-gradient(135deg, ${color}33 0%, ${color}11 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 36px; border: 1px solid ${color}33;
+      box-shadow: 0 0 40px ${color}22, 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .inline-welcome h3 {
+      font-size: 20px; font-weight: 700; margin-bottom: 8px;
+    }
+    .inline-welcome p {
+      font-size: 14px; color: var(--text-muted); margin-bottom: 4px;
+    }
+    .inline-welcome .sub {
+      font-size: 12px; color: var(--text-dim); margin-bottom: 28px;
+    }
+    .inline-suggestions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      max-width: 440px; margin: 0 auto;
+    }
+    .inline-suggestion {
+      padding: 12px 16px; border-radius: 12px; font-size: 13px; font-weight: 500;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      color: var(--text-muted); cursor: pointer; transition: all 0.25s;
+      text-align: left; display: flex; align-items: center; gap: 8px;
+    }
+    .inline-suggestion:hover {
+      border-color: var(--primary); color: var(--primary);
+      background: ${color}08; transform: translateY(-1px);
+      box-shadow: 0 4px 16px ${color}11;
+    }
+    .inline-suggestion .sug-icon { font-size: 16px; flex-shrink: 0; }
+
+    .ic-msg {
+      display: flex; gap: 12px; margin-bottom: 18px; animation: icMsgIn 0.35s ease;
+    }
+    .ic-msg.user { flex-direction: row-reverse; }
+    @keyframes icMsgIn {
+      from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    .preview-msg-avatar {
-      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center; font-size: 14px;
+    .ic-msg-avatar {
+      width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
     }
-    .preview-msg.user .preview-msg-avatar { background: rgba(255,255,255,0.08); }
-    .preview-msg.assistant .preview-msg-avatar { background: var(--primary-light); }
-    .preview-msg-bubble {
-      max-width: 80%; padding: 10px 16px; font-size: 13px; line-height: 1.6;
+    .ic-msg.user .ic-msg-avatar {
+      background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+      border: 1px solid rgba(255,255,255,0.08);
     }
-    .preview-msg.user .preview-msg-bubble {
-      background: var(--primary-light); border: 1px solid ${color}33;
-      border-radius: 14px 14px 4px 14px; color: var(--text);
+    .ic-msg.assistant .ic-msg-avatar {
+      background: linear-gradient(135deg, ${color}33, ${color}11);
+      border: 1px solid ${color}33;
     }
-    .preview-msg.assistant .preview-msg-bubble {
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 14px 14px 14px 4px; color: var(--text-muted);
+    .ic-msg-bubble {
+      max-width: 78%; padding: 12px 18px; font-size: 14px; line-height: 1.7;
+      word-break: break-word; white-space: pre-wrap;
     }
-    .chat-preview-footer {
-      padding: 14px 20px; border-top: 1px solid var(--border);
-      display: flex; gap: 8px; align-items: center; position: relative; z-index: 1;
+    .ic-msg.user .ic-msg-bubble {
+      background: linear-gradient(135deg, ${color}22 0%, ${color}11 100%);
+      border: 1px solid ${color}33; border-radius: 18px 18px 4px 18px;
+      color: var(--text);
     }
-    .chat-preview-input-mock {
-      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 10px 14px; font-size: 13px;
-      color: var(--text-dim); font-family: 'Inter', sans-serif;
+    .ic-msg.assistant .ic-msg-bubble {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 18px 18px 18px 4px; color: var(--text-muted);
     }
-    .chat-preview-send-mock {
-      width: 38px; height: 38px; border-radius: 10px;
-      background: var(--primary); display: flex; align-items: center;
-      justify-content: center; font-size: 16px; color: #fff; opacity: 0.6;
+    .ic-cursor {
+      display: inline-block; width: 2px; height: 16px; background: var(--primary);
+      margin-left: 2px; vertical-align: text-bottom;
+      animation: blink 0.8s infinite; box-shadow: 0 0 6px ${color}66;
+    }
+    .ic-typing { display: flex; gap: 5px; padding: 12px 18px; }
+    .ic-typing span {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim);
+      animation: typing 1.4s infinite;
+    }
+    .ic-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .ic-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+    /* Input area */
+    .inline-chat-input-area {
+      padding: 18px 24px; border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex; gap: 10px; align-items: center;
+      background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.02) 100%);
+    }
+    .inline-chat-input {
+      flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px; padding: 14px 18px; font-size: 14px;
+      color: var(--text); outline: none; font-family: 'Inter', sans-serif;
+      transition: all 0.25s;
+    }
+    .inline-chat-input:focus {
+      border-color: ${color}55; background: rgba(255,255,255,0.06);
+      box-shadow: 0 0 0 3px ${color}15;
+    }
+    .inline-chat-input::placeholder { color: var(--text-dim); }
+    .inline-chat-send {
+      width: 48px; height: 48px; border-radius: 14px; border: none;
+      background: linear-gradient(135deg, var(--primary) 0%, ${color}cc 100%);
+      color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.25s; font-size: 18px; flex-shrink: 0;
+      box-shadow: 0 4px 16px ${color}33;
+    }
+    .inline-chat-send:hover { box-shadow: 0 6px 24px ${color}55; transform: scale(1.04); }
+    .inline-chat-send:disabled { opacity: 0.3; cursor: default; box-shadow: none; transform: none; }
+    .inline-chat-footer {
+      padding: 10px 24px 14px; display: flex; justify-content: center; gap: 16px;
+      font-size: 11px; color: var(--text-dim);
+    }
+    .inline-chat-footer span {
+      display: flex; align-items: center; gap: 4px;
     }
 
     @media (max-width: 768px) {
-      .chat-cta-inner { grid-template-columns: 1fr; gap: 40px; }
-      .chat-cta-preview { max-width: 100%; }
-      .chat-cta { padding: 60px 0; }
+      .chat-section { padding: 80px 0 60px; }
+      .inline-chat-messages { height: 350px; }
+      .inline-suggestions { grid-template-columns: 1fr; }
+      .inline-chat-wrapper { margin: 0 -8px; }
     }
 
     /* ===== FOOTER ===== */
@@ -1198,53 +1298,75 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
   </section>
   ` : ''}
 
-  <!-- CHAT CTA -->
-  <section class="chat-cta" id="try-chat">
+  <!-- INLINE CHAT SECTION -->
+  <section class="chat-section" id="try-chat">
     <div class="container">
-      <div class="chat-cta-inner">
-        <div class="chat-cta-text">
-          <div class="chat-cta-label">
-            <span class="pulse-dot"></span>
-            Demo Available
-          </div>
-          <h2>Start talking to<br><span class="gradient-text">${agentName}</span></h2>
-          <p class="cta-desc">Experience the full power of this agent — ${formatTokens(promptTokens + totalSkillTokens)} tokens of deep knowledge${safeSkills.length > 0 ? `, ${safeSkills.length} specialized skill${safeSkills.length > 1 ? 's' : ''}` : ''}, and real-time AI responses. No API key needed.</p>
-          <div class="chat-cta-badges">
-            <span class="cta-badge"><span class="badge-icon">&#x1f9e0;</span> ${formatTokens(promptTokens + totalSkillTokens)} knowledge tokens</span>
-            ${safeSkills.length > 0 ? `<span class="cta-badge"><span class="badge-icon">&#x26a1;</span> ${safeSkills.length} skill${safeSkills.length > 1 ? 's' : ''} loaded</span>` : ''}
-            <span class="cta-badge"><span class="badge-icon">&#x1f4ac;</span> Free demo</span>
-          </div>
-          <button class="chat-cta-btn" onclick="toggleChat()">
-            Start Conversation
-            <span class="btn-arrow">&#x27A4;</span>
-          </button>
-          <p class="chat-cta-sub">20 free messages &middot; No signup required &middot; Full agent context</p>
+      <div class="chat-section-header">
+        <div class="chat-section-label">
+          <span class="pulse-dot"></span>
+          Live Demo
         </div>
-        <div class="chat-cta-preview" onclick="toggleChat()" style="cursor:pointer">
-          <div class="chat-preview-header">
-            <div class="chat-preview-avatar">&#x1f916;</div>
-            <div class="chat-preview-info">
-              <h4>${agentName}</h4>
-              <div class="status">Online &middot; Ready to chat</div>
+        <h2>Start talking to <span class="gradient-text">${agentName}</span></h2>
+        <p>${formatTokens(promptTokens + totalSkillTokens)} tokens of deep knowledge${safeSkills.length > 0 ? `, ${safeSkills.length} specialized skill${safeSkills.length > 1 ? 's' : ''}` : ''} — all injected into every response. Try it now, no signup needed.</p>
+        <div class="chat-section-badges">
+          <span class="chat-badge"><span class="chat-badge-icon">&#x1f9e0;</span> ${formatTokens(promptTokens + totalSkillTokens)} tokens</span>
+          ${safeSkills.length > 0 ? `<span class="chat-badge"><span class="chat-badge-icon">&#x26a1;</span> ${safeSkills.length} skill${safeSkills.length > 1 ? 's' : ''}</span>` : ''}
+          <span class="chat-badge"><span class="chat-badge-icon">&#x2705;</span> Free &middot; 20 msgs</span>
+        </div>
+      </div>
+
+      <div class="inline-chat-wrapper">
+        <div class="inline-chat-glow"></div>
+        <div class="inline-chat">
+          <div class="inline-chat-header">
+            <div class="inline-chat-header-left">
+              <div class="inline-chat-avatar">&#x1f916;</div>
+              <div class="inline-chat-info">
+                <h4>${agentName}</h4>
+                <div class="online-status">
+                  <span class="online-dot"></span>
+                  Online &middot; ${formatTokens(promptTokens + totalSkillTokens)} tokens loaded
+                </div>
+              </div>
+            </div>
+            <div class="inline-chat-header-right">
+              <span class="inline-chat-tag">${escapeHtml(category)}</span>
+              <button class="inline-chat-clear-btn" id="ic-clear" onclick="icClear()">Clear</button>
             </div>
           </div>
-          <div class="chat-preview-body">
-            <div class="preview-msg user">
-              <div class="preview-msg-avatar">&#x1f464;</div>
-              <div class="preview-msg-bubble">What can you help me with?</div>
-            </div>
-            <div class="preview-msg assistant">
-              <div class="preview-msg-avatar">&#x1f916;</div>
-              <div class="preview-msg-bubble">I'm ${agentName}, specialized in ${escapeHtml(category)}. I have ${formatTokens(promptTokens + totalSkillTokens)} tokens of deep knowledge${safeSkills.length > 0 ? ` and ${safeSkills.length} specialized skills` : ''}. How can I assist you?</div>
-            </div>
-            <div class="preview-msg user">
-              <div class="preview-msg-avatar">&#x1f464;</div>
-              <div class="preview-msg-bubble">Let's get started!</div>
+          <div class="inline-chat-messages" id="ic-messages">
+            <div class="inline-welcome" id="ic-welcome">
+              <div class="inline-welcome-avatar">&#x1f916;</div>
+              <h3>Chat with ${agentName}</h3>
+              <p>Full agent prompt + all skills loaded into context</p>
+              <div class="sub">${escapeHtml(model)} model &middot; ${formatTokens(promptTokens + totalSkillTokens)} context tokens &middot; Real-time responses</div>
+              <div class="inline-suggestions">
+                <button class="inline-suggestion" onclick="icFill('What can you do?')">
+                  <span class="sug-icon">&#x1f4a1;</span> What can you do?
+                </button>
+                <button class="inline-suggestion" onclick="icFill('List your skills and expertise')">
+                  <span class="sug-icon">&#x26a1;</span> List your skills
+                </button>
+                <button class="inline-suggestion" onclick="icFill('Help me get started with a project')">
+                  <span class="sug-icon">&#x1f680;</span> Help me get started
+                </button>
+                <button class="inline-suggestion" onclick="icFill('What makes you different from other AI agents?')">
+                  <span class="sug-icon">&#x2728;</span> What makes you special?
+                </button>
+              </div>
             </div>
           </div>
-          <div class="chat-preview-footer">
-            <div class="chat-preview-input-mock">Ask ${agentName} anything...</div>
-            <div class="chat-preview-send-mock">&#x27A4;</div>
+          <div class="inline-chat-input-area">
+            <input class="inline-chat-input" id="ic-input" type="text"
+              placeholder="Ask ${agentName} anything..."
+              autocomplete="off"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey)icSend()">
+            <button class="inline-chat-send" id="ic-send" onclick="icSend()" title="Send">&#x27A4;</button>
+          </div>
+          <div class="inline-chat-footer">
+            <span>&#x1f512; No data stored</span>
+            <span>&#x26a1; Powered by ${escapeHtml(model)}</span>
+            <span>&#x1f916; Full agent context</span>
           </div>
         </div>
       </div>
@@ -1637,30 +1759,126 @@ data = response.json()
       input.focus();
     }
 
-    async function typewrite(elementId, text) {
+    async function typewrite(elementId, text, scrollFn) {
       const el = document.getElementById(elementId);
       if (!el) return;
       let i = 0;
-      const speed = Math.max(8, Math.min(30, 2000 / text.length)); // adaptive speed
+      const speed = Math.max(8, Math.min(30, 2000 / text.length));
+      const doScroll = scrollFn || scrollToBottom;
       return new Promise(resolve => {
         function type() {
           if (i < text.length) {
-            // Add characters in chunks for long texts
             const chunk = Math.ceil(text.length / 200);
             const end = Math.min(i + chunk, text.length);
             const partial = text.slice(0, end);
-            el.innerHTML = escapeChat(partial) + '<span class="chat-cursor"></span>';
+            el.innerHTML = escapeChat(partial) + '<span class="' + (scrollFn ? 'ic-cursor' : 'chat-cursor') + '"></span>';
             i = end;
-            scrollToBottom();
+            doScroll();
             requestAnimationFrame(() => setTimeout(type, speed));
           } else {
             el.innerHTML = escapeChat(text);
-            scrollToBottom();
+            doScroll();
             resolve();
           }
         }
         type();
       });
+    }
+
+    // ========== INLINE CHAT ==========
+    const icMessages = [];
+    let icBusy = false;
+
+    function icScrollBottom() {
+      const el = document.getElementById('ic-messages');
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+
+    function icFill(text) {
+      document.getElementById('ic-input').value = text;
+      document.getElementById('ic-input').focus();
+    }
+
+    function icClear() {
+      icMessages.length = 0;
+      icRender();
+      document.getElementById('ic-clear').style.display = 'none';
+    }
+
+    function icRender() {
+      const container = document.getElementById('ic-messages');
+      if (icMessages.length === 0) {
+        document.getElementById('ic-welcome') && (container.innerHTML = container.innerHTML);
+        // Restore the welcome screen
+        container.innerHTML = '<div class="inline-welcome" id="ic-welcome"><div class="inline-welcome-avatar">&#x1f916;</div><h3>Chat with ${agentName}</h3><p>Full agent prompt + all skills loaded into context</p><div class="sub">${escapeHtml(model)} model &middot; ${formatTokens(promptTokens + totalSkillTokens)} context tokens &middot; Real-time responses</div><div class="inline-suggestions"><button class="inline-suggestion" onclick="icFill(\\\'What can you do?\\\')"><span class="sug-icon">&#x1f4a1;</span> What can you do?</button><button class="inline-suggestion" onclick="icFill(\\\'List your skills and expertise\\\')"><span class="sug-icon">&#x26a1;</span> List your skills</button><button class="inline-suggestion" onclick="icFill(\\\'Help me get started with a project\\\')"><span class="sug-icon">&#x1f680;</span> Help me get started</button><button class="inline-suggestion" onclick="icFill(\\\'What makes you different from other AI agents?\\\')"><span class="sug-icon">&#x2728;</span> What makes you special?</button></div></div>';
+        return;
+      }
+      let html = '';
+      for (const m of icMessages) {
+        const emo = m.role === 'user' ? '&#x1f464;' : '&#x1f916;';
+        html += '<div class="ic-msg ' + m.role + '">';
+        html += '<div class="ic-msg-avatar">' + emo + '</div>';
+        html += '<div class="ic-msg-bubble" id="' + (m.id || '') + '">';
+        if (m.typing) {
+          html += '<div class="ic-typing"><span></span><span></span><span></span></div>';
+        } else {
+          html += escapeChat(m.content);
+        }
+        html += '</div></div>';
+      }
+      container.innerHTML = html;
+      icScrollBottom();
+    }
+
+    async function icSend() {
+      const input = document.getElementById('ic-input');
+      const msg = input.value.trim();
+      if (!msg || icBusy) return;
+      input.value = '';
+      icBusy = true;
+      document.getElementById('ic-send').disabled = true;
+      document.getElementById('ic-clear').style.display = 'inline-block';
+
+      icMessages.push({ role: 'user', content: msg });
+      icRender();
+
+      const assistantId = 'ic-' + Date.now();
+      icMessages.push({ role: 'assistant', content: '', typing: true, id: assistantId });
+      icRender();
+
+      try {
+        const apiMsgs = icMessages
+          .filter(m => m.content || m.role === 'user')
+          .filter(m => !m.typing)
+          .map(m => ({ role: m.role, content: m.content }));
+
+        const res = await fetch('/mcp/${deployment.slug}/api/demo-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: apiMsgs }),
+        });
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        const lastMsg = icMessages[icMessages.length - 1];
+        lastMsg.typing = false;
+        lastMsg.content = '';
+        icRender();
+
+        await typewrite(assistantId, data.content || 'No response', icScrollBottom);
+        lastMsg.content = data.content || 'No response';
+
+      } catch (err) {
+        const lastMsg = icMessages[icMessages.length - 1];
+        lastMsg.typing = false;
+        lastMsg.content = 'Error: ' + (err.message || 'Failed');
+        icRender();
+      }
+
+      icBusy = false;
+      document.getElementById('ic-send').disabled = false;
+      input.focus();
     }
   </script>
 </body>
