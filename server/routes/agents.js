@@ -564,6 +564,11 @@ router.put('/:name', async (req, res) => {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
+    // Ownership checks
+    if (agent.source === 'filesystem') return res.status(403).json({ error: 'Platform agents are read-only' });
+    if (agent.created_by && agent.created_by !== req.user.userId && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Only the creator can edit this agent' });
+
     // Auto-version: snapshot current state before applying update
     const versionNumber = await db.getNextAgentVersionNumber(req.params.name);
     const changeSummary = req.body.change_summary || '';
@@ -660,6 +665,11 @@ router.delete('/:name', async (req, res) => {
   try {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // Ownership checks
+    if (agent.source === 'filesystem') return res.status(403).json({ error: 'Platform agents cannot be deleted' });
+    if (agent.created_by && agent.created_by !== req.user.userId && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Only the creator can delete this agent' });
 
     await db.deleteAgent(req.params.name);
     res.json({ ok: true });

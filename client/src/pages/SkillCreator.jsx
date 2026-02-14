@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   File, Folder, FolderPlus, FilePlus, ChevronRight, ChevronDown,
   Plus, MessageSquare, Sparkles, Send, X,
   Type, Code, List, Table, AlertCircle, Minus, Save,
   Check, Trash2, PanelRight, Download, ArrowLeft, Wand2,
-  FileText, Layout
+  FileText, Layout, Pencil, Lightbulb, RefreshCw, Zap,
+  ArrowRight, FolderTree
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -203,6 +204,8 @@ const BLOCK_TYPES = [
 export default function SkillCreator() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const linkToAgent = searchParams.get('agent');
   const isNewSkill = !id;
 
   // State
@@ -232,6 +235,13 @@ export default function SkillCreator() {
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Rename state
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  // AI Suggestions state
+  const [suggestions, setSuggestions] = useState(null);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   const ghostTimer = useRef(null);
   const chatEndRef = useRef(null);
@@ -349,10 +359,10 @@ export default function SkillCreator() {
       const suffix = Date.now().toString(36).slice(-4);
       const baseName = templateSlug === 'blank' ? 'New Skill' :
         templateSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      const name = `${baseName} ${suffix}`;
+      const skillName = `${baseName} ${suffix}`;
       const skillData = await api('/api/skills', {
         method: 'POST',
-        body: JSON.stringify({ name, description: '', category: 'general' }),
+        body: JSON.stringify({ name: skillName, description: '', category: 'general' }),
       });
       const newId = skillData.id;
       // Init from template
@@ -360,8 +370,14 @@ export default function SkillCreator() {
         method: 'POST',
         body: JSON.stringify({ template: templateSlug }),
       });
+      // Auto-assign to agent if linked
+      if (linkToAgent) {
+        try {
+          await api(`/api/skills/${newId}/assign/${linkToAgent}`, { method: 'POST' });
+        } catch (err) { console.error('Auto-assign failed:', err); }
+      }
       setShowTemplates(false);
-      navigate(`/skills/${newId}/edit`, { replace: true });
+      navigate(`/skills/${newId}/edit${linkToAgent ? `?agent=${linkToAgent}` : ''}`, { replace: true });
     } catch (err) {
       setError(err.message || 'Failed to create skill');
     }
@@ -597,6 +613,66 @@ export default function SkillCreator() {
     finally { setGenerating(false); }
   };
 
+  // --- Rename Skill ---
+  const startRename = () => {
+    setRenameValue(skill?.name || '');
+    setIsRenaming(true);
+  };
+
+  const handleRename = async () => {
+    const newName = renameValue.trim();
+    if (!newName || !skillId || newName === skill?.name) {
+      setIsRenaming(false);
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      const updated = await api(`/api/skills/${skillId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: newName }),
+      });
+      setSkill(prev => ({ ...prev, ...updated }));
+      setIsRenaming(false);
+    } catch (err) {
+      setError(err.message || 'Failed to rename skill');
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
+  // --- AI Suggestions ---
+  const loadSuggestions = async (type = 'all') => {
+    if (!conversationId) return;
+    setSuggestionsLoading(true);
+    try {
+      const res = await api(`/api/skill-creator/conversations/${conversationId}/suggestions`, {
+        method: 'POST',
+        body: JSON.stringify({ type }),
+      });
+      setSuggestions(res.suggestions);
+    } catch (err) {
+      setError(err.message || 'Failed to load suggestions');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const applyNameSuggestion = async (name) => {
+    if (!skillId) return;
+    setRenameSaving(true);
+    try {
+      const updated = await api(`/api/skills/${skillId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name }),
+      });
+      setSkill(prev => ({ ...prev, ...updated }));
+    } catch (err) {
+      setError(err.message || 'Failed to apply name');
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
   // Helpers
   function flattenFileNames(tree) {
     const names = [];
@@ -613,21 +689,71 @@ export default function SkillCreator() {
   // --- Render ---
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 56px)', backgroundColor: t.bg, color: t.tp, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', backgroundColor: t.bg, color: t.tp, overflow: 'hidden' }}>
+
+      {/* Agent Link Banner */}
+      {linkToAgent && (
+        <div style={{
+          padding: '8px 20px', display: 'flex', alignItems: 'center', gap: '8px',
+          background: 'linear-gradient(90deg, rgba(6,182,212,0.12) 0%, rgba(139,92,246,0.08) 100%)',
+          borderBottom: '1px solid rgba(6,182,212,0.2)', fontSize: '12px', flexShrink: 0,
+        }}>
+          <Wand2 size={13} style={{ color: '#06b6d4' }} />
+          <span style={{ color: t.ts }}>
+            This skill will be auto-linked to agent
+          </span>
+          <span style={{
+            fontWeight: 600, color: '#06b6d4', padding: '1px 8px', borderRadius: '100px',
+            background: 'rgba(6,182,212,0.15)', fontSize: '11px',
+          }}>
+            {linkToAgent}
+          </span>
+          <button onClick={() => navigate(`/agents/${linkToAgent}`)} style={{
+            marginLeft: 'auto', background: 'none', border: 'none', color: t.tm,
+            cursor: 'pointer', fontSize: '11px', textDecoration: 'underline',
+          }}>
+            Back to agent
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
       {/* LEFT — File Tree Sidebar */}
       <div style={{ width: '240px', borderRight: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', backgroundColor: t.surface, flexShrink: 0 }}>
         {/* Header */}
         <div style={{ padding: '12px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={() => navigate('/skills')} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '2px', display: 'flex' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+            <button onClick={() => navigate('/skills')} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '2px', display: 'flex', flexShrink: 0 }}>
               <ArrowLeft size={14} />
             </button>
-            <span style={{ fontWeight: 600, fontSize: '13px', letterSpacing: '-0.01em' }}>
-              {skill?.name || 'New Skill'}
-            </span>
+            {isRenaming ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, minWidth: 0 }}>
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false); }}
+                  style={{ ...inputStyle, padding: '4px 8px', fontSize: '12px', fontWeight: 600 }}
+                  disabled={renameSaving}
+                />
+                <button onClick={handleRename} disabled={renameSaving} style={{ background: 'none', border: 'none', color: t.success, cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
+                  <Check size={13} />
+                </button>
+                <button onClick={() => setIsRenaming(false)} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={startRename} title="Click to rename">
+                <span style={{ fontWeight: 600, fontSize: '13px', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {skill?.name || 'New Skill'}
+                </span>
+                <Pencil size={10} style={{ color: t.tm, flexShrink: 0, opacity: 0.5 }} />
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: '2px' }}>
+          <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
             <button onClick={() => setShowNewFile(true)} style={{ background: 'none', border: 'none', color: t.ts, cursor: 'pointer', padding: '4px', display: 'flex' }} title="New File">
               <FilePlus size={14} />
             </button>
@@ -805,87 +931,228 @@ export default function SkillCreator() {
       {isAIPanelOpen && (
         <div style={{ width: '320px', borderLeft: `1px solid ${t.border}`, backgroundColor: t.surface, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           {/* Tabs */}
-          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', gap: '16px' }}>
-            {['chat', 'complete'].map(tab => (
-              <button key={tab} onClick={() => setAiTab(tab)}
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', gap: '12px' }}>
+            {['chat', 'suggest', 'complete'].map(tab => (
+              <button key={tab} onClick={() => { setAiTab(tab); if (tab === 'suggest' && !suggestions && !suggestionsLoading) loadSuggestions(); }}
                 style={{ background: 'none', border: 'none', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: aiTab === tab ? t.tp : t.tm, cursor: 'pointer', paddingBottom: '4px', borderBottom: aiTab === tab ? `2px solid ${t.violet}` : '2px solid transparent' }}>
-                {tab === 'chat' ? 'AI Chat' : 'Autocomplete'}
+                {tab === 'chat' ? 'AI Chat' : tab === 'suggest' ? 'Suggestions' : 'Autocomplete'}
               </button>
             ))}
           </div>
 
-          {/* Chat messages */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-            {messages.length === 0 ? (
-              <div style={{ padding: '20px 12px', textAlign: 'center' }}>
-                <Sparkles size={20} style={{ color: t.tm, marginBottom: '10px', opacity: 0.3 }} />
-                <div style={{ fontSize: '12px', color: t.ts, marginBottom: '14px' }}>Ask AI to help write skill content</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {/* Tab Content */}
+          {aiTab === 'suggest' ? (
+            <>
+              {/* Suggestions Panel */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                {suggestionsLoading ? (
+                  <div style={{ padding: '40px 12px', textAlign: 'center' }}>
+                    <RefreshCw size={20} style={{ color: t.violet, marginBottom: '10px', animation: 'spin 1s linear infinite' }} />
+                    <div style={{ fontSize: '12px', color: t.ts }}>Analyzing your skill...</div>
+                  </div>
+                ) : !suggestions ? (
+                  <div style={{ padding: '20px 12px', textAlign: 'center' }}>
+                    <Lightbulb size={20} style={{ color: t.tm, marginBottom: '10px', opacity: 0.3 }} />
+                    <div style={{ fontSize: '12px', color: t.ts, marginBottom: '14px' }}>Get AI-powered suggestions to improve your skill</div>
+                    <button onClick={() => loadSuggestions()} disabled={!conversationId}
+                      style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: t.violet, border: 'none', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: conversationId ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: conversationId ? 1 : 0.4 }}>
+                      <Zap size={12} /> Analyze Skill
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Refresh */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => { setSuggestions(null); loadSuggestions(); }}
+                        style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <RefreshCw size={10} /> Refresh
+                      </button>
+                    </div>
+
+                    {/* Name Suggestions */}
+                    {suggestions.names && suggestions.names.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Pencil size={10} /> Name Suggestions
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {suggestions.names.map((n, i) => (
+                            <div key={i} style={{
+                              padding: '8px 10px', borderRadius: '6px', backgroundColor: t.surfaceEl,
+                              border: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: '8px',
+                            }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 600, color: t.tp, marginBottom: '2px' }}>{n.name}</div>
+                                <div style={{ fontSize: '10px', color: t.tm, lineHeight: '1.4' }}>{n.reason}</div>
+                              </div>
+                              <button onClick={() => applyNameSuggestion(n.name)} disabled={renameSaving}
+                                style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: '4px', color: t.violet, cursor: 'pointer', padding: '3px 8px', fontSize: '10px', fontWeight: 600, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <ArrowRight size={9} /> Apply
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Content Improvements */}
+                    {suggestions.improvements && suggestions.improvements.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Lightbulb size={10} /> Content Improvements
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {suggestions.improvements.map((imp, i) => (
+                            <div key={i} style={{
+                              padding: '8px 10px', borderRadius: '6px', backgroundColor: t.surfaceEl,
+                              border: `1px solid ${t.border}`,
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 600, color: t.tp }}>{imp.title}</span>
+                                <span style={{
+                                  fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
+                                  padding: '1px 6px', borderRadius: '100px',
+                                  color: imp.priority === 'high' ? '#ef4444' : imp.priority === 'medium' ? '#f59e0b' : '#22c55e',
+                                  backgroundColor: imp.priority === 'high' ? 'rgba(239,68,68,0.12)' : imp.priority === 'medium' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                                }}>
+                                  {imp.priority}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: t.ts, lineHeight: '1.5' }}>{imp.description}</div>
+                              {imp.target_file && (
+                                <div style={{ fontSize: '10px', color: t.tm, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <FileText size={9} /> {imp.target_file}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Structure Suggestions */}
+                    {suggestions.structure && suggestions.structure.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <FolderTree size={10} /> Structure
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {suggestions.structure.map((s, i) => (
+                            <div key={i} style={{
+                              padding: '8px 10px', borderRadius: '6px', backgroundColor: t.surfaceEl,
+                              border: `1px solid ${t.border}`,
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                <span style={{
+                                  fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
+                                  padding: '1px 6px', borderRadius: '100px', color: t.violet, backgroundColor: t.violetG,
+                                }}>
+                                  {s.action}
+                                </span>
+                                <span style={{ fontSize: '11px', color: t.tp, fontWeight: 500, fontFamily: t.mono }}>{s.target}</span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: t.ts, lineHeight: '1.5' }}>{s.suggestion}</div>
+                              {s.description && <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px', lineHeight: '1.4' }}>{s.description}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* Quick action buttons */}
+              <div style={{ padding: '10px 12px', borderTop: `1px solid ${t.border}` }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
                   {[
-                    { label: 'Generate This File', action: handleGenerateFile, icon: Wand2 },
-                    { label: 'Generate All Files', action: handleGenerateAll, icon: Sparkles },
+                    { label: 'Names', type: 'names', icon: Pencil },
+                    { label: 'Content', type: 'improvements', icon: Lightbulb },
+                    { label: 'Structure', type: 'structure', icon: FolderTree },
                   ].map(btn => (
-                    <button key={btn.label} onClick={btn.action} disabled={generating}
-                      style={{ background: t.surfaceEl, border: `1px solid ${t.border}`, padding: '8px 10px', borderRadius: '6px', color: t.ts, fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', opacity: generating ? 0.5 : 1 }}>
-                      <btn.icon size={12} /> {generating ? 'Generating...' : btn.label}
+                    <button key={btn.type} onClick={() => loadSuggestions(btn.type)} disabled={suggestionsLoading || !conversationId}
+                      style={{ flex: 1, padding: '5px', borderRadius: '4px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: (!conversationId || suggestionsLoading) ? 0.4 : 1 }}>
+                      <btn.icon size={10} /> {btn.label}
                     </button>
                   ))}
                 </div>
               </div>
-            ) : (
-              <>
-                {messages.map((m, i) => (
-                  <div key={i} style={{ marginBottom: '12px' }}>
-                    <div style={{ fontSize: '9px', color: t.tm, marginBottom: '3px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
-                      {m.role}
-                    </div>
-                    <div style={{
-                      padding: '8px 10px', borderRadius: '6px', fontSize: '12px', lineHeight: '1.6',
-                      backgroundColor: m.role === 'user' ? t.violetG : t.surfaceEl,
-                      border: `1px solid ${m.role === 'user' ? 'rgba(139,92,246,0.15)' : t.border}`,
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    }}>
-                      {m.content}
+            </>
+          ) : (
+            <>
+              {/* Chat messages */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                {messages.length === 0 ? (
+                  <div style={{ padding: '20px 12px', textAlign: 'center' }}>
+                    <Sparkles size={20} style={{ color: t.tm, marginBottom: '10px', opacity: 0.3 }} />
+                    <div style={{ fontSize: '12px', color: t.ts, marginBottom: '14px' }}>Ask AI to help write skill content</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {[
+                        { label: 'Generate This File', action: handleGenerateFile, icon: Wand2 },
+                        { label: 'Generate All Files', action: handleGenerateAll, icon: Sparkles },
+                      ].map(btn => (
+                        <button key={btn.label} onClick={btn.action} disabled={generating}
+                          style={{ background: t.surfaceEl, border: `1px solid ${t.border}`, padding: '8px 10px', borderRadius: '6px', color: t.ts, fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', opacity: generating ? 0.5 : 1 }}>
+                          <btn.icon size={12} /> {generating ? 'Generating...' : btn.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ fontSize: '11px', color: t.tm, padding: '8px', fontStyle: 'italic' }}>
-                    Thinking...
-                  </div>
+                ) : (
+                  <>
+                    {messages.map((m, i) => (
+                      <div key={i} style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '9px', color: t.tm, marginBottom: '3px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
+                          {m.role}
+                        </div>
+                        <div style={{
+                          padding: '8px 10px', borderRadius: '6px', fontSize: '12px', lineHeight: '1.6',
+                          backgroundColor: m.role === 'user' ? t.violetG : t.surfaceEl,
+                          border: `1px solid ${m.role === 'user' ? 'rgba(139,92,246,0.15)' : t.border}`,
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        }}>
+                          {m.content}
+                        </div>
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div style={{ fontSize: '11px', color: t.tm, padding: '8px', fontStyle: 'italic' }}>
+                        Thinking...
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </>
                 )}
-                <div ref={chatEndRef} />
-              </>
-            )}
-          </div>
+              </div>
 
-          {/* Chat input */}
-          <div style={{ padding: '10px 12px', borderTop: `1px solid ${t.border}` }}>
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-              <button onClick={handleGenerateFile} disabled={generating || !currentFilePath}
-                style={{ flex: 1, padding: '5px', borderRadius: '4px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: (!currentFilePath || generating) ? 0.4 : 1 }}>
-                <Wand2 size={10} /> Generate File
-              </button>
-              <button onClick={handleGenerateAll} disabled={generating}
-                style={{ flex: 1, padding: '5px', borderRadius: '4px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: generating ? 0.4 : 1 }}>
-                <Sparkles size={10} /> Generate All
-              </button>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <input
-                style={{ ...inputStyle, paddingRight: '36px', fontSize: '12px' }}
-                placeholder="Ask AI for help..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                disabled={chatLoading}
-              />
-              <button onClick={sendMessage} disabled={chatLoading || !chatInput.trim()}
-                style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: chatInput.trim() ? t.violet : t.tm, cursor: 'pointer', display: 'flex' }}>
-                <Send size={14} />
-              </button>
-            </div>
-          </div>
+              {/* Chat input */}
+              <div style={{ padding: '10px 12px', borderTop: `1px solid ${t.border}` }}>
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                  <button onClick={handleGenerateFile} disabled={generating || !currentFilePath}
+                    style={{ flex: 1, padding: '5px', borderRadius: '4px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: (!currentFilePath || generating) ? 0.4 : 1 }}>
+                    <Wand2 size={10} /> Generate File
+                  </button>
+                  <button onClick={handleGenerateAll} disabled={generating}
+                    style={{ flex: 1, padding: '5px', borderRadius: '4px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', opacity: generating ? 0.4 : 1 }}>
+                    <Sparkles size={10} /> Generate All
+                  </button>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    style={{ ...inputStyle, paddingRight: '36px', fontSize: '12px' }}
+                    placeholder="Ask AI for help..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                    disabled={chatLoading}
+                  />
+                  <button onClick={sendMessage} disabled={chatLoading || !chatInput.trim()}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: chatInput.trim() ? t.violet : t.tm, cursor: 'pointer', display: 'flex' }}>
+                    <Send size={14} />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -908,6 +1175,8 @@ export default function SkillCreator() {
           </div>
         </>
       )}
+
+      </div>{/* end flex row */}
 
       {/* Template Picker Modal */}
       {showTemplates && (
@@ -942,7 +1211,7 @@ export default function SkillCreator() {
               ))}
             </div>
             <div style={{ padding: '12px 24px', borderTop: `1px solid ${t.border}`, backgroundColor: 'rgba(0,0,0,0.15)', textAlign: 'center' }}>
-              <button onClick={() => isNewSkill ? navigate('/skills') : setShowTemplates(false)}
+              <button onClick={() => isNewSkill ? navigate(linkToAgent ? `/agents/${linkToAgent}` : '/skills') : setShowTemplates(false)}
                 style={{ background: 'none', border: 'none', color: t.tm, fontSize: '11px', cursor: 'pointer' }}>
                 {isNewSkill ? 'Cancel and go back' : 'Close'}
               </button>
@@ -961,6 +1230,10 @@ export default function SkillCreator() {
       )}
 
       <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
         @media (max-width: 900px) {
           .ai-panel { display: none !important; }
         }

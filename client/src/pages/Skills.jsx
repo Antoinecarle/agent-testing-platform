@@ -5,7 +5,7 @@ import {
   UserPlus, X, Check, Layers, Users, Zap, Hash,
   AlertCircle, FileText, Sparkles
 } from 'lucide-react';
-import { api } from '../api';
+import { api, getUser } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -36,6 +36,8 @@ export default function Skills() {
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [activeTab, setActiveTab] = useState('all');
+  const user = getUser();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
@@ -283,12 +285,46 @@ export default function Skills() {
         </div>
       </div>
 
+      {/* Tab Bar */}
+      <div style={{ display: 'flex', gap: '0', borderBottom: `1px solid ${t.border}`, marginBottom: '20px' }}>
+        {[
+          { key: 'all', label: 'All Skills', count: skills.length },
+          { key: 'mine', label: 'My Skills', count: skills.filter(s => s.created_by === user?.userId).length },
+          { key: 'platform', label: 'Platform', count: skills.filter(s => !s.created_by || s.created_by !== user?.userId).length },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '10px 16px', fontSize: '13px', fontWeight: '500',
+              color: activeTab === tab.key ? t.violet : t.ts,
+              borderBottom: activeTab === tab.key ? `2px solid ${t.violet}` : '2px solid transparent',
+              transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px',
+            }}
+          >
+            {tab.label}
+            <span style={{
+              fontSize: '11px', padding: '1px 6px', borderRadius: '100px',
+              backgroundColor: activeTab === tab.key ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.04)',
+              color: activeTab === tab.key ? t.violet : t.tm,
+            }}>{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Skills Grid */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '80px', color: t.tm, fontSize: '13px' }}>
           Loading...
         </div>
-      ) : skills.length === 0 ? (
+      ) : (() => {
+        const filteredSkills = skills.filter(s => {
+          if (activeTab === 'mine') return s.created_by === user?.userId;
+          if (activeTab === 'platform') return !s.created_by || s.created_by !== user?.userId;
+          return true;
+        });
+        return filteredSkills.length === 0 ? (
         <div style={{
           border: `1px dashed ${t.borderS}`, borderRadius: '12px', padding: '60px 20px', textAlign: 'center',
         }}>
@@ -297,19 +333,39 @@ export default function Skills() {
           <p style={{ color: t.tm, fontSize: '12px', margin: '0 0 16px 0' }}>
             {search || categoryFilter ? 'Try adjusting your filters.' : 'Create your first skill to get started.'}
           </p>
-          {!search && !categoryFilter && (
-            <button onClick={handleOpenCreate} style={{
-              backgroundColor: t.violetM, color: t.violet, border: 'none', borderRadius: '4px',
-              padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-            }}>
-              <Plus size={14} /> Create Skill
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+            {!search && !categoryFilter && (
+              <button onClick={handleOpenCreate} style={{
+                backgroundColor: t.violetM, color: t.violet, border: 'none', borderRadius: '4px',
+                padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+              }}>
+                <Plus size={14} /> Create Skill
+              </button>
+            )}
+            {skills.length === 0 && (
+              <button
+                onClick={async () => {
+                  try { await api('/api/seed/demo', { method: 'POST' }); await fetchData(); }
+                  catch (e) { setError(e.message || 'Failed to load demo data'); }
+                }}
+                style={{
+                  backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)',
+                  borderRadius: '4px', padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                }}
+              >
+                <Zap size={14} /> Load Demo Data
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
-          {skills.map(skill => (
+          {filteredSkills.map(skill => {
+            const canEdit = !skill.created_by || skill.created_by === user?.userId;
+            const canDelete = canEdit;
+            return (
             <div
               key={skill.id}
               style={{
@@ -330,6 +386,11 @@ export default function Skills() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: skill.color || t.violet, flexShrink: 0 }} />
                   <span style={{ fontWeight: '600', fontSize: '14px' }}>{skill.name}</span>
+                  {canEdit ? (
+                    <span style={{ fontSize: '9px', fontWeight: '600', color: t.success, backgroundColor: 'rgba(34,197,94,0.1)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>mine</span>
+                  ) : (
+                    <span style={{ fontSize: '9px', fontWeight: '600', color: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>platform</span>
+                  )}
                 </div>
                 <span style={{
                   backgroundColor: `${(skill.color || t.violet)}20`, color: skill.color || t.violet,
@@ -366,14 +427,16 @@ export default function Skills() {
                     <button onClick={() => navigate(`/skills/${skill.id}/edit`)} style={{ ...iconBtnStyle, color: t.violet }} title="Edit in Editor"><FileText size={13} /></button>
                   )}
                   <button onClick={() => handleOpenAssign(skill)} style={iconBtnStyle} title="Assign to Agents"><UserPlus size={13} /></button>
-                  <button onClick={() => handleOpenEdit(skill)} style={iconBtnStyle} title="Edit"><Edit2 size={13} /></button>
-                  <button onClick={() => handleDelete(skill.id)} style={{ ...iconBtnStyle, color: t.danger }} title="Delete"><Trash2 size={13} /></button>
+                  {canEdit && <button onClick={() => handleOpenEdit(skill)} style={iconBtnStyle} title="Edit"><Edit2 size={13} /></button>}
+                  {canDelete && <button onClick={() => handleDelete(skill.id)} style={{ ...iconBtnStyle, color: t.danger }} title="Delete"><Trash2 size={13} /></button>}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
-      )}
+      );
+      })()}
 
       {/* Create/Edit Modal */}
       {isModalOpen && (
@@ -653,17 +716,19 @@ export default function Skills() {
               }}>
                 <Sparkles size={13} /> Open in Editor
               </button>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => handleOpenEdit(activeSkill)} style={{ ...btnSecStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  <Edit2 size={13} /> Edit
-                </button>
-                <button onClick={() => handleDelete(activeSkill.id)} style={{
-                  ...btnSecStyle, color: t.danger, borderColor: `${t.danger}33`, flex: 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                }}>
-                  <Trash2 size={13} /> Delete
-                </button>
-              </div>
+              {(!activeSkill.created_by || activeSkill.created_by === user?.userId) && (
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => handleOpenEdit(activeSkill)} style={{ ...btnSecStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <Edit2 size={13} /> Edit
+                  </button>
+                  <button onClick={() => handleDelete(activeSkill.id)} style={{
+                    ...btnSecStyle, color: t.danger, borderColor: `${t.danger}33`, flex: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  }}>
+                    <Trash2 size={13} /> Delete
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </>

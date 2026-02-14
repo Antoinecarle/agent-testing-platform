@@ -6,7 +6,7 @@ import {
   ChevronRight, AlertCircle, ExternalLink, Settings, Upload,
   CheckSquare, Square, Download, Tag, Zap, Sparkles, Bot
 } from 'lucide-react';
-import { api } from '../api';
+import { api, getUser } from '../api';
 import CategoryModal from '../components/CategoryModal';
 import AgentCreator from '../components/AgentCreator';
 
@@ -79,7 +79,7 @@ function CategoryItem({ cat, isActive, count, onClick, onEdit, onDelete }) {
 }
 
 // ─── Agent Card ──────────────────────────────────────────────
-function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTest, onClick }) {
+function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTest, onClick, canEdit, canDelete }) {
   const [hovered, setHovered] = useState(false);
   const cat = categories.find(c => c.name === agent.category);
   const isGrid = viewType === 'grid';
@@ -157,9 +157,13 @@ function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTe
                 {agent.project_count} project{agent.project_count !== 1 ? 's' : ''}
               </span>
             )}
-            {agent.source === 'manual' && (
+            {canEdit ? (
               <span style={{ fontSize: '9px', fontWeight: '600', color: t.success, backgroundColor: 'rgba(34,197,94,0.1)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
-                custom
+                mine
+              </span>
+            ) : (
+              <span style={{ fontSize: '9px', fontWeight: '600', color: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                platform
               </span>
             )}
           </div>
@@ -171,14 +175,18 @@ function AgentCard({ agent, viewType, categories, onEdit, onDelete, onRate, onTe
             }}>
               <ExternalLink size={10} style={{ marginRight: 4 }} />TEST
             </button>
-            <button onClick={e => { e.stopPropagation(); onEdit(); }} style={{
-              background: 'none', border: `1px solid ${t.border}`, color: t.ts, padding: '4px',
-              borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-            }}><Edit3 size={13} /></button>
-            <button onClick={e => { e.stopPropagation(); onDelete(); }} style={{
-              background: 'none', border: `1px solid ${t.border}`, color: t.ts, padding: '4px',
-              borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-            }}><Trash2 size={13} /></button>
+            {canEdit && (
+              <button onClick={e => { e.stopPropagation(); onEdit(); }} style={{
+                background: 'none', border: `1px solid ${t.border}`, color: t.ts, padding: '4px',
+                borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+              }}><Edit3 size={13} /></button>
+            )}
+            {canDelete && (
+              <button onClick={e => { e.stopPropagation(); onDelete(); }} style={{
+                background: 'none', border: `1px solid ${t.border}`, color: t.ts, padding: '4px',
+                borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+              }}><Trash2 size={13} /></button>
+            )}
           </div>
         </div>
       </div>
@@ -285,8 +293,9 @@ export default function AgentBrowser() {
   const [activeCategory, setActiveCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('rating');
-  const [sourceFilter, setSourceFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('all');
   const [viewType, setViewType] = useState('grid');
+  const user = getUser();
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
   const [categoryForm, setCategoryForm] = useState(null);
@@ -472,14 +481,18 @@ export default function AgentBrowser() {
     return counts;
   }, [agents]);
 
+  const isOwned = (a) => a.source === 'manual' && (!a.created_by || a.created_by === user?.userId);
+
   const filteredAgents = useMemo(() => {
     return agents
       .filter(a => {
         const matchesCat = !activeCategory || a.category === activeCategory;
         const q = searchQuery.toLowerCase();
         const matchesSearch = !q || a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q);
-        const matchesSource = sourceFilter === 'all' || (a.source || 'filesystem') === sourceFilter;
-        return matchesCat && matchesSearch && matchesSource;
+        let matchesTab = true;
+        if (activeTab === 'mine') matchesTab = a.source === 'manual' && (!a.created_by || a.created_by === user?.userId);
+        else if (activeTab === 'platform') matchesTab = a.source === 'filesystem' || (a.source === 'manual' && a.created_by && a.created_by !== user?.userId);
+        return matchesCat && matchesSearch && matchesTab;
       })
       .sort((a, b) => {
         if (sortOrder === 'rating') return (b.rating || 0) - (a.rating || 0);
@@ -487,7 +500,7 @@ export default function AgentBrowser() {
         if (sortOrder === 'projects') return (b.project_count || 0) - (a.project_count || 0);
         return (b.updated_at || 0) - (a.updated_at || 0);
       });
-  }, [agents, activeCategory, searchQuery, sortOrder, sourceFilter]);
+  }, [agents, activeCategory, searchQuery, sortOrder, activeTab, user?.userId]);
 
   const getCount = (catName) => agents.filter(a => a.category === catName).length;
 
@@ -591,15 +604,6 @@ export default function AgentBrowser() {
           </div>
 
           <div className="ab-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{
-              backgroundColor: t.surface, border: `1px solid ${t.border}`, color: t.ts,
-              fontSize: '12px', padding: '6px 10px', borderRadius: '4px', outline: 'none',
-            }}>
-              <option value="all">All Sources</option>
-              <option value="filesystem">Bundled</option>
-              <option value="manual">Custom</option>
-            </select>
-
             <select value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{
               backgroundColor: t.surface, border: `1px solid ${t.border}`, color: t.ts,
               fontSize: '12px', padding: '6px 10px', borderRadius: '4px', outline: 'none',
@@ -661,6 +665,34 @@ export default function AgentBrowser() {
             </button>
           </div>
         </header>
+
+        {/* Tab Bar */}
+        <div style={{ display: 'flex', gap: '0', borderBottom: `1px solid ${t.border}`, padding: '0 24px' }}>
+          {[
+            { key: 'all', label: 'All Agents', count: agents.length },
+            { key: 'mine', label: 'My Agents', count: agents.filter(a => a.source === 'manual' && (!a.created_by || a.created_by === user?.userId)).length },
+            { key: 'platform', label: 'Platform', count: agents.filter(a => a.source === 'filesystem' || (a.source === 'manual' && a.created_by && a.created_by !== user?.userId)).length },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '10px 16px', fontSize: '13px', fontWeight: '500',
+                color: activeTab === tab.key ? t.violet : t.ts,
+                borderBottom: activeTab === tab.key ? `2px solid ${t.violet}` : '2px solid transparent',
+                transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px',
+              }}
+            >
+              {tab.label}
+              <span style={{
+                fontSize: '11px', padding: '1px 6px', borderRadius: '100px',
+                backgroundColor: activeTab === tab.key ? t.violetM : 'rgba(255,255,255,0.04)',
+                color: activeTab === tab.key ? t.violet : t.tm,
+              }}>{tab.count}</span>
+            </button>
+          ))}
+        </div>
 
         {/* Title + Bulk Action Bar */}
         <div style={{ padding: '20px 24px 0 24px' }}>
@@ -874,6 +906,8 @@ export default function AgentBrowser() {
                 agent={agent}
                 viewType={viewType}
                 categories={categories}
+                canEdit={agent.source === 'manual' && (!agent.created_by || agent.created_by === user?.userId)}
+                canDelete={agent.source === 'manual' && (!agent.created_by || agent.created_by === user?.userId)}
                 onClick={() => bulkMode ? toggleSelect(agent.name) : navigate(`/agents/${agent.name}`)}
                 onEdit={() => { if (!bulkMode) setEditingAgent(agent); }}
                 onDelete={() => { if (!bulkMode) setConfirmDelete(agent.name); }}
@@ -888,7 +922,22 @@ export default function AgentBrowser() {
               padding: '60px', border: `1px dashed ${t.borderS}`, borderRadius: '12px',
             }}>
               <h3 style={{ fontSize: '14px', color: t.ts, margin: '0 0 8px 0' }}>No agents found</h3>
-              <p style={{ fontSize: '12px', color: t.tm, margin: 0 }}>Try adjusting your search or category filters.</p>
+              <p style={{ fontSize: '12px', color: t.tm, margin: '0 0 16px 0' }}>Try adjusting your search or category filters.</p>
+              {agents.length === 0 && (
+                <button
+                  onClick={async () => {
+                    try { await api('/api/seed/demo', { method: 'POST' }); await fetchData(); }
+                    catch (e) { console.error(e); }
+                  }}
+                  style={{
+                    backgroundColor: t.violetM, color: t.violet, border: `1px solid rgba(139,92,246,0.3)`,
+                    padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                  }}
+                >
+                  <Zap size={14} /> Load Demo Data
+                </button>
+              )}
             </div>
           )}
         </div>

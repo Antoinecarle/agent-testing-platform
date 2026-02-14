@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles } from 'lucide-react';
 import { api } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
+import AgentCreator from '../components/AgentCreator';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -213,6 +214,9 @@ export default function AgentDetail() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectIterations, setProjectIterations] = useState({});
   const [newShowcase, setNewShowcase] = useState({ project_id: '', iteration_id: '', title: '', description: '' });
+
+  // Agent Creator (Enhance with AI)
+  const [showAgentCreator, setShowAgentCreator] = useState(false);
 
   // MCP Deployment
   const [deployment, setDeployment] = useState(null);
@@ -655,6 +659,123 @@ export default function AgentDetail() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Quick Action CTAs */}
+      <div style={{ padding: '20px 32px 0', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        {/* Create Skill for this agent */}
+        <button
+          onClick={() => navigate(`/skills/create?agent=${name}`)}
+          style={{
+            flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+            padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(6,182,212,0.15) 0%, rgba(6,182,212,0.05) 100%)',
+            border: '1px solid rgba(6,182,212,0.25)',
+            transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = '#06b6d4';
+            e.currentTarget.style.boxShadow = '0 8px 32px -8px rgba(6,182,212,0.4)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = 'rgba(6,182,212,0.25)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          <div style={{
+            width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(6,182,212,0.3)',
+          }}>
+            <Zap size={20} color="#fff" />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Create Skill</div>
+            <div style={{ fontSize: '11px', color: t.ts }}>New skill auto-linked to this agent</div>
+          </div>
+          <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+        </button>
+
+        {/* Add Existing Skills */}
+        <button
+          onClick={async () => {
+            try {
+              const all = await api('/api/skills');
+              setAllSkills(all || []);
+              setShowSkillPicker(true);
+            } catch (e) { console.error(e); }
+          }}
+          style={{
+            flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+            padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(139,92,246,0.05) 100%)',
+            border: '1px solid rgba(139,92,246,0.25)',
+            transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = t.violet;
+            e.currentTarget.style.boxShadow = '0 8px 32px -8px rgba(139,92,246,0.4)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = 'rgba(139,92,246,0.25)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          <div style={{
+            width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(139,92,246,0.3)',
+          }}>
+            <Plus size={20} color="#fff" />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Add Skills</div>
+            <div style={{ fontSize: '11px', color: t.ts }}>Assign existing skills to this agent</div>
+          </div>
+          <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+        </button>
+
+        {/* Enhance with AI */}
+        <button
+          onClick={() => setShowAgentCreator(true)}
+          style={{
+            flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+            padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(245,158,11,0.05) 100%)',
+            border: '1px solid rgba(245,158,11,0.25)',
+            transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = '#f59e0b';
+            e.currentTarget.style.boxShadow = '0 8px 32px -8px rgba(245,158,11,0.4)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = 'rgba(245,158,11,0.25)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          <div style={{
+            width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(245,158,11,0.3)',
+          }}>
+            <Sparkles size={20} color="#fff" />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Enhance with AI</div>
+            <div style={{ fontSize: '11px', color: t.ts }}>Improve this agent via AI conversation</div>
+          </div>
+          <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+        </button>
       </div>
 
       {/* Showcase Management Panel */}
@@ -1531,6 +1652,18 @@ Use this agent to delegate tasks matching its expertise.`;
             />
           </div>
         </div>
+      )}
+
+      {/* Agent Creator Modal (Enhance with AI) */}
+      {showAgentCreator && (
+        <AgentCreator
+          onClose={() => {
+            setShowAgentCreator(false);
+            // Reload agent data in case it was updated
+            api(`/api/agents/${name}`).then(setAgent).catch(console.error);
+          }}
+          initialAgent={{ name: agent.name, prompt: agent.full_prompt || '' }}
+        />
       )}
 
       <style>{`

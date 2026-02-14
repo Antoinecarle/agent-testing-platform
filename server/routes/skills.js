@@ -307,6 +307,10 @@ router.put('/:id', async (req, res) => {
     const skill = await db.getSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
+    // Ownership check
+    if (skill.created_by && skill.created_by !== req.user.userId && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Only the creator can edit this skill' });
+
     const { name, description, prompt, category, icon, color } = req.body;
     const fields = { description, prompt, category, icon, color };
 
@@ -335,6 +339,10 @@ router.delete('/:id', async (req, res) => {
   try {
     const skill = await db.getSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    // Ownership check
+    if (skill.created_by && skill.created_by !== req.user.userId && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Only the creator can delete this skill' });
 
     await db.deleteSkill(req.params.id);
     res.json({ ok: true });

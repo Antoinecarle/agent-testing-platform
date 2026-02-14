@@ -66,6 +66,7 @@ interface Validation {
 
 interface AgentCreatorProps {
   onClose: () => void;
+  initialAgent?: { name: string; prompt: string };
 }
 
 const WELCOME_MSG: Message = {
@@ -74,7 +75,13 @@ const WELCOME_MSG: Message = {
   content: "I'm your AI agent architect. I can see your uploaded screenshots directly — upload references and let's discuss the design.\n\nStart by uploading screenshots, adding URLs, or describing the style you want.",
 };
 
-const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
+const ENHANCE_WELCOME_MSG = (agentName: string): Message => ({
+  id: 'welcome',
+  role: 'assistant',
+  content: `I've loaded the current prompt for **${agentName.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}**. I'm ready to help you enhance it.\n\nTell me what you'd like to improve — capabilities, style, structure, new sections, or anything else.`,
+});
+
+const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) => {
   // Conversation list
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -112,9 +119,53 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load conversations on mount + auto-select last active
+  // Load conversations on mount + auto-select last active (or init enhance mode)
   useEffect(() => {
-    loadConversations().then((convs) => {
+    loadConversations().then(async (convs) => {
+      // If initialAgent provided, create a new "Enhance" conversation
+      if (initialAgent) {
+        try {
+          const displayName = initialAgent.name.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
+          const result = await api('/api/agent-creator/conversations', {
+            method: 'POST',
+            body: JSON.stringify({ name: `Enhance: ${displayName}` }),
+          });
+          const conv = result.conversation;
+          setConversations(prev => [conv, ...prev]);
+          setConversationId(conv.id);
+          setConvName(conv.name);
+          localStorage.setItem('atp-agent-creator-conv', conv.id);
+          setAgentNameOverride(initialAgent.name);
+          // Set the existing prompt as the generated agent (so it shows in preview)
+          if (initialAgent.prompt) {
+            setGeneratedAgent(initialAgent.prompt);
+            setIsPreviewOpen(true);
+          }
+          setMessages([ENHANCE_WELCOME_MSG(initialAgent.name)]);
+          setReferences([]);
+          // Send a system context message so the AI knows the current prompt
+          if (initialAgent.prompt) {
+            try {
+              const contextMsg = `I want to enhance this existing agent "${displayName}". Here is its current prompt:\n\n\`\`\`\n${initialAgent.prompt.slice(0, 8000)}\n\`\`\`\n\nPlease analyze it and wait for my instructions on what to improve.`;
+              const result2 = await api(`/api/agent-creator/conversations/${conv.id}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ message: contextMsg }),
+              });
+              // Add both user and assistant messages to the chat
+              const userMsg: Message = { id: `init-${Date.now()}`, role: 'user', content: contextMsg };
+              const responseContent = result2.message?.content || result2.response || '';
+              const assistantMsg: Message = { id: `resp-${Date.now()}`, role: 'assistant', content: responseContent };
+              setMessages(prev => [...prev, userMsg, assistantMsg]);
+            } catch (err: any) {
+              console.error('Failed to send initial context:', err);
+            }
+          }
+          return;
+        } catch (err: any) {
+          console.error('Failed to create enhance conversation:', err);
+        }
+      }
+
       if (!convs || convs.length === 0) return;
       const savedId = localStorage.getItem('atp-agent-creator-conv');
       const target = savedId ? convs.find((c: Conversation) => c.id === savedId) : null;
@@ -173,7 +224,8 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose }) => {
       const msgs: Message[] = (c.messages || []).map((m: any) => ({
         id: m.id, role: m.role, content: m.content,
       }));
-      setMessages(msgs.length > 0 ? msgs : [WELCOME_MSG]);
+      const welcomeMsg = conv.name.startsWith('Enhance:') ? ENHANCE_WELCOME_MSG(conv.name.replace('Enhance: ', '')) : WELCOME_MSG;
+      setMessages(msgs.length > 0 ? msgs : [welcomeMsg]);
       setReferences(c.references || []);
       if (c.design_brief) setDesignBrief(c.design_brief);
       if (c.generated_agent) {

@@ -397,6 +397,78 @@ router.post('/conversations/:id/save', async (req, res) => {
   }
 });
 
+// ========== AI SUGGESTIONS ==========
+
+router.post('/conversations/:id/suggestions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.body; // 'names', 'improvements', 'structure', 'all'
+    const conversation = await db.getSkillConversation(id);
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    let context = `Skill: ${conversation.name}`;
+    let skillContent = '';
+
+    if (conversation.skill_id) {
+      const skill = await db.getSkill(conversation.skill_id);
+      if (skill) {
+        context += `\nDescription: ${skill.description || 'N/A'}`;
+        context += `\nCategory: ${skill.category || 'general'}`;
+        const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+        if (entryFile) {
+          skillContent = entryFile.content.slice(0, 4000);
+          context += `\n\nSKILL.md content:\n${skillContent}`;
+        }
+        const tree = skillStorage.scanSkillTree(skill.slug);
+        if (tree) {
+          context += `\nFile tree: ${JSON.stringify(tree).slice(0, 1500)}`;
+        }
+      }
+    }
+
+    // Load recent conversation for context
+    const messages = await db.getSkillConversationMessages(id);
+    const recentMsgs = messages.slice(-5).map(m => `${m.role}: ${m.content.slice(0, 200)}`).join('\n');
+    if (recentMsgs) context += `\n\nRecent conversation:\n${recentMsgs}`;
+
+    const suggestType = type || 'all';
+
+    const systemPrompt = `You are an expert AI skill architect. Given a skill's context, generate intelligent suggestions to improve it. Return ONLY valid JSON.`;
+
+    let userPrompt;
+    if (suggestType === 'names') {
+      userPrompt = `${context}\n\nSuggest 5 better, more descriptive names for this skill. Each name should be concise (2-5 words), professional, and clearly communicate what the skill does.\n\nReturn JSON: { "names": [{ "name": "Suggested Name", "reason": "Why this name is better" }] }`;
+    } else if (suggestType === 'improvements') {
+      userPrompt = `${context}\n\nAnalyze the skill content and suggest 4-6 specific improvements. Focus on: missing topics, vague sections, better examples, structure issues, missing code snippets.\n\nReturn JSON: { "improvements": [{ "title": "Short title", "description": "Detailed suggestion", "priority": "high|medium|low", "target_file": "file path or null" }] }`;
+    } else if (suggestType === 'structure') {
+      userPrompt = `${context}\n\nSuggest structural improvements: new files to add, files to split, files to merge, better organization.\n\nReturn JSON: { "structure": [{ "action": "add|split|merge|rename", "target": "file path", "suggestion": "What to do", "description": "Why" }] }`;
+    } else {
+      // all
+      userPrompt = `${context}\n\nProvide comprehensive suggestions for this skill:\n1. 5 better name suggestions\n2. 4-6 content improvements\n3. 3-4 structure suggestions\n\nReturn JSON:\n{\n  "names": [{ "name": "...", "reason": "..." }],\n  "improvements": [{ "title": "...", "description": "...", "priority": "high|medium|low", "target_file": "..." }],\n  "structure": [{ "action": "add|split|merge|rename", "target": "...", "suggestion": "...", "description": "..." }]\n}`;
+    }
+
+    const response = await callGPT5(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+
+    let suggestions;
+    try {
+      suggestions = JSON.parse(response);
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to parse AI suggestions' });
+    }
+
+    res.json({ suggestions, type: suggestType });
+  } catch (err) {
+    console.error('[skill-creator] Suggestions error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ========== TEMPLATES ==========
 
 router.get('/templates', async (req, res) => {
