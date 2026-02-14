@@ -1192,11 +1192,26 @@ async function updateApiKeyLastUsed(id) {
   await supabase.from('deployment_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', id);
 }
 
+// ===================== STORAGE =====================
+
+async function uploadProfilePic(fileBuffer, filename, contentType) {
+  const { data, error } = await supabase.storage
+    .from('profile-pics')
+    .upload(filename, fileBuffer, {
+      contentType,
+      upsert: true,
+    });
+  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  const { data: urlData } = supabase.storage.from('profile-pics').getPublicUrl(filename);
+  return urlData.publicUrl;
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
   supabase,
   seedAdmin,
+  uploadProfilePic,
   // Agents
   upsertAgent, createAgentManual, getAllAgents, getAgent, getAgentsByCategory,
   updateAgentRating, updateAgentLastUsed, updateAgentScreenshot,

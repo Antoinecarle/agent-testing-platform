@@ -284,7 +284,7 @@ router.post('/conversations/:id/urls', async (req, res) => {
       ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.designStyle || 'analyzed'}`
       : JSON.stringify({ title: structuredAnalysis.extracted?.title || 'Unknown', url });
 
-    // If og:image found (LinkedIn, Twitter, etc.), download and save locally as profile pic
+    // If og:image found (LinkedIn, Twitter, etc.), download and upload to Supabase Storage
     let profileImageUrl = null;
     const ogImage = structuredAnalysis.extracted?.ogImage;
     if (ogImage) {
@@ -298,11 +298,9 @@ router.post('/conversations/:id/urls', async (req, res) => {
           const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
           const ext = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg';
           const filename = `profile-${id}${ext}`;
-          await fs.mkdir(UPLOAD_DIR, { recursive: true });
           const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
-          await fs.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
-          profileImageUrl = `/uploads/agent-creator/${filename}`;
-          console.log(`[agent-creator] Downloaded og:image for conversation ${id}: ${profileImageUrl} (${imageBuffer.length} bytes)`);
+          profileImageUrl = await db.uploadProfilePic(imageBuffer, filename, contentType);
+          console.log(`[agent-creator] Downloaded og:image to Supabase: ${profileImageUrl} (${imageBuffer.length} bytes)`);
         }
       } catch (imgErr) {
         console.warn(`[agent-creator] Failed to download og:image from ${ogImage}:`, imgErr.message);
@@ -1258,17 +1256,9 @@ router.post('/conversations/:id/save', async (req, res) => {
       for (const ref of refs) {
         const sa = ref.structured_analysis;
         if (sa && sa.profile_image_url) {
-          // Copy to agent-specific filename for persistence
-          const srcFile = path.join(UPLOAD_DIR, path.basename(sa.profile_image_url));
-          const ext = path.extname(sa.profile_image_url) || '.jpg';
-          const destFile = path.join(UPLOAD_DIR, `agent-${agentName}${ext}`);
-          try {
-            await fs.copyFile(srcFile, destFile);
-            thumbnailUrl = `/uploads/agent-creator/agent-${agentName}${ext}`;
-            console.log(`[agent-creator] Using profile image as thumbnail for ${agentName}: ${thumbnailUrl}`);
-          } catch (copyErr) {
-            console.warn(`[agent-creator] Failed to copy profile image:`, copyErr.message);
-          }
+          // Profile image is already on Supabase Storage — use directly
+          thumbnailUrl = sa.profile_image_url;
+          console.log(`[agent-creator] Using profile image as thumbnail for ${agentName}: ${thumbnailUrl}`);
           break;
         }
       }

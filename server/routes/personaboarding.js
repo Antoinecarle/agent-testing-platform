@@ -10,20 +10,10 @@ const router = express.Router();
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
-const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
 
-// Multer for profile pic uploads
+// Multer stores in memory for Supabase upload
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      cb(null, UPLOAD_DIR);
-    },
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname) || '.jpg';
-      cb(null, `profile-${Date.now()}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
@@ -250,12 +240,14 @@ router.post('/upload-profile-pic', upload.single('image'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });
     }
-    const profileImageUrl = `/uploads/agent-creator/${req.file.filename}`;
-    console.log(`[Personaboarding] Profile pic uploaded: ${profileImageUrl} (${req.file.size} bytes)`);
-    res.json({ profileImageUrl });
+    const ext = path.extname(req.file.originalname) || '.jpg';
+    const filename = `profile-${Date.now()}${ext}`;
+    const publicUrl = await db.uploadProfilePic(req.file.buffer, filename, req.file.mimetype);
+    console.log(`[Personaboarding] Profile pic uploaded to Supabase: ${publicUrl} (${req.file.size} bytes)`);
+    res.json({ profileImageUrl: publicUrl });
   } catch (err) {
     console.error('[Personaboarding] Profile pic upload error:', err.message);
-    res.status(500).json({ error: 'Upload failed' });
+    res.status(500).json({ error: 'Upload failed: ' + err.message });
   }
 });
 
@@ -285,12 +277,10 @@ router.post('/linkedin-analyze', async (req, res) => {
       ogImage = ogImageMatch?.[1] || null;
     }
 
-    // Download og:image if found
+    // Download og:image if found — upload to Supabase Storage
     let profileImageUrl = null;
     if (ogImage) {
       try {
-        const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
-        if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
         const imgRes = await fetch(ogImage, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
           signal: AbortSignal.timeout(15000),
@@ -301,10 +291,8 @@ router.post('/linkedin-analyze', async (req, res) => {
           const ext = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg';
           const filename = `linkedin-${username || Date.now()}${ext}`;
           const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-          const fsPromises = require('fs').promises;
-          await fsPromises.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
-          profileImageUrl = `/uploads/agent-creator/${filename}`;
-          console.log(`[Personaboarding] Downloaded LinkedIn profile pic: ${profileImageUrl} (${imageBuffer.length} bytes)`);
+          profileImageUrl = await db.uploadProfilePic(imageBuffer, filename, contentType);
+          console.log(`[Personaboarding] Downloaded LinkedIn og:image to Supabase: ${profileImageUrl} (${imageBuffer.length} bytes)`);
         }
       } catch (imgErr) {
         console.warn(`[Personaboarding] Failed to download LinkedIn og:image:`, imgErr.message);
@@ -638,20 +626,11 @@ router.post('/complete', async (req, res) => {
       promptPreview, fullContent, toolsList, 15, '', permissionMode, req.user?.userId
     );
 
-    // Save LinkedIn profile image as agent screenshot
+    // Save profile image URL as agent screenshot (already on Supabase Storage)
     if (profileImageUrl) {
       try {
-        const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
-        const srcPath = path.join(UPLOAD_DIR, path.basename(profileImageUrl));
-        if (fs.existsSync(srcPath)) {
-          const ext = path.extname(srcPath);
-          const destFilename = `agent-${agentName}${ext}`;
-          const destPath = path.join(UPLOAD_DIR, destFilename);
-          fs.copyFileSync(srcPath, destPath);
-          const screenshotPath = `/uploads/agent-creator/${destFilename}`;
-          await db.updateAgentScreenshot(agentName, screenshotPath);
-          console.log(`[Personaboarding] Saved profile pic as agent screenshot: ${screenshotPath}`);
-        }
+        await db.updateAgentScreenshot(agentName, profileImageUrl);
+        console.log(`[Personaboarding] Saved profile pic as agent screenshot: ${profileImageUrl}`);
       } catch (imgErr) {
         console.warn(`[Personaboarding] Failed to save profile image as screenshot:`, imgErr.message);
       }
