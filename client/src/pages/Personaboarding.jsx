@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   User, Shield, Zap, MessageSquare, GitBranch, Wrench,
   Cpu, Settings, Sparkles, Check, Loader2, PenTool, ArrowRight,
-  Linkedin, X, ExternalLink, Link as LinkIcon,
+  Linkedin, X, ExternalLink, Link as LinkIcon, Upload, Camera,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -198,6 +198,8 @@ export default function Personaboarding() {
   const [linkedinSuggestions, setLinkedinSuggestions] = useState(null);
   const [linkedinPhase, setLinkedinPhase] = useState('input');
   const [aiSkillsLoading, setAiSkillsLoading] = useState(false);
+  const [profilePicUploading, setProfilePicUploading] = useState(false);
+  const profilePicInputRef = useRef(null);
 
   // Narrative history
   const [history, setHistory] = useState([]);
@@ -258,6 +260,28 @@ export default function Personaboarding() {
 
   function handleManualMode() {
     setSourceMode('manual');
+  }
+
+  async function handleProfilePicUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setProfilePicUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const res = await fetch('/api/personaboarding/upload-profile-pic', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.profileImageUrl) {
+        setLinkedinSuggestions(prev => ({ ...prev, profileImageUrl: data.profileImageUrl }));
+      }
+    } catch (err) {
+      console.error('Profile pic upload failed:', err);
+    }
+    setProfilePicUploading(false);
   }
 
   async function fetchAiSkills(roleId) {
@@ -637,31 +661,90 @@ export default function Personaboarding() {
 
             {/* Profile Image + Suggestion Preview Cards */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
-              {linkedinSuggestions.profileImageUrl && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '16px',
-                  padding: '14px 18px', backgroundColor: t.surface, borderRadius: '10px',
-                  border: `1px solid ${t.border}`, marginBottom: '4px',
-                }}>
-                  <img
-                    src={linkedinSuggestions.profileImageUrl}
-                    alt="Profile"
-                    style={{
-                      width: '56px', height: '56px', borderRadius: '14px',
-                      objectFit: 'cover', border: `2px solid #3B82F640`,
-                      boxShadow: '0 4px 12px rgba(59,130,246,0.15)',
-                    }}
-                  />
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: t.tp }}>
-                      {linkedinSuggestions.displayName}
+              {/* Profile pic: show image or upload button */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '16px',
+                padding: '14px 18px', backgroundColor: t.surface, borderRadius: '10px',
+                border: `1px solid ${linkedinSuggestions.profileImageUrl ? '#3B82F630' : t.border}`, marginBottom: '4px',
+              }}>
+                {linkedinSuggestions.profileImageUrl ? (
+                  <>
+                    <img
+                      src={linkedinSuggestions.profileImageUrl}
+                      alt="Profile"
+                      style={{
+                        width: '56px', height: '56px', borderRadius: '14px',
+                        objectFit: 'cover', border: `2px solid #3B82F640`,
+                        boxShadow: '0 4px 12px rgba(59,130,246,0.15)',
+                      }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: t.tp }}>
+                        {linkedinSuggestions.displayName}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#60A5FA', marginTop: '2px' }}>
+                        Photo de profil importée
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', color: '#60A5FA', marginTop: '2px' }}>
-                      Photo de profil importée
+                    <button
+                      onClick={() => profilePicInputRef.current?.click()}
+                      style={{
+                        background: 'none', border: `1px solid ${t.border}`, borderRadius: '6px',
+                        padding: '4px 10px', color: t.ts, fontSize: '11px', cursor: 'pointer',
+                        fontFamily: t.font, transition: 'all 0.2s',
+                      }}
+                    >
+                      Changer
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => profilePicInputRef.current?.click()}
+                      disabled={profilePicUploading}
+                      style={{
+                        width: '56px', height: '56px', borderRadius: '14px',
+                        backgroundColor: '#3B82F610', border: `2px dashed #3B82F640`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s',
+                      }}
+                    >
+                      {profilePicUploading
+                        ? <Loader2 size={20} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
+                        : <Camera size={20} color="#3B82F6" />
+                      }
+                    </button>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>
+                        Ajouter la photo de profil
+                      </div>
+                      <div style={{ fontSize: '11px', color: t.tm, marginTop: '2px', lineHeight: '1.4' }}>
+                        Clic droit sur votre photo LinkedIn → Enregistrer, puis uploadez-la ici
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
+                    <button
+                      onClick={() => profilePicInputRef.current?.click()}
+                      disabled={profilePicUploading}
+                      style={{
+                        backgroundColor: '#3B82F6', color: '#fff', border: 'none',
+                        borderRadius: '8px', padding: '8px 14px', fontSize: '12px',
+                        fontWeight: 600, cursor: 'pointer', fontFamily: t.font,
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        transition: 'all 0.2s', flexShrink: 0,
+                      }}
+                    >
+                      <Upload size={13} /> Upload
+                    </button>
+                  </>
+                )}
+                <input
+                  ref={profilePicInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleProfilePicUpload}
+                />
+              </div>
               {[
                 { label: 'Nom', value: linkedinSuggestions.displayName, icon: <User size={13} /> },
                 { label: 'Rôle', value: linkedinSuggestions.role?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), icon: <Shield size={13} /> },

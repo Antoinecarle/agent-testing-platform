@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const { callGPT5 } = require('../lib/agent-analysis');
 
@@ -9,6 +10,26 @@ const router = express.Router();
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const CUSTOM_AGENTS_DIR = path.join(DATA_DIR, 'custom-agents');
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
+const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
+
+// Multer for profile pic uploads
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      cb(null, UPLOAD_DIR);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname) || '.jpg';
+      cb(null, `profile-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files allowed'));
+  },
+});
 
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -223,53 +244,20 @@ async function fetchLinkedInPage(url, username) {
   return null;
 }
 
-// ── Generate profile pic with Gemini if LinkedIn fails ──────────────────────
-async function generateProfilePicWithGemini(displayName, role) {
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
-  if (!apiKey) return null;
-
+// POST /api/personaboarding/upload-profile-pic
+router.post('/upload-profile-pic', upload.single('image'), async (req, res) => {
   try {
-    const prompt = `Professional headshot portrait photo of a person named ${displayName} who works as a ${role || 'professional'}. Clean background, professional lighting, realistic, high quality portrait. LinkedIn-style professional photo.`;
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000),
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn(`[Personaboarding] Gemini image API error: ${response.status}`);
-      return null;
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
     }
-
-    const data = await response.json();
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (!imagePart) return null;
-
-    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
-    const mimeType = imagePart.inlineData.mimeType || 'image/png';
-    const ext = mimeType.includes('png') ? '.png' : '.jpg';
-    const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
-    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-    const filename = `gemini-profile-${slugify(displayName)}-${Date.now()}${ext}`;
-    const fsPromises = require('fs').promises;
-    await fsPromises.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
-    const profileUrl = `/uploads/agent-creator/${filename}`;
-    console.log(`[Personaboarding] Generated profile pic with Gemini: ${profileUrl} (${imageBuffer.length} bytes)`);
-    return profileUrl;
+    const profileImageUrl = `/uploads/agent-creator/${req.file.filename}`;
+    console.log(`[Personaboarding] Profile pic uploaded: ${profileImageUrl} (${req.file.size} bytes)`);
+    res.json({ profileImageUrl });
   } catch (err) {
-    console.warn(`[Personaboarding] Gemini profile pic generation failed:`, err.message);
-    return null;
+    console.error('[Personaboarding] Profile pic upload error:', err.message);
+    res.status(500).json({ error: 'Upload failed' });
   }
-}
+});
 
 // POST /api/personaboarding/linkedin-analyze
 router.post('/linkedin-analyze', async (req, res) => {
@@ -323,18 +311,9 @@ router.post('/linkedin-analyze', async (req, res) => {
       }
     }
 
-    // Analyze with GPT first (to get displayName/role for Gemini fallback)
     const suggestions = await analyzeLinkedInWithGPT(pageData, url);
 
-    // If no profile pic from LinkedIn, generate one with Gemini
-    if (!profileImageUrl && suggestions.displayName) {
-      console.log(`[Personaboarding] No LinkedIn og:image found, generating with Gemini...`);
-      profileImageUrl = await generateProfilePicWithGemini(
-        suggestions.displayName,
-        suggestions.role?.replace(/-/g, ' ') || ''
-      );
-    }
-
+    // If og:image was found, attach it (user can also upload manually via upload-profile-pic endpoint)
     if (profileImageUrl) {
       suggestions.profileImageUrl = profileImageUrl;
     }
