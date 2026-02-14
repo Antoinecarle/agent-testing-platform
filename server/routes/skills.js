@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const skillStorage = require('../skill-storage');
+const { callGPT5 } = require('../lib/agent-analysis');
 
 const router = express.Router();
 
@@ -169,6 +170,64 @@ router.post('/agent/:agentName/bulk', async (req, res) => {
   } catch (err) {
     console.error('[Skills] Bulk assign to agent error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/skills/agent/:agentName/ai-generate — AI-generate skills based on agent context
+router.post('/agent/:agentName/ai-generate', async (req, res) => {
+  try {
+    const agentName = req.params.agentName;
+    const agent = await db.getAgent(agentName);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const existingSkills = await db.getAgentSkills(agentName);
+    const existingNames = existingSkills.map(s => s.name);
+
+    const prompt = `You are a skill architect for AI agents. Analyze this agent's full context and generate complementary skills that would enhance its capabilities.
+
+AGENT CONTEXT:
+- Name: ${agent.name}
+- Description: ${agent.description || 'N/A'}
+- Model: ${agent.model || 'N/A'}
+- Category: ${agent.category || 'N/A'}
+- System Prompt (first 2000 chars): ${(agent.full_prompt || agent.prompt || '').slice(0, 2000)}
+- Tools: ${agent.tools || 'N/A'}
+- Permission Mode: ${agent.permission_mode || 'N/A'}
+
+EXISTING SKILLS (DO NOT duplicate these):
+${existingNames.length > 0 ? existingNames.map(n => `- ${n}`).join('\n') : '(none)'}
+
+Generate 8-12 NEW skills that:
+1. Are specifically tailored to this agent's domain and capabilities
+2. Complement (not duplicate) existing skills
+3. Cover different aspects: core competency, analysis, output quality, domain knowledge, workflow
+4. Have actionable, specific names (not vague)
+
+Return JSON:
+{
+  "skills": [
+    {
+      "name": "Skill Name",
+      "description": "What this skill enables the agent to do (1-2 sentences)",
+      "category": "one of: core, analysis, quality, domain, workflow, integration, research, output",
+      "color": "#hex color that fits the category"
+    }
+  ]
+}`;
+
+    const result = await callGPT5(
+      [
+        { role: 'system', content: 'You are a skill architect. Respond ONLY with valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      { max_completion_tokens: 2000, responseFormat: 'json' }
+    );
+
+    const parsed = JSON.parse(result);
+    res.json({ skills: parsed.skills || [] });
+  } catch (err) {
+    console.error('[Skills] AI generate error:', err.message);
+    res.status(500).json({ error: 'AI generation failed: ' + err.message });
   }
 });
 

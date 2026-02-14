@@ -201,6 +201,10 @@ export default function AgentDetail() {
   const [agentSkills, setAgentSkills] = useState([]);
   const [allSkills, setAllSkills] = useState([]);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [aiSuggestedSkills, setAiSuggestedSkills] = useState([]);
+  const [aiSkillsLoading, setAiSkillsLoading] = useState(false);
+  const [showAiSkillPanel, setShowAiSkillPanel] = useState(false);
+  const [selectedAiSkills, setSelectedAiSkills] = useState(new Set());
 
   // Showcase management
   const [showcases, setShowcases] = useState([]);
@@ -1071,19 +1075,38 @@ export default function AgentDetail() {
                 </span>
               </h2>
               {isOwner && (
-                <button onClick={async () => {
-                  try {
-                    const all = await api('/api/skills');
-                    setAllSkills(all || []);
-                    setShowSkillPicker(true);
-                  } catch (e) { console.error(e); }
-                }} style={{
-                  backgroundColor: t.violetM, color: t.violet, border: 'none',
-                  padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '4px',
-                }}>
-                  <Plus size={12} />Add
-                </button>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={async () => {
+                    setAiSkillsLoading(true);
+                    setShowAiSkillPanel(true);
+                    setSelectedAiSkills(new Set());
+                    try {
+                      const res = await api(`/api/skills/agent/${name}/ai-generate`, { method: 'POST' });
+                      setAiSuggestedSkills(res.skills || []);
+                      setSelectedAiSkills(new Set((res.skills || []).map((_, i) => i)));
+                    } catch (e) { console.error(e); setAiSuggestedSkills([]); }
+                    setAiSkillsLoading(false);
+                  }} style={{
+                    backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)',
+                    padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                  }}>
+                    <Sparkles size={12} />AI Enhance
+                  </button>
+                  <button onClick={async () => {
+                    try {
+                      const all = await api('/api/skills');
+                      setAllSkills(all || []);
+                      setShowSkillPicker(true);
+                    } catch (e) { console.error(e); }
+                  }} style={{
+                    backgroundColor: t.violetM, color: t.violet, border: 'none',
+                    padding: '5px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                  }}>
+                    <Plus size={12} />Add
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1092,10 +1115,11 @@ export default function AgentDetail() {
                 <div key={skill.id} style={{
                   backgroundColor: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
                   padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  transition: 'border-color 0.2s',
+                  transition: 'all 0.2s', cursor: 'pointer',
                 }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = skill.color || t.violet}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = skill.color || t.violet; e.currentTarget.style.transform = 'translateX(4px)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.transform = 'translateX(0)'; }}
+                  onClick={() => navigate(`/skills/${skill.id}/edit`)}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: skill.color || t.violet }} />
@@ -1104,13 +1128,15 @@ export default function AgentDetail() {
                       fontSize: '9px', color: t.tm, padding: '1px 6px', borderRadius: '100px',
                       backgroundColor: 'rgba(255,255,255,0.04)',
                     }}>{skill.category || 'general'}</span>
+                    <ExternalLink size={10} style={{ color: t.tm, opacity: 0.5 }} />
                   </div>
                   {isOwner && (
-                    <button onClick={async () => {
+                    <button onClick={async (e) => {
+                      e.stopPropagation();
                       try {
                         await api(`/api/skills/${skill.id}/unassign/${name}`, { method: 'DELETE' });
                         setAgentSkills(prev => prev.filter(s => s.id !== skill.id));
-                      } catch (e) { console.error(e); }
+                      } catch (err) { console.error(err); }
                     }} style={{
                       background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '4px', display: 'flex',
                     }} title="Remove skill">
@@ -1119,7 +1145,7 @@ export default function AgentDetail() {
                   )}
                 </div>
               ))}
-              {agentSkills.length === 0 && (
+              {agentSkills.length === 0 && !showAiSkillPanel && (
                 <div style={{
                   padding: '24px 14px', textAlign: 'center', borderRadius: '8px',
                   border: `1px dashed ${t.borderS}`, color: t.tm, fontSize: '11px',
@@ -1128,6 +1154,123 @@ export default function AgentDetail() {
                 </div>
               )}
             </div>
+
+            {/* AI Skill Suggestions Panel */}
+            {showAiSkillPanel && (
+              <div style={{
+                marginTop: '12px', borderRadius: '10px', overflow: 'hidden',
+                border: '1px solid rgba(245,158,11,0.3)',
+                background: 'linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(245,158,11,0.02) 100%)',
+              }}>
+                <div style={{
+                  padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  borderBottom: '1px solid rgba(245,158,11,0.15)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Sparkles size={14} style={{ color: '#f59e0b' }} />
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>AI-Suggested Skills</span>
+                    {!aiSkillsLoading && aiSuggestedSkills.length > 0 && (
+                      <span style={{ fontSize: '10px', color: t.tm }}>
+                        {selectedAiSkills.size}/{aiSuggestedSkills.length} selected
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {!aiSkillsLoading && aiSuggestedSkills.length > 0 && (
+                      <button onClick={async () => {
+                        if (selectedAiSkills.size === 0) return;
+                        const toCreate = aiSuggestedSkills.filter((_, i) => selectedAiSkills.has(i));
+                        try {
+                          const res = await api('/api/skills/bulk', {
+                            method: 'POST',
+                            body: JSON.stringify({ skills: toCreate }),
+                          });
+                          if (res.skills && res.skills.length > 0) {
+                            const ids = res.skills.map(s => s.id);
+                            await api(`/api/skills/agent/${name}/bulk`, {
+                              method: 'POST',
+                              body: JSON.stringify({ skill_ids: ids }),
+                            });
+                            const updated = await api(`/api/skills/agent/${name}`);
+                            setAgentSkills(updated || []);
+                          }
+                          setShowAiSkillPanel(false);
+                          setAiSuggestedSkills([]);
+                        } catch (e) { console.error(e); }
+                      }} style={{
+                        backgroundColor: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)',
+                        padding: '4px 12px', fontSize: '10px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+                      }}>
+                        Add {selectedAiSkills.size} Skills
+                      </button>
+                    )}
+                    <button onClick={() => { setShowAiSkillPanel(false); setAiSuggestedSkills([]); }} style={{
+                      background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex', padding: '4px',
+                    }}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ padding: '8px', maxHeight: '320px', overflowY: 'auto' }}>
+                  {aiSkillsLoading ? (
+                    <div style={{ padding: '30px', textAlign: 'center' }}>
+                      <div style={{
+                        width: '24px', height: '24px', border: '2px solid rgba(245,158,11,0.3)',
+                        borderTopColor: '#f59e0b', borderRadius: '50%', margin: '0 auto 10px',
+                        animation: 'spin 1s linear infinite',
+                      }} />
+                      <div style={{ fontSize: '11px', color: t.ts }}>Analyzing agent context...</div>
+                      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+                    </div>
+                  ) : aiSuggestedSkills.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: t.tm, fontSize: '11px' }}>
+                      No suggestions generated. Try again.
+                    </div>
+                  ) : (
+                    aiSuggestedSkills.map((skill, idx) => {
+                      const selected = selectedAiSkills.has(idx);
+                      return (
+                        <div key={idx} style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '10px',
+                          padding: '10px 12px', borderRadius: '6px', marginBottom: '4px',
+                          backgroundColor: selected ? 'rgba(245,158,11,0.08)' : 'transparent',
+                          border: `1px solid ${selected ? 'rgba(245,158,11,0.2)' : 'transparent'}`,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                          onClick={() => {
+                            setSelectedAiSkills(prev => {
+                              const next = new Set(prev);
+                              if (next.has(idx)) next.delete(idx); else next.add(idx);
+                              return next;
+                            });
+                          }}
+                        >
+                          <div style={{
+                            width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '1px',
+                            border: `2px solid ${selected ? '#f59e0b' : t.borderS}`,
+                            backgroundColor: selected ? '#f59e0b' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.15s',
+                          }}>
+                            {selected && <span style={{ color: '#000', fontSize: '11px', fontWeight: '700' }}>✓</span>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: skill.color || '#f59e0b' }} />
+                              <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{skill.name}</span>
+                              <span style={{ fontSize: '9px', color: t.tm, padding: '1px 6px', borderRadius: '100px', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                                {skill.category}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: t.ts, lineHeight: '1.4' }}>{skill.description}</div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* MCP Deployment Section */}
