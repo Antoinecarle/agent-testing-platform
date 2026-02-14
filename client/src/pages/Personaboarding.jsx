@@ -1162,36 +1162,49 @@ export default function Personaboarding() {
             </div>
             {/* Inline Interactive Constellation */}
             <div style={{
-              width: '100%', maxWidth: '460px', minHeight: '360px', margin: '0 auto 16px auto',
-              borderRadius: '12px', border: `1px solid ${t.border}`,
-              backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
+              width: '100%',
+              minHeight: '420px',
+              margin: '48px 0',
+              position: 'relative',
+              overflow: 'visible',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
             }}>
-              {/* Dot grid background */}
+              {/* Subtle radial glow to ground the constellation in the narrative flow */}
               <div style={{
-                position: 'absolute', inset: 0,
-                backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
-                backgroundSize: '24px 24px', opacity: 0.4, pointerEvents: 'none',
+                position: 'absolute',
+                width: '100%',
+                height: '100%',
+                background: `radial-gradient(circle at center, ${t.violetG} 0%, transparent 70%)`,
+                pointerEvents: 'none',
+                opacity: 0.8,
               }} />
-              <InteractiveConstellation
-                agentName={displayName}
-                roleLabel={role?.label || ''}
-                skills={skills}
-                selectedSkills={selectedSkills}
-                customSkills={customSkills}
-                onToggleSkill={(name) => {
-                  setSelectedSkills(prev =>
-                    prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
-                  );
-                }}
-                onAddCustomSkill={(skill) => {
-                  setCustomSkills(prev => [...prev, skill]);
-                  setSelectedSkills(prev => [...prev, skill.name]);
-                }}
-                onRemoveCustomSkill={(name) => {
-                  setCustomSkills(prev => prev.filter(s => s.name !== name));
-                  setSelectedSkills(prev => prev.filter(s => s !== name));
-                }}
-              />
+
+              {/* Interactive Area with visible overflow for labels */}
+              <div style={{ position: 'relative', zIndex: 1, width: '100%', overflow: 'visible' }}>
+                <InteractiveConstellation
+                  agentName={displayName}
+                  roleLabel={role?.label || ''}
+                  skills={skills}
+                  selectedSkills={selectedSkills}
+                  customSkills={customSkills}
+                  onToggleSkill={(name) => {
+                    setSelectedSkills(prev =>
+                      prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
+                    );
+                  }}
+                  onAddCustomSkill={(skill) => {
+                    setCustomSkills(prev => [...prev, skill]);
+                    setSelectedSkills(prev => [...prev, skill.name]);
+                  }}
+                  onRemoveCustomSkill={(name) => {
+                    setCustomSkills(prev => prev.filter(s => s.name !== name));
+                    setSelectedSkills(prev => prev.filter(s => s !== name));
+                  }}
+                />
+              </div>
             </div>
             {selectedSkills.length > 0 && <SelectedBadges items={selectedSkills} />}
             <ValidateButton disabled={selectedSkills.length === 0} onClick={handleSkillsValidate} label={`Valider ${selectedSkills.length} compétence${selectedSkills.length > 1 ? 's' : ''}`} />
@@ -1709,7 +1722,11 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
   const SIZE = 420;
   const CX = SIZE / 2;
   const CY = SIZE / 2;
-  const ORBIT = 148;
+  const ORBIT = 120;
+  // Expanded viewBox to include label text space on all sides
+  const VB_PAD_X = 160;
+  const VB_PAD_Y = 20;
+  const VB = `${-VB_PAD_X} ${-VB_PAD_Y} ${SIZE + VB_PAD_X * 2} ${SIZE + VB_PAD_Y * 2}`;
 
   // Merge role skills + custom skills
   const allSkills = [
@@ -1741,8 +1758,8 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '70%', maxHeight: '80%', overflow: 'visible', pointerEvents: 'none' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      <svg viewBox={VB} style={{ width: '100%', overflow: 'hidden', pointerEvents: 'none' }}>
         <defs>
           <filter id="icGlow">
             <feGaussianBlur stdDeviation="5" result="b" />
@@ -1846,8 +1863,8 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
 
       {/* Add custom skill input */}
       <div style={{
-        position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: '8px', alignItems: 'center',
+        display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center',
+        marginTop: '8px',
       }}>
         <input
           value={newSkillName}
