@@ -284,6 +284,31 @@ router.post('/conversations/:id/urls', async (req, res) => {
       ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.designStyle || 'analyzed'}`
       : JSON.stringify({ title: structuredAnalysis.extracted?.title || 'Unknown', url });
 
+    // If og:image found (LinkedIn, Twitter, etc.), download and save locally as profile pic
+    let profileImageUrl = null;
+    const ogImage = structuredAnalysis.extracted?.ogImage;
+    if (ogImage) {
+      try {
+        const imageRes = await fetch(ogImage, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(15000),
+          redirect: 'follow',
+        });
+        if (imageRes.ok) {
+          const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+          const ext = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg';
+          const filename = `profile-${id}${ext}`;
+          await fs.mkdir(UPLOAD_DIR, { recursive: true });
+          const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+          await fs.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
+          profileImageUrl = `/uploads/agent-creator/${filename}`;
+          console.log(`[agent-creator] Downloaded og:image for conversation ${id}: ${profileImageUrl} (${imageBuffer.length} bytes)`);
+        }
+      } catch (imgErr) {
+        console.warn(`[agent-creator] Failed to download og:image from ${ogImage}:`, imgErr.message);
+      }
+    }
+
     const reference = await db.createConversationReference(
       id,
       'url',
@@ -292,13 +317,17 @@ router.post('/conversations/:id/urls', async (req, res) => {
       summary
     );
 
-    // Store structured analysis
+    // Store structured analysis (include profile_image_url if found)
+    if (profileImageUrl) {
+      structuredAnalysis.profile_image_url = profileImageUrl;
+    }
     await db.updateReferenceAnalysis(reference.id, structuredAnalysis);
 
     res.json({
       reference: {
         ...reference,
         structured_analysis: structuredAnalysis,
+        profile_image_url: profileImageUrl,
       }
     });
   } catch (err) {
@@ -1222,18 +1251,48 @@ router.post('/conversations/:id/save', async (req, res) => {
 
     console.log(`[agent-creator] Saved agent: ${agentName} (${model}, ${category})`);
 
-    // Auto-generate thumbnail via Gemini (non-blocking — don't fail save if this fails)
+    // Check if any reference has a profile image (from LinkedIn, etc.)
     let thumbnailUrl = null;
     try {
-      const brief = conversation.design_brief || null;
-      const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`);
-      if (result) {
-        thumbnailUrl = result.previewUrl;
-        await db.updateAgentScreenshot(agentName, thumbnailUrl);
-        console.log(`[agent-creator] Thumbnail saved for agent ${agentName}: ${thumbnailUrl}`);
+      const refs = await db.getConversationReferences(id);
+      for (const ref of refs) {
+        const sa = ref.structured_analysis;
+        if (sa && sa.profile_image_url) {
+          // Copy to agent-specific filename for persistence
+          const srcFile = path.join(UPLOAD_DIR, path.basename(sa.profile_image_url));
+          const ext = path.extname(sa.profile_image_url) || '.jpg';
+          const destFile = path.join(UPLOAD_DIR, `agent-${agentName}${ext}`);
+          try {
+            await fs.copyFile(srcFile, destFile);
+            thumbnailUrl = `/uploads/agent-creator/agent-${agentName}${ext}`;
+            console.log(`[agent-creator] Using profile image as thumbnail for ${agentName}: ${thumbnailUrl}`);
+          } catch (copyErr) {
+            console.warn(`[agent-creator] Failed to copy profile image:`, copyErr.message);
+          }
+          break;
+        }
       }
     } catch (err) {
-      console.warn(`[agent-creator] Thumbnail generation failed (non-fatal):`, err.message);
+      console.warn(`[agent-creator] Reference profile image check failed:`, err.message);
+    }
+
+    // Fallback: auto-generate thumbnail via Gemini if no profile image found
+    if (!thumbnailUrl) {
+      try {
+        const brief = conversation.design_brief || null;
+        const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`);
+        if (result) {
+          thumbnailUrl = result.previewUrl;
+          console.log(`[agent-creator] Gemini thumbnail saved for agent ${agentName}: ${thumbnailUrl}`);
+        }
+      } catch (err) {
+        console.warn(`[agent-creator] Thumbnail generation failed (non-fatal):`, err.message);
+      }
+    }
+
+    // Update screenshot in DB
+    if (thumbnailUrl) {
+      await db.updateAgentScreenshot(agentName, thumbnailUrl);
     }
 
     res.json({

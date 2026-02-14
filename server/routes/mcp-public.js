@@ -734,6 +734,159 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       display: flex; align-items: center; gap: 4px;
     }
 
+    /* ===== CHAT CTA ===== */
+    .chat-cta {
+      padding: 100px 0; position: relative; overflow: hidden;
+    }
+    .chat-cta::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse 70% 50% at 50% 50%, ${color}12 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .chat-cta-inner {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 60px;
+      align-items: center; position: relative; z-index: 1;
+    }
+    .chat-cta-text { }
+    .chat-cta-label {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 16px; border-radius: 100px; font-size: 12px; font-weight: 600;
+      background: ${color}15; color: var(--primary); border: 1px solid ${color}33;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 24px;
+    }
+    .chat-cta-label .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--success);
+      animation: pulse 2s infinite;
+    }
+    .chat-cta h2 {
+      font-size: clamp(32px, 4vw, 52px); font-weight: 800; line-height: 1.1;
+      margin-bottom: 20px;
+    }
+    .chat-cta h2 .gradient-text {
+      background: linear-gradient(135deg, var(--primary) 0%, ${color}cc 50%, #a78bfa 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .chat-cta .cta-desc {
+      font-size: 16px; color: var(--text-muted); line-height: 1.7;
+      margin-bottom: 32px; max-width: 480px;
+    }
+    .chat-cta-badges {
+      display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 36px;
+    }
+    .cta-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 500;
+      background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+    }
+    .cta-badge .badge-icon { font-size: 16px; }
+    .chat-cta-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 16px 36px; border-radius: 14px; font-size: 17px; font-weight: 700;
+      background: linear-gradient(135deg, var(--primary) 0%, ${color}cc 100%);
+      color: #fff; border: none; cursor: pointer;
+      box-shadow: 0 4px 32px ${color}44, 0 0 0 1px ${color}22;
+      transition: all 0.3s; text-decoration: none;
+    }
+    .chat-cta-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 48px ${color}66, 0 0 0 1px ${color}44;
+    }
+    .chat-cta-btn .btn-arrow {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(255,255,255,0.2); transition: transform 0.3s;
+    }
+    .chat-cta-btn:hover .btn-arrow { transform: translateX(3px); }
+    .chat-cta-sub {
+      margin-top: 14px; font-size: 12px; color: var(--text-dim);
+    }
+
+    /* Chat CTA Preview (mock chat window) */
+    .chat-cta-preview {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 20px;
+      overflow: hidden; box-shadow: 0 20px 80px rgba(0,0,0,0.5), 0 0 60px ${color}08;
+      position: relative;
+    }
+    .chat-cta-preview::after {
+      content: ''; position: absolute; inset: -1px; border-radius: 20px;
+      background: linear-gradient(135deg, ${color}33 0%, transparent 40%, transparent 60%, ${color}22 100%);
+      pointer-events: none; z-index: 0;
+    }
+    .chat-preview-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(255,255,255,0.02); position: relative; z-index: 1;
+    }
+    .chat-preview-avatar {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary-light), ${color}22);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; border: 1px solid ${color}33;
+    }
+    .chat-preview-info h4 {
+      font-size: 15px; font-weight: 600; margin: 0;
+    }
+    .chat-preview-info .status {
+      font-size: 11px; color: var(--success); display: flex; align-items: center; gap: 4px;
+    }
+    .chat-preview-info .status::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success); display: inline-block;
+    }
+    .chat-preview-body {
+      padding: 20px; display: flex; flex-direction: column; gap: 14px;
+      min-height: 280px; position: relative; z-index: 1;
+    }
+    .preview-msg {
+      display: flex; gap: 10px; animation: previewFadeIn 0.6s ease forwards;
+      opacity: 0;
+    }
+    .preview-msg.user { flex-direction: row-reverse; }
+    .preview-msg:nth-child(1) { animation-delay: 0.3s; }
+    .preview-msg:nth-child(2) { animation-delay: 1.2s; }
+    .preview-msg:nth-child(3) { animation-delay: 2.1s; }
+    @keyframes previewFadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .preview-msg-avatar {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .preview-msg.user .preview-msg-avatar { background: rgba(255,255,255,0.08); }
+    .preview-msg.assistant .preview-msg-avatar { background: var(--primary-light); }
+    .preview-msg-bubble {
+      max-width: 80%; padding: 10px 16px; font-size: 13px; line-height: 1.6;
+    }
+    .preview-msg.user .preview-msg-bubble {
+      background: var(--primary-light); border: 1px solid ${color}33;
+      border-radius: 14px 14px 4px 14px; color: var(--text);
+    }
+    .preview-msg.assistant .preview-msg-bubble {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 14px 14px 14px 4px; color: var(--text-muted);
+    }
+    .chat-preview-footer {
+      padding: 14px 20px; border-top: 1px solid var(--border);
+      display: flex; gap: 8px; align-items: center; position: relative; z-index: 1;
+    }
+    .chat-preview-input-mock {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 14px; font-size: 13px;
+      color: var(--text-dim); font-family: 'Inter', sans-serif;
+    }
+    .chat-preview-send-mock {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: var(--primary); display: flex; align-items: center;
+      justify-content: center; font-size: 16px; color: #fff; opacity: 0.6;
+    }
+
+    @media (max-width: 768px) {
+      .chat-cta-inner { grid-template-columns: 1fr; gap: 40px; }
+      .chat-cta-preview { max-width: 100%; }
+      .chat-cta { padding: 60px 0; }
+    }
+
     /* ===== FOOTER ===== */
     footer {
       border-top: 1px solid var(--border); padding: 40px 0;
@@ -911,12 +1064,12 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
         <span class="nav-badge">MCP</span>
       </a>
       <div class="nav-links">
+        <a href="#try-chat" style="color:var(--primary);font-weight:600">Try Chat</a>
         <a href="#agent">Agent</a>
         <a href="#skills">Skills</a>
         <a href="#setup">Setup</a>
-        <a href="#usage">Usage</a>
       </div>
-      <a class="btn-primary" href="#setup">Get API Key</a>
+      <button class="btn-primary" onclick="toggleChat()">&#x1f4ac; Chat Now</button>
     </div>
   </nav>
 
@@ -930,8 +1083,8 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       <h1>${agentName}<br>MCP Server</h1>
       <p>${tagline}</p>
       <div class="hero-buttons">
-        <a class="btn-primary" href="#setup">Get Started</a>
-        <a class="btn-outline" href="#capabilities">View Capabilities</a>
+        <button class="btn-primary" onclick="toggleChat()" style="padding:12px 28px;font-size:16px;font-weight:600">&#x1f4ac; Talk to ${agentName}</button>
+        <a class="btn-outline" href="#setup" style="padding:12px 28px;font-size:16px">Get API Key</a>
       </div>
     </div>
   </section>
@@ -1044,6 +1197,59 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
     </div>
   </section>
   ` : ''}
+
+  <!-- CHAT CTA -->
+  <section class="chat-cta" id="try-chat">
+    <div class="container">
+      <div class="chat-cta-inner">
+        <div class="chat-cta-text">
+          <div class="chat-cta-label">
+            <span class="pulse-dot"></span>
+            Demo Available
+          </div>
+          <h2>Start talking to<br><span class="gradient-text">${agentName}</span></h2>
+          <p class="cta-desc">Experience the full power of this agent — ${formatTokens(promptTokens + totalSkillTokens)} tokens of deep knowledge${safeSkills.length > 0 ? `, ${safeSkills.length} specialized skill${safeSkills.length > 1 ? 's' : ''}` : ''}, and real-time AI responses. No API key needed.</p>
+          <div class="chat-cta-badges">
+            <span class="cta-badge"><span class="badge-icon">&#x1f9e0;</span> ${formatTokens(promptTokens + totalSkillTokens)} knowledge tokens</span>
+            ${safeSkills.length > 0 ? `<span class="cta-badge"><span class="badge-icon">&#x26a1;</span> ${safeSkills.length} skill${safeSkills.length > 1 ? 's' : ''} loaded</span>` : ''}
+            <span class="cta-badge"><span class="badge-icon">&#x1f4ac;</span> Free demo</span>
+          </div>
+          <button class="chat-cta-btn" onclick="toggleChat()">
+            Start Conversation
+            <span class="btn-arrow">&#x27A4;</span>
+          </button>
+          <p class="chat-cta-sub">20 free messages &middot; No signup required &middot; Full agent context</p>
+        </div>
+        <div class="chat-cta-preview" onclick="toggleChat()" style="cursor:pointer">
+          <div class="chat-preview-header">
+            <div class="chat-preview-avatar">&#x1f916;</div>
+            <div class="chat-preview-info">
+              <h4>${agentName}</h4>
+              <div class="status">Online &middot; Ready to chat</div>
+            </div>
+          </div>
+          <div class="chat-preview-body">
+            <div class="preview-msg user">
+              <div class="preview-msg-avatar">&#x1f464;</div>
+              <div class="preview-msg-bubble">What can you help me with?</div>
+            </div>
+            <div class="preview-msg assistant">
+              <div class="preview-msg-avatar">&#x1f916;</div>
+              <div class="preview-msg-bubble">I'm ${agentName}, specialized in ${escapeHtml(category)}. I have ${formatTokens(promptTokens + totalSkillTokens)} tokens of deep knowledge${safeSkills.length > 0 ? ` and ${safeSkills.length} specialized skills` : ''}. How can I assist you?</div>
+            </div>
+            <div class="preview-msg user">
+              <div class="preview-msg-avatar">&#x1f464;</div>
+              <div class="preview-msg-bubble">Let's get started!</div>
+            </div>
+          </div>
+          <div class="chat-preview-footer">
+            <div class="chat-preview-input-mock">Ask ${agentName} anything...</div>
+            <div class="chat-preview-send-mock">&#x27A4;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- CAPABILITIES -->
   <section class="section" id="capabilities">

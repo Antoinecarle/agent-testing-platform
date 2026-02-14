@@ -538,7 +538,29 @@ export default function AgentDetail() {
         boxShadow: `0 0 40px ${t.violetG}`,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-          <div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+            {/* Agent Avatar */}
+            {agent.screenshot_path ? (
+              <div style={{
+                width: '64px', height: '64px', borderRadius: '16px', overflow: 'hidden',
+                border: `2px solid ${t.violet}40`, flexShrink: 0,
+                background: t.surfaceEl, boxShadow: `0 4px 16px ${t.violetG}`,
+              }}>
+                <img src={agent.screenshot_path + '?t=' + Date.now()} alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            ) : (
+              <div style={{
+                width: '64px', height: '64px', borderRadius: '16px', flexShrink: 0,
+                background: `linear-gradient(135deg, ${t.violetM} 0%, ${t.surfaceEl} 100%)`,
+                border: `2px solid ${t.violet}20`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '24px', fontWeight: '700', color: t.violet,
+              }}>
+                {agent.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
             <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 10px 0', letterSpacing: '-0.01em' }}>
               {agent.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
             </h1>
@@ -578,7 +600,8 @@ export default function AgentDetail() {
                 </span>
               ))}
             </div>
-          </div>
+          </div>{/* close name+badges */}
+          </div>{/* close avatar+name row */}
 
           {/* Rating */}
           <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>

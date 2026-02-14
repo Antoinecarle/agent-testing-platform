@@ -618,6 +618,18 @@ router.patch('/:name/rating', async (req, res) => {
   }
 });
 
+// PATCH /api/agents/:name/screenshot — update agent screenshot
+router.patch('/:name/screenshot', async (req, res) => {
+  try {
+    const { screenshot_path } = req.body;
+    if (!screenshot_path) return res.status(400).json({ error: 'screenshot_path required' });
+    await db.updateAgentScreenshot(req.params.name, screenshot_path);
+    res.json({ ok: true, screenshot_path });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST /api/agents/:name/duplicate — duplicate an agent
 router.post('/:name/duplicate', async (req, res) => {
   try {

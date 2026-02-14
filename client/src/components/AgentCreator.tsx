@@ -288,6 +288,26 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         body: JSON.stringify({ url: urlInput }),
       });
       setReferences(prev => [...prev, result.reference]);
+      // Show profile image notification in chat if detected
+      const profileImg = result.reference.profile_image_url || result.reference.structured_analysis?.profile_image_url;
+      if (profileImg) {
+        setMessages(prev => [...prev, {
+          id: `profile-${Date.now()}`,
+          role: 'assistant' as const,
+          content: `![Profile Picture](${profileImg})\n\nI found and saved the profile picture from this URL. It will be used as the agent's avatar.`,
+        }]);
+        // If in enhance mode, immediately update the agent's screenshot
+        if (initialAgent) {
+          try {
+            await api(`/api/agents/${initialAgent.name}/screenshot`, {
+              method: 'PATCH',
+              body: JSON.stringify({ screenshot_path: profileImg }),
+            });
+          } catch (err: any) {
+            console.warn('Failed to update agent screenshot:', err);
+          }
+        }
+      }
       setUrlInput('');
     } catch (err: any) {
       console.error('Failed to add URL:', err);
@@ -633,9 +653,9 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       <motion.div key={ref.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
                         style={{ padding: '6px', background: t.surfaceEl, borderRadius: '6px', border: `1px solid ${ref.structured_analysis ? 'rgba(34,197,94,0.15)' : t.border}` }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {ref.type === 'image' ? (
-                            <div style={{ width: '24px', height: '24px', borderRadius: '3px', overflow: 'hidden', background: t.bg, flexShrink: 0 }}>
-                              <img src={ref.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          {ref.type === 'image' || ref.profile_image_url || ref.structured_analysis?.profile_image_url ? (
+                            <div style={{ width: '24px', height: '24px', borderRadius: ref.profile_image_url || ref.structured_analysis?.profile_image_url ? '50%' : '3px', overflow: 'hidden', background: t.bg, flexShrink: 0 }}>
+                              <img src={ref.type === 'image' ? ref.url : (ref.profile_image_url || ref.structured_analysis?.profile_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
                           ) : (
                             <div style={{ width: '24px', height: '24px', borderRadius: '3px', background: t.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -656,6 +676,19 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                             <Trash2 size={10} />
                           </button>
                         </div>
+                        {/* Profile image preview for URL references (LinkedIn etc.) */}
+                        {ref.type === 'url' && (ref.profile_image_url || ref.structured_analysis?.profile_image_url) && (
+                          <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <img
+                              src={ref.profile_image_url || ref.structured_analysis?.profile_image_url}
+                              alt="Profile"
+                              style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: `2px solid ${t.violet}` }}
+                            />
+                            <span style={{ fontSize: '9px', color: t.success, display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <CheckCircle size={8} /> Profile pic saved
+                            </span>
+                          </div>
+                        )}
                         {ref.structured_analysis && ref.type === 'image' && ref.structured_analysis.colors && (
                           <div style={{ marginTop: '4px', display: 'flex', gap: '2px', flexWrap: 'wrap' }}>
                             {[ref.structured_analysis.colors.dominantBackground, ref.structured_analysis.colors.primaryAccent, ref.structured_analysis.colors.secondaryAccent]
@@ -744,7 +777,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       borderTopRightRadius: msg.role === 'user' ? '3px' : '12px', borderTopLeftRadius: msg.role === 'assistant' ? '3px' : '12px',
                       color: msg.role === 'user' ? 'white' : t.tp, fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap'
                     }}>
-                      {msg.content}
+                      {msg.content.split(/(\!\[.*?\]\(.*?\))/).map((part: string, i: number) => {
+                        const imgMatch = part.match(/^\!\[(.*?)\]\((.*?)\)$/);
+                        if (imgMatch) {
+                          return <img key={i} src={imgMatch[2]} alt={imgMatch[1]} style={{ maxWidth: '120px', borderRadius: '12px', display: 'block', margin: '4px 0', border: `2px solid ${t.violet}40` }} />;
+                        }
+                        return <span key={i}>{part}</span>;
+                      })}
                     </div>
                   </motion.div>
                 ))}
