@@ -4,10 +4,11 @@ import {
   Search, Plus, Trash2, Edit3, Star, Layers,
   LayoutGrid, List, RefreshCw, X, Check, Save,
   ChevronRight, AlertCircle, ExternalLink, Settings, Upload,
-  CheckSquare, Square, Download, Tag
+  CheckSquare, Square, Download, Tag, Zap, Sparkles, Bot
 } from 'lucide-react';
 import { api } from '../api';
 import CategoryModal from '../components/CategoryModal';
+import AgentCreator from '../components/AgentCreator';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -295,6 +296,7 @@ export default function AgentBrowser() {
   const [selectedAgents, setSelectedAgents] = useState(new Set());
   const [bulkCategoryTarget, setBulkCategoryTarget] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAgentCreator, setShowAgentCreator] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -730,6 +732,120 @@ export default function AgentBrowser() {
           )}
         </div>
 
+        {/* Quick Action CTAs */}
+        <div className="ab-cta-row" style={{ padding: '16px 24px 0', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          {/* Create Agent */}
+          <button
+            onClick={() => navigate('/agents/new')}
+            className="ab-cta-card"
+            style={{
+              flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+              padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(139,92,246,0.05) 100%)',
+              border: '1px solid rgba(139,92,246,0.25)',
+              transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = t.violet;
+              e.currentTarget.style.boxShadow = `0 8px 32px -8px rgba(139,92,246,0.4)`;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'rgba(139,92,246,0.25)';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <div style={{
+              width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+              background: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(139,92,246,0.3)',
+            }}>
+              <Plus size={20} color="#fff" />
+            </div>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Create Agent</div>
+              <div style={{ fontSize: '11px', color: t.ts }}>Build a new agent from scratch</div>
+            </div>
+            <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+          </button>
+
+          {/* Add Skills */}
+          <button
+            onClick={() => navigate('/skills/create')}
+            className="ab-cta-card"
+            style={{
+              flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+              padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(6,182,212,0.15) 0%, rgba(6,182,212,0.05) 100%)',
+              border: '1px solid rgba(6,182,212,0.25)',
+              transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = '#06b6d4';
+              e.currentTarget.style.boxShadow = `0 8px 32px -8px rgba(6,182,212,0.4)`;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'rgba(6,182,212,0.25)';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <div style={{
+              width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+              background: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(6,182,212,0.3)',
+            }}>
+              <Zap size={20} color="#fff" />
+            </div>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Add Skills</div>
+              <div style={{ fontSize: '11px', color: t.ts }}>Create reusable skill modules</div>
+            </div>
+            <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+          </button>
+
+          {/* Craft with AI (GPT) */}
+          <button
+            onClick={() => setShowAgentCreator(true)}
+            className="ab-cta-card"
+            style={{
+              flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+              padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+              background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(245,158,11,0.05) 100%)',
+              border: '1px solid rgba(245,158,11,0.25)',
+              transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = '#f59e0b';
+              e.currentTarget.style.boxShadow = `0 8px 32px -8px rgba(245,158,11,0.4)`;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'rgba(245,158,11,0.25)';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <div style={{
+              width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(245,158,11,0.3)',
+            }}>
+              <Sparkles size={20} color="#fff" />
+            </div>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Craft with AI</div>
+              <div style={{ fontSize: '11px', color: t.ts }}>Design an agent via GPT conversation</div>
+            </div>
+            <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+          </button>
+        </div>
+
         {/* Grid / List */}
         <div style={{
           flex: 1, overflowY: 'auto', padding: '20px 24px',
@@ -828,6 +944,9 @@ export default function AgentBrowser() {
         onReorder={handleReorderCategories}
       />
 
+      {/* Agent Creator Modal (GPT Craft) */}
+      {showAgentCreator && <AgentCreator onClose={() => setShowAgentCreator(false)} />}
+
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -847,6 +966,8 @@ export default function AgentBrowser() {
           .ab-search { width: 100% !important; flex: 1; min-width: 0; }
           .ab-toolbar-right { width: 100%; overflow-x: auto; scrollbar-width: none; }
           .ab-toolbar-right::-webkit-scrollbar { display: none; }
+          .ab-cta-row { padding: 12px 12px 0 !important; gap: 8px !important; }
+          .ab-cta-card { flex: 1 1 100% !important; padding: 12px 14px !important; }
         }
       `}</style>
 
