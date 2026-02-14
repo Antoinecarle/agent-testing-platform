@@ -261,25 +261,25 @@ export default function Personaboarding() {
   }
 
   async function fetchAiSkills(roleId) {
+    // If LinkedIn already found skills, use them directly (don't regenerate)
+    if (linkedinSuggestions?.skills?.length > 0) {
+      const liSkills = linkedinSuggestions.skills;
+      setSkills(liSkills);
+      setSelectedSkills(liSkills.map(s => s.name));
+      return;
+    }
+
+    // No LinkedIn skills — generate via AI
     setAiSkillsLoading(true);
     try {
       const res = await api('/api/personaboarding/ai-suggest-skills', {
         method: 'POST',
         body: JSON.stringify({
           role: roleId,
-          linkedinData: linkedinSuggestions || null,
+          linkedinData: null,
         }),
       });
-      const newSkills = res.skills || [];
-      setSkills(newSkills);
-      // Auto-select LinkedIn-suggested skills
-      if (linkedinSuggestions?.skills?.length > 0) {
-        const suggestedNames = linkedinSuggestions.skills.map(s => s.name.toLowerCase());
-        const matching = newSkills
-          .filter(s => suggestedNames.includes(s.name.toLowerCase()))
-          .map(s => s.name);
-        setSelectedSkills(matching);
-      }
+      setSkills(res.skills || []);
     } catch {
       const roleData = allRoles.find(ar => ar.id === roleId);
       setSkills(roleData?.skills || []);
