@@ -414,6 +414,7 @@ export default function Personaboarding() {
           model: model.id,
           autonomy: autonomy.id,
           gptData: gptData || null,
+          profileImageUrl: linkedinSuggestions?.profileImageUrl || null,
         }),
       });
       setCreatedAgent(res.agent);
@@ -634,8 +635,33 @@ export default function Personaboarding() {
               </div>
             )}
 
-            {/* Suggestion Preview Cards */}
+            {/* Profile Image + Suggestion Preview Cards */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+              {linkedinSuggestions.profileImageUrl && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '16px',
+                  padding: '14px 18px', backgroundColor: t.surface, borderRadius: '10px',
+                  border: `1px solid ${t.border}`, marginBottom: '4px',
+                }}>
+                  <img
+                    src={linkedinSuggestions.profileImageUrl}
+                    alt="Profile"
+                    style={{
+                      width: '56px', height: '56px', borderRadius: '14px',
+                      objectFit: 'cover', border: `2px solid #3B82F640`,
+                      boxShadow: '0 4px 12px rgba(59,130,246,0.15)',
+                    }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: t.tp }}>
+                      {linkedinSuggestions.displayName}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#60A5FA', marginTop: '2px' }}>
+                      Photo de profil importée
+                    </div>
+                  </div>
+                </div>
+              )}
               {[
                 { label: 'Nom', value: linkedinSuggestions.displayName, icon: <User size={13} /> },
                 { label: 'Rôle', value: linkedinSuggestions.role?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), icon: <Shield size={13} /> },
@@ -1034,13 +1060,25 @@ export default function Personaboarding() {
                 border: `1px solid ${t.violetM}`, animation: 'fadeInUp 0.5s ease',
                 width: '100%',
               }}>
-                <div style={{
-                  width: 56, height: 56, borderRadius: '50%',
-                  backgroundColor: `${t.success}22`, border: `2px solid ${t.success}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Check size={28} color={t.success} />
-                </div>
+                {linkedinSuggestions?.profileImageUrl ? (
+                  <img
+                    src={linkedinSuggestions.profileImageUrl}
+                    alt={displayName}
+                    style={{
+                      width: '64px', height: '64px', borderRadius: '50%',
+                      objectFit: 'cover', border: `3px solid ${t.success}`,
+                      boxShadow: `0 0 20px ${t.success}30`,
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%',
+                    backgroundColor: `${t.success}22`, border: `2px solid ${t.success}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Check size={28} color={t.success} />
+                  </div>
+                )}
                 <span style={{ fontSize: '15px', color: t.tp, fontWeight: 600 }}>
                   {displayName} est né
                 </span>
@@ -1146,14 +1184,29 @@ export default function Personaboarding() {
           }}>
             {linkedinSuggestions ? <><Linkedin size={11} /> LinkedIn Import</> : <><Sparkles size={11} /> Persona Onboarding</>}
           </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
-            Créer votre agent personnel
-          </h1>
-          <p style={{ fontSize: '13px', color: t.tm, marginTop: '6px', margin: '6px 0 0' }}>
-            {linkedinSuggestions
-              ? 'Validez ou personnalisez chaque suggestion issue de votre profil'
-              : 'Chaque choix construit l\'histoire et les capacités de votre agent'}
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            {linkedinSuggestions?.profileImageUrl && sourceMode === 'linkedin-done' && (
+              <img
+                src={linkedinSuggestions.profileImageUrl}
+                alt=""
+                style={{
+                  width: '48px', height: '48px', borderRadius: '50%',
+                  objectFit: 'cover', border: `2px solid ${t.violet}40`,
+                  boxShadow: `0 4px 16px ${t.violetG}`, flexShrink: 0,
+                }}
+              />
+            )}
+            <div>
+              <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
+                Créer votre agent personnel
+              </h1>
+              <p style={{ fontSize: '13px', color: t.tm, marginTop: '6px', margin: '6px 0 0' }}>
+                {linkedinSuggestions
+                  ? 'Validez ou personnalisez chaque suggestion issue de votre profil'
+                  : 'Chaque choix construit l\'histoire et les capacités de votre agent'}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Progress dots */}

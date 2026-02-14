@@ -189,6 +189,7 @@ router.post('/linkedin-analyze', async (req, res) => {
     const match = url.match(/linkedin\.com\/in\/([^/?#]+)/);
     const username = match ? match[1] : null;
     let pageData = { username };
+    let ogImage = null;
 
     try {
       const response = await fetch(url, {
@@ -206,14 +207,45 @@ router.post('/linkedin-analyze', async (req, res) => {
         const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
         const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
         const ogDescMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i);
+        const ogImageMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
         pageData.title = ogTitleMatch?.[1] || titleMatch?.[1] || '';
         pageData.description = ogDescMatch?.[1] || descMatch?.[1] || '';
+        ogImage = ogImageMatch?.[1] || null;
       }
     } catch (fetchErr) {
       console.warn('[Personaboarding] LinkedIn fetch warning:', fetchErr.message);
     }
 
+    // Download og:image (LinkedIn profile pic) if found
+    let profileImageUrl = null;
+    if (ogImage) {
+      try {
+        const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
+        if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        const imgRes = await fetch(ogImage, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(15000),
+          redirect: 'follow',
+        });
+        if (imgRes.ok) {
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+          const ext = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg';
+          const filename = `linkedin-${username || Date.now()}${ext}`;
+          const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+          const fsPromises = require('fs').promises;
+          await fsPromises.writeFile(path.join(UPLOAD_DIR, filename), imageBuffer);
+          profileImageUrl = `/uploads/agent-creator/${filename}`;
+          console.log(`[Personaboarding] Downloaded LinkedIn profile pic: ${profileImageUrl} (${imageBuffer.length} bytes)`);
+        }
+      } catch (imgErr) {
+        console.warn(`[Personaboarding] Failed to download LinkedIn og:image:`, imgErr.message);
+      }
+    }
+
     const suggestions = await analyzeLinkedInWithGPT(pageData, url);
+    if (profileImageUrl) {
+      suggestions.profileImageUrl = profileImageUrl;
+    }
     res.json({ suggestions, rawData: pageData });
   } catch (err) {
     console.error('[Personaboarding] LinkedIn analyze error:', err.message);
@@ -462,7 +494,7 @@ router.post('/ai-enhance', async (req, res) => {
 // ── POST /api/personaboarding/complete ──────────────────────────────────────
 router.post('/complete', async (req, res) => {
   try {
-    const { displayName, role, selectedSkills, customSkills: customSkillsData, skillsData: aiSkillsData, commStyle, methodology, selectedTools, model, autonomy, gptData } = req.body;
+    const { displayName, role, selectedSkills, customSkills: customSkillsData, skillsData: aiSkillsData, commStyle, methodology, selectedTools, model, autonomy, gptData, profileImageUrl } = req.body;
 
     if (!displayName || !displayName.trim()) {
       return res.status(400).json({ error: 'Agent name is required' });
@@ -534,6 +566,25 @@ router.post('/complete', async (req, res) => {
       agentName, description, model || 'sonnet', 'persona',
       promptPreview, fullContent, toolsList, 15, '', permissionMode, req.user?.userId
     );
+
+    // Save LinkedIn profile image as agent screenshot
+    if (profileImageUrl) {
+      try {
+        const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
+        const srcPath = path.join(UPLOAD_DIR, path.basename(profileImageUrl));
+        if (fs.existsSync(srcPath)) {
+          const ext = path.extname(srcPath);
+          const destFilename = `agent-${agentName}${ext}`;
+          const destPath = path.join(UPLOAD_DIR, destFilename);
+          fs.copyFileSync(srcPath, destPath);
+          const screenshotPath = `/uploads/agent-creator/${destFilename}`;
+          await db.updateAgentScreenshot(agentName, screenshotPath);
+          console.log(`[Personaboarding] Saved profile pic as agent screenshot: ${screenshotPath}`);
+        }
+      } catch (imgErr) {
+        console.warn(`[Personaboarding] Failed to save profile image as screenshot:`, imgErr.message);
+      }
+    }
 
     const createdSkillIds = [];
     for (const skill of skills) {
