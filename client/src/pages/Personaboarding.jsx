@@ -215,7 +215,7 @@ export default function Personaboarding() {
   // Narrative history
   const [history, setHistory] = useState([]);
 
-  // Fetch options on mount
+  // Fetch options on mount + handle LinkedIn OAuth callback
   useEffect(() => {
     (async () => {
       try {
@@ -227,6 +227,38 @@ export default function Personaboarding() {
         setAllRoles(roles);
       } catch (err) {
         console.error('Failed to load personaboarding options:', err);
+      }
+
+      // Check for LinkedIn OAuth callback data in URL
+      const params = new URLSearchParams(window.location.search);
+      const linkedinDataParam = params.get('linkedin_data');
+      const linkedinError = params.get('linkedin_error');
+      if (linkedinError) {
+        setError(`LinkedIn OAuth error: ${linkedinError}`);
+        window.history.replaceState({}, '', '/personaboarding');
+      } else if (linkedinDataParam) {
+        try {
+          const profile = JSON.parse(decodeURIComponent(linkedinDataParam));
+          // Clean URL
+          window.history.replaceState({}, '', '/personaboarding');
+          // Analyze OAuth profile data with GPT
+          setSourceMode('linkedin');
+          setLinkedinPhase('analyzing');
+          setLinkedinLoading(true);
+          const res = await api('/api/personaboarding/linkedin/analyze-oauth', {
+            method: 'POST',
+            body: JSON.stringify(profile),
+          });
+          setLinkedinSuggestions(res.suggestions);
+          if (res.suggestions?.displayName) setDisplayName(res.suggestions.displayName);
+          setLinkedinPhase('results');
+          setLinkedinLoading(false);
+        } catch (err) {
+          console.error('LinkedIn OAuth data processing failed:', err);
+          setError("Erreur lors du traitement des données LinkedIn");
+          setLinkedinLoading(false);
+          window.history.replaceState({}, '', '/personaboarding');
+        }
       }
     })();
   }, []);
@@ -240,6 +272,21 @@ export default function Personaboarding() {
   useEffect(() => {
     if (step === 0 && !typing) setTimeout(() => inputRef.current?.focus(), 100);
   }, [step, typing]);
+
+  // ── LinkedIn OAuth handler ────────────────────────────────────────────
+  async function handleLinkedinOAuth() {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await api(`/api/personaboarding/linkedin/auth?token=${encodeURIComponent(token)}`);
+      if (res.authUrl) {
+        window.location.href = res.authUrl;
+      } else {
+        setError('LinkedIn OAuth non configuré');
+      }
+    } catch (err) {
+      setError(err.message || 'Erreur LinkedIn OAuth');
+    }
+  }
 
   // ── LinkedIn & AI handlers ─────────────────────────────────────────────
   async function handleLinkedinAnalyze() {
@@ -499,10 +546,10 @@ export default function Personaboarding() {
           Importez votre profil LinkedIn pour des suggestions intelligentes, ou créez manuellement.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* LinkedIn Card */}
+          {/* LinkedIn OAuth Card */}
           <button
-            onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('input'); }}
-            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1e3a5f20'; e.currentTarget.style.borderColor = '#3B82F640'; e.currentTarget.style.boxShadow = '0 0 20px rgba(59,130,246,0.1)'; }}
+            onClick={handleLinkedinOAuth}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#0A66C215'; e.currentTarget.style.borderColor = '#0A66C240'; e.currentTarget.style.boxShadow = '0 0 20px rgba(10,102,194,0.15)'; }}
             onMouseLeave={e => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; e.currentTarget.style.boxShadow = 'none'; }}
             style={{
               display: 'flex', alignItems: 'center', gap: '16px',
@@ -521,10 +568,41 @@ export default function Personaboarding() {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '15px', fontWeight: 600, color: t.tp, marginBottom: '4px' }}>
-                Importer depuis LinkedIn
+                Connecter LinkedIn
               </div>
               <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.5' }}>
-                Collez votre URL LinkedIn — l'IA analysera votre profil et suggérera nom, rôle, compétences et plus.
+                Connectez-vous via LinkedIn pour importer automatiquement votre nom, photo de profil et email.
+              </div>
+            </div>
+            <ArrowRight size={18} color={t.tm} style={{ flexShrink: 0 }} />
+          </button>
+
+          {/* LinkedIn URL Paste Card */}
+          <button
+            onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('input'); }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1e3a5f20'; e.currentTarget.style.borderColor = '#3B82F640'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '16px',
+              padding: '20px 24px', backgroundColor: t.surface,
+              border: `1px solid ${t.border}`,
+              borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
+              transition: 'all 0.25s ease',
+            }}
+          >
+            <div style={{
+              width: 48, height: 48, borderRadius: '12px',
+              backgroundColor: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <LinkIcon size={20} color="#3B82F6" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: t.tp, marginBottom: '4px' }}>
+                Coller une URL LinkedIn
+              </div>
+              <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.5' }}>
+                Collez une URL LinkedIn publique — l'IA analysera les métadonnées du profil.
               </div>
             </div>
             <ArrowRight size={18} color={t.tm} style={{ flexShrink: 0 }} />

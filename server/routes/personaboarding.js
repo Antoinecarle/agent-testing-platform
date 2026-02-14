@@ -129,6 +129,173 @@ const AVAILABLE_TOOLS = [
   { id: 'NotebookEdit', label: 'Notebook', description: 'Edit Jupyter notebooks', category: 'files' },
 ];
 
+// ── LinkedIn OAuth 2.0 (OpenID Connect) ────────────────────────────────────
+const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
+const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
+const LINKEDIN_REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI ||
+  (process.env.RAILWAY_ENVIRONMENT
+    ? 'https://guru-api-production.up.railway.app/api/personaboarding/linkedin/callback'
+    : 'http://localhost:4000/api/personaboarding/linkedin/callback');
+
+// GET /api/personaboarding/linkedin/auth — redirect user to LinkedIn authorization
+router.get('/linkedin/auth', (req, res) => {
+  if (!LINKEDIN_CLIENT_ID) {
+    return res.status(500).json({ error: 'LinkedIn OAuth not configured (missing LINKEDIN_CLIENT_ID)' });
+  }
+  // Pass JWT token as state so we can re-authenticate on callback
+  const state = req.query.token || '';
+  const scope = 'openid profile email';
+  const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(LINKEDIN_REDIRECT_URI)}&state=${encodeURIComponent(state)}&scope=${encodeURIComponent(scope)}`;
+  res.json({ authUrl });
+});
+
+// GET /api/personaboarding/linkedin/callback — handle OAuth callback from LinkedIn
+router.get('/linkedin/callback', async (req, res) => {
+  const { code, state, error: oauthError } = req.query;
+  if (oauthError) {
+    return res.redirect(`/?linkedin_error=${encodeURIComponent(oauthError)}`);
+  }
+  if (!code) {
+    return res.redirect('/?linkedin_error=no_code');
+  }
+
+  try {
+    // Exchange code for access token
+    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: LINKEDIN_CLIENT_ID,
+        client_secret: LINKEDIN_CLIENT_SECRET,
+        redirect_uri: LINKEDIN_REDIRECT_URI,
+      }),
+    });
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text();
+      console.error('[LinkedIn OAuth] Token exchange failed:', tokenRes.status, errBody);
+      return res.redirect('/?linkedin_error=token_exchange_failed');
+    }
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+
+    // Fetch user profile via OpenID Connect userinfo
+    const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    if (!profileRes.ok) {
+      console.error('[LinkedIn OAuth] Userinfo failed:', profileRes.status);
+      return res.redirect('/?linkedin_error=profile_fetch_failed');
+    }
+    const profile = await profileRes.json();
+    console.log('[LinkedIn OAuth] Got profile:', JSON.stringify({
+      name: profile.name,
+      given_name: profile.given_name,
+      family_name: profile.family_name,
+      picture: profile.picture ? 'yes' : 'no',
+      email: profile.email ? 'yes' : 'no',
+    }));
+
+    // Download and upload profile picture to Supabase if available
+    let profileImageUrl = null;
+    if (profile.picture) {
+      try {
+        const imgRes = await fetch(profile.picture, { signal: AbortSignal.timeout(15000) });
+        if (imgRes.ok) {
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+          const ext = contentType.includes('png') ? '.png' : '.jpg';
+          const slug = (profile.name || 'user').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const filename = `linkedin-${slug}-${Date.now()}${ext}`;
+          const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+          profileImageUrl = await db.uploadProfilePic(imageBuffer, filename, contentType);
+          console.log(`[LinkedIn OAuth] Profile pic uploaded: ${profileImageUrl}`);
+        }
+      } catch (imgErr) {
+        console.warn('[LinkedIn OAuth] Failed to download profile pic:', imgErr.message);
+      }
+    }
+
+    // Encode profile data as URL params for frontend to pick up
+    const linkedinData = encodeURIComponent(JSON.stringify({
+      name: profile.name,
+      given_name: profile.given_name,
+      family_name: profile.family_name,
+      email: profile.email,
+      picture: profileImageUrl || profile.picture,
+      locale: profile.locale,
+    }));
+
+    // Redirect back to personaboarding with profile data
+    res.redirect(`/personaboarding?linkedin_data=${linkedinData}`);
+  } catch (err) {
+    console.error('[LinkedIn OAuth] Error:', err.message);
+    res.redirect('/?linkedin_error=server_error');
+  }
+});
+
+// POST /api/personaboarding/linkedin/analyze-oauth — analyze OAuth profile data with GPT
+router.post('/linkedin/analyze-oauth', async (req, res) => {
+  try {
+    const { name, given_name, family_name, email, picture } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'No profile name provided' });
+    }
+
+    // Build context for GPT analysis
+    const contextParts = [
+      `Full name: ${name}`,
+      given_name ? `First name: ${given_name}` : '',
+      family_name ? `Last name: ${family_name}` : '',
+      email ? `Email domain: ${email.split('@')[1]}` : '',
+    ].filter(Boolean);
+
+    const prompt = `Analyze this person's profile and create a personalized AI agent configuration.
+
+${contextParts.join('\n')}
+
+Based on the person's name and available information, suggest:
+1. A display name (FIRST NAME only)
+2. The best professional role as kebab-case slug (e.g. "product-manager", "developer", "designer")
+3. 10-12 specific professional skills with categories and colors
+4. Communication style from: formal, casual, technical, empathetic, direct
+5. Work methodology from: agile, lean, design-thinking, waterfall, kanban
+6. Suggested tools from: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, NotebookEdit
+
+Each skill must use a unique color from: #8B5CF6, #3B82F6, #22C55E, #F59E0B, #EC4899, #06B6D4, #A855F7, #EF4444, #14B8A6, #F97316, #6366F1, #84CC16
+
+Return ONLY valid JSON:
+{
+  "displayName": "FirstName",
+  "role": "role-id",
+  "skills": [{ "name": "Skill Name", "category": "category-slug", "color": "#hex", "description": "Short description" }],
+  "commStyle": "style-id",
+  "methodology": "methodology-id",
+  "tools": ["Tool1", "Tool2"],
+  "summary": "Brief professional summary in French (2-3 sentences)"
+}`;
+
+    const response = await callGPT5(
+      [
+        { role: 'system', content: 'You are an expert at creating AI agent configurations from professional profiles. Return ONLY valid JSON with exactly 10-12 skills.' },
+        { role: 'user', content: prompt },
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+    const suggestions = JSON.parse(response);
+
+    // Attach profile image
+    if (picture) {
+      suggestions.profileImageUrl = picture;
+    }
+
+    res.json({ suggestions });
+  } catch (err) {
+    console.error('[Personaboarding] OAuth analyze error:', err.message);
+    res.status(500).json({ error: 'Analysis failed' });
+  }
+});
+
 // Chrome-like headers for LinkedIn fetching
 const CHROME_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
