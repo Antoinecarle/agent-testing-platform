@@ -1162,7 +1162,7 @@ export default function Personaboarding() {
             </div>
             {/* Inline Interactive Constellation */}
             <div style={{
-              width: '100%', minHeight: '420px', marginBottom: '16px',
+              width: '100%', maxWidth: '460px', minHeight: '360px', margin: '0 auto 16px auto',
               borderRadius: '12px', border: `1px solid ${t.border}`,
               backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
             }}>
@@ -1170,7 +1170,7 @@ export default function Personaboarding() {
               <div style={{
                 position: 'absolute', inset: 0,
                 backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
-                backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+                backgroundSize: '24px 24px', opacity: 0.4, pointerEvents: 'none',
               }} />
               <InteractiveConstellation
                 agentName={displayName}
@@ -1370,14 +1370,15 @@ export default function Personaboarding() {
                 {/* Inline Final Constellation */}
                 {createdSkills.length > 0 && (
                   <div style={{
-                    width: '100%', minHeight: '380px', marginTop: '8px',
+                    width: '100%', maxWidth: '460px', minHeight: '360px', marginTop: '8px',
                     borderRadius: '12px', border: `1px solid ${t.border}`,
                     backgroundColor: '#0a0a0a', position: 'relative', overflow: 'hidden',
+                    marginLeft: 'auto', marginRight: 'auto',
                   }}>
                     <div style={{
                       position: 'absolute', inset: 0,
                       backgroundImage: `radial-gradient(${t.border} 1px, transparent 1px)`,
-                      backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none',
+                      backgroundSize: '24px 24px', opacity: 0.4, pointerEvents: 'none',
                     }} />
                     <SkillConstellation
                       agentName={displayName}
@@ -1741,7 +1742,7 @@ function InteractiveConstellation({ agentName, roleLabel, skills, selectedSkills
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '85%', maxHeight: '75%', overflow: 'visible', pointerEvents: 'none' }}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '70%', maxHeight: '80%', overflow: 'visible', pointerEvents: 'none' }}>
         <defs>
           <filter id="icGlow">
             <feGaussianBlur stdDeviation="5" result="b" />
@@ -1910,7 +1911,7 @@ function SkillConstellation({ agentName, roleLabel, skills = [], onComplete }) {
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '88%', height: '88%', overflow: 'visible' }}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '70%', height: '70%', overflow: 'visible' }}>
         <defs>
           <filter id="conGlow">
             <feGaussianBlur stdDeviation="6" result="b" />
