@@ -1408,49 +1408,63 @@ export default function Personaboarding() {
         {/* Book content */}
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column',
-          maxWidth: '720px', width: '100%', margin: '0 auto',
-          padding: '0 48px', position: 'relative', zIndex: 1,
+          width: '100%',
+          padding: '0 64px',
+          position: 'relative', zIndex: 1,
           animation: 'bookGlow 6s ease-in-out infinite',
         }}>
           {/* Header - fixed (non-scrollable) */}
-          <div style={{ flexShrink: 0, paddingTop: '28px', paddingBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
+          <div style={{
+            flexShrink: 0,
+            paddingTop: '32px',
+            paddingBottom: '24px',
+            borderBottom: `1px solid ${t.border}`,
+            marginBottom: '32px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '20px' }}>
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
-                padding: '4px 12px', borderRadius: '100px',
-                backgroundColor: linkedinSuggestions ? 'rgba(59,130,246,0.15)' : t.violetM,
-                border: `1px solid ${linkedinSuggestions ? 'rgba(59,130,246,0.3)' : 'rgba(139,92,246,0.3)'}`,
+                padding: '6px 14px', borderRadius: '100px',
+                backgroundColor: linkedinSuggestions ? 'rgba(59,130,246,0.12)' : t.violetG,
+                border: `1px solid ${linkedinSuggestions ? 'rgba(59,130,246,0.2)' : t.border}`,
                 color: linkedinSuggestions ? '#60A5FA' : t.violet,
-                fontSize: '10px', fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.06em',
+                fontSize: '11px', fontWeight: 600,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
               }}>
-                {linkedinSuggestions ? <><Linkedin size={11} /> LinkedIn Import</> : <><Sparkles size={11} /> Persona Onboarding</>}
+                {linkedinSuggestions ? <><Linkedin size={12} /> LinkedIn Import</> : <><Sparkles size={12} /> Persona Onboarding</>}
               </div>
-              {linkedinSuggestions?.profileImageUrl && sourceMode === 'linkedin-done' && (
-                <img
-                  src={linkedinSuggestions.profileImageUrl}
-                  alt=""
-                  style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
-                    objectFit: 'cover', border: `2px solid ${t.violet}40`,
-                    boxShadow: `0 4px 16px ${t.violetG}`, flexShrink: 0,
-                  }}
-                />
-              )}
               <div style={{ flex: 1 }}>
-                <h1 style={{ fontSize: '18px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.02em' }}>
+                <h1 style={{ fontSize: '22px', fontWeight: 700, color: t.tp, margin: 0, letterSpacing: '-0.03em' }}>
                   Créer votre agent personnel
                 </h1>
               </div>
+              {linkedinSuggestions?.profileImageUrl && sourceMode === 'linkedin-done' && (
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={linkedinSuggestions.profileImageUrl}
+                    alt=""
+                    style={{
+                      width: '36px', height: '36px', borderRadius: '50%',
+                      objectFit: 'cover', border: `2px solid ${t.violet}`,
+                      boxShadow: `0 0 20px ${t.violetG}`,
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute', bottom: -2, right: -2,
+                    width: 12, height: 12, borderRadius: '50%',
+                    backgroundColor: t.success, border: `2px solid ${t.bg}`,
+                  }} />
+                </div>
+              )}
             </div>
 
-            {/* Progress bar */}
+            {/* Progress bar - Full width */}
             {showPhases && (
               <div style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
+                display: 'flex', alignItems: 'center', gap: '16px',
               }}>
                 <div style={{
-                  flex: 1, height: '3px', borderRadius: '100px', backgroundColor: t.surfaceEl,
+                  flex: 1, height: '4px', borderRadius: '100px', backgroundColor: t.surfaceEl,
                   overflow: 'hidden', position: 'relative',
                 }}>
                   <div style={{
@@ -1458,19 +1472,18 @@ export default function Personaboarding() {
                     width: `${((step) / (totalSteps - 1)) * 100}%`,
                     background: `linear-gradient(90deg, ${t.violet}, #A78BFA)`,
                     borderRadius: '100px',
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                    boxShadow: `0 0 12px ${t.violetM}`,
+                    transition: 'width 0.8s cubic-bezier(0.34,1.56,0.64,1)',
                   }} />
                 </div>
-                <span style={{
-                  fontSize: '10px', color: t.violet, fontWeight: 600, flexShrink: 0,
-                }}>
-                  {STEP_META[step]?.label}
-                </span>
-                <span style={{
-                  fontSize: '10px', color: t.tm, fontFamily: t.mono, flexShrink: 0,
-                }}>
-                  {step + 1}/{totalSteps}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                  <span style={{ fontSize: '11px', color: t.tp, fontWeight: 600 }}>
+                    {STEP_META[step]?.label}
+                  </span>
+                  <span style={{ fontSize: '11px', color: t.tm, fontFamily: t.mono, opacity: 0.8 }}>
+                    [{step + 1}/{totalSteps}]
+                  </span>
+                </div>
               </div>
             )}
           </div>
