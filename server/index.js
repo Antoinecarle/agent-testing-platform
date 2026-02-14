@@ -230,6 +230,14 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
   app.use('/uploads/agent-creator', express.static(path.join(DATA_DIR, 'agent-creator-uploads')));
 
+  // Agent deployment routes (deploy agents as MCP servers)
+  const agentDeployRoutes = require('./routes/agent-deploy');
+  app.use('/api/agent-deploy', verifyToken, agentDeployRoutes);
+
+  // MCP public routes (landing pages + API endpoints — no auth for landing, API key for endpoints)
+  const mcpPublicRoutes = require('./routes/mcp-public');
+  app.use('/mcp', mcpPublicRoutes);
+
   // Preview route (no auth for iframe embedding)
   app.use('/api/preview', previewRoutes);
 

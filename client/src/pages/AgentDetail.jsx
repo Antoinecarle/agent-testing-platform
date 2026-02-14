@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash } from 'lucide-react';
 import { api } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 
@@ -16,6 +16,13 @@ const t = {
 function formatDate(ts) {
   if (!ts) return '—';
   return new Date(ts * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatTokenCount(n) {
+  if (!n) return '0';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return n.toString();
 }
 
 function ShowcaseCard({ showcase, onClick }) {
@@ -207,6 +214,12 @@ export default function AgentDetail() {
   const [projectIterations, setProjectIterations] = useState({});
   const [newShowcase, setNewShowcase] = useState({ project_id: '', iteration_id: '', title: '', description: '' });
 
+  // MCP Deployment
+  const [deployment, setDeployment] = useState(null);
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [deployApiKey, setDeployApiKey] = useState(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -225,6 +238,12 @@ export default function AgentDetail() {
         const skills = await api(`/api/skills/agent/${name}`);
         setAgentSkills(skills || []);
       } catch (err) { console.error('Failed to load agent skills:', err); }
+
+      // Load MCP deployment status
+      try {
+        const dep = await api(`/api/agent-deploy/${name}/deployment`);
+        setDeployment(dep);
+      } catch (err) { /* Not deployed yet */ }
 
       // Load iterations for all projects
       const projectsList = (p || []).slice(0, 20);
@@ -312,6 +331,52 @@ export default function AgentDetail() {
 
   const handleDragLeave = () => {
     setIsDragOver(false);
+  };
+
+  // MCP Deployment handlers
+  const handleDeploy = async () => {
+    setDeployLoading(true);
+    try {
+      const result = await api(`/api/agent-deploy/${name}/deploy`, {
+        method: 'POST',
+        body: JSON.stringify({ tier: 'starter' }),
+      });
+      setDeployment(result.deployment);
+      setDeployApiKey(result.apiKey);
+      setShowApiKey(true);
+    } catch (err) {
+      alert(err.message || 'Deploy failed');
+    } finally {
+      setDeployLoading(false);
+    }
+  };
+
+  const handleUndeploy = async () => {
+    if (!window.confirm('Undeploy this MCP server? API keys will be revoked.')) return;
+    setDeployLoading(true);
+    try {
+      await api(`/api/agent-deploy/${name}/deployment`, { method: 'DELETE' });
+      setDeployment(null);
+      setDeployApiKey(null);
+    } catch (err) {
+      alert(err.message || 'Undeploy failed');
+    } finally {
+      setDeployLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    if (!deployment) return;
+    const newStatus = deployment.status === 'active' ? 'paused' : 'active';
+    try {
+      await api(`/api/agent-deploy/${name}/deployment`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      setDeployment(prev => ({ ...prev, status: newStatus }));
+    } catch (err) {
+      alert(err.message || 'Status update failed');
+    }
   };
 
   const handleReorder = async (id, direction) => {
@@ -525,6 +590,24 @@ export default function AgentDetail() {
           }}>
             <Download size={13} />Export .md
           </button>
+          {deployment ? (
+            <a href={`/mcp/${deployment.slug}`} target="_blank" rel="noopener noreferrer" style={{
+              backgroundColor: 'rgba(34,197,94,0.1)', color: t.success, border: 'none',
+              padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none',
+            }}>
+              <Globe size={13} />View MCP
+            </a>
+          ) : (
+            <button onClick={handleDeploy} disabled={deployLoading} style={{
+              backgroundColor: t.violetM, color: t.violet, border: 'none',
+              padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px',
+              cursor: deployLoading ? 'wait' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <Rocket size={13} />{deployLoading ? 'Deploying...' : 'Deploy MCP'}
+            </button>
+          )}
           <button onClick={() => setMgmtOpen(!mgmtOpen)} style={{
             backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
             padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
@@ -859,6 +942,188 @@ export default function AgentDetail() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* MCP Deployment Section */}
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '14px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Rocket size={14} style={{ color: t.violet }} />
+                MCP Deploy
+                {deployment && (
+                  <span style={{
+                    fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', padding: '2px 8px', borderRadius: '100px',
+                    backgroundColor: deployment.status === 'active' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                    color: deployment.status === 'active' ? t.success : t.warning,
+                  }}>
+                    {deployment.status}
+                  </span>
+                )}
+              </h2>
+            </div>
+
+            {!deployment ? (
+              <div style={{
+                background: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
+                padding: '20px', textAlign: 'center',
+              }}>
+                <Globe size={24} style={{ color: t.tm, marginBottom: '8px' }} />
+                <p style={{ fontSize: '12px', color: t.tm, marginBottom: '14px' }}>
+                  Deploy this agent as an MCP server with its own landing page & API
+                </p>
+                <button
+                  onClick={handleDeploy}
+                  disabled={deployLoading}
+                  style={{
+                    backgroundColor: t.violet, color: '#fff', border: 'none',
+                    padding: '8px 20px', fontSize: '12px', fontWeight: '600', borderRadius: '6px',
+                    cursor: deployLoading ? 'wait' : 'pointer', display: 'inline-flex',
+                    alignItems: 'center', gap: '6px', opacity: deployLoading ? 0.6 : 1,
+                  }}
+                >
+                  <Rocket size={13} />{deployLoading ? 'Deploying...' : 'Deploy as MCP'}
+                </button>
+              </div>
+            ) : (
+              <div style={{
+                background: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
+                overflow: 'hidden',
+              }}>
+                {/* Landing Page Link */}
+                <a
+                  href={`/mcp/${deployment.slug}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '12px 14px', borderBottom: `1px solid ${t.border}`,
+                    textDecoration: 'none', color: t.tp, fontSize: '12px',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = t.surfaceEl}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <Globe size={13} style={{ color: t.violet }} />
+                  <span style={{ fontFamily: t.mono, fontSize: '11px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    /mcp/{deployment.slug}
+                  </span>
+                  <ExternalLink size={11} style={{ color: t.tm }} />
+                </a>
+
+                {/* API Endpoint */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
+                  fontSize: '11px',
+                }}>
+                  <Key size={12} style={{ color: t.violet }} />
+                  <span style={{ fontFamily: t.mono, color: t.ts, flex: 1 }}>
+                    /mcp/{deployment.slug}/api/chat
+                  </span>
+                </div>
+
+                {/* API Key Display (only shown once after deploy) */}
+                {showApiKey && deployApiKey && (
+                  <div style={{
+                    padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
+                    background: 'rgba(139,92,246,0.05)',
+                  }}>
+                    <div style={{ fontSize: '10px', color: t.warning, fontWeight: '600', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Key size={10} /> Save your API key (shown only once)
+                    </div>
+                    <div style={{
+                      fontFamily: t.mono, fontSize: '10px', color: t.tp,
+                      background: 'rgba(0,0,0,0.3)', padding: '6px 8px', borderRadius: '4px',
+                      wordBreak: 'break-all', display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                      <span style={{ flex: 1 }}>{deployApiKey}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(deployApiKey);
+                        }}
+                        style={{
+                          background: 'none', border: 'none', color: t.violet,
+                          cursor: 'pointer', padding: '2px', display: 'flex', flexShrink: 0,
+                        }}
+                      >
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Token Usage Bar */}
+                {deployment.monthlyUsage !== undefined && (
+                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${t.border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '10px', color: t.tm, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <BarChart3 size={10} /> Monthly Tokens
+                      </span>
+                      <span style={{ fontSize: '10px', fontFamily: t.mono, color: t.ts }}>
+                        {formatTokenCount(deployment.monthlyUsage)} / {formatTokenCount(deployment.monthly_token_limit)}
+                      </span>
+                    </div>
+                    <div style={{
+                      height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        height: '100%', borderRadius: '3px',
+                        width: `${Math.min(((deployment.monthlyUsage || 0) / (deployment.monthly_token_limit || 1)) * 100, 100)}%`,
+                        background: `linear-gradient(90deg, ${t.violet}, ${t.violet}cc)`,
+                        transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Stats Row */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                  borderBottom: `1px solid ${t.border}`,
+                }}>
+                  <div style={{ padding: '10px 14px', textAlign: 'center', borderRight: `1px solid ${t.border}` }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', fontFamily: t.mono }}>{deployment.total_requests || 0}</div>
+                    <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px' }}>Requests</div>
+                  </div>
+                  <div style={{ padding: '10px 14px', textAlign: 'center', borderRight: `1px solid ${t.border}` }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', fontFamily: t.mono }}>{formatTokenCount(deployment.total_input_tokens || 0)}</div>
+                    <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px' }}>Input</div>
+                  </div>
+                  <div style={{ padding: '10px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', fontFamily: t.mono }}>{formatTokenCount(deployment.total_output_tokens || 0)}</div>
+                    <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px' }}>Output</div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{ padding: '10px 14px', display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={handleToggleStatus}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                      padding: '6px', fontSize: '10px', fontWeight: '600', borderRadius: '4px',
+                      backgroundColor: deployment.status === 'active' ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.1)',
+                      color: deployment.status === 'active' ? t.warning : t.success,
+                      border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    {deployment.status === 'active' ? <><Pause size={10} />Pause</> : <><Play size={10} />Resume</>}
+                  </button>
+                  <button
+                    onClick={handleUndeploy}
+                    disabled={deployLoading}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                      padding: '6px', fontSize: '10px', fontWeight: '600', borderRadius: '4px',
+                      backgroundColor: 'rgba(239,68,68,0.1)', color: t.danger,
+                      border: 'none', cursor: deployLoading ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <Trash size={10} />Undeploy
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Skill Picker Modal */}

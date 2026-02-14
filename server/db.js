@@ -1027,6 +1027,171 @@ async function getSkillConversationMessages(conversationId) {
   return data || [];
 }
 
+// ===================== AGENT DEPLOYMENTS =====================
+
+async function createDeployment(agentName, slug, apiKey, tier, description, tagline, primaryColor, deployedBy) {
+  const { data } = await supabase.from('agent_deployments').insert({
+    agent_name: agentName, slug, api_key: apiKey,
+    tier: tier || 'starter', description: description || '', tagline: tagline || '',
+    primary_color: primaryColor || '#8B5CF6',
+    monthly_token_limit: tier === 'enterprise' ? 6000000 : tier === 'professional' ? 1000000 : 20000,
+    deployed_by: deployedBy || null,
+  }).select('*').single();
+  return data;
+}
+
+async function getDeployment(id) {
+  const { data } = await supabase.from('agent_deployments').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function getDeploymentBySlug(slug) {
+  const { data } = await supabase.from('agent_deployments').select('*').eq('slug', slug).single();
+  return data || null;
+}
+
+async function getDeploymentByAgent(agentName) {
+  const { data } = await supabase.from('agent_deployments').select('*').eq('agent_name', agentName).single();
+  return data || null;
+}
+
+async function getAllDeployments() {
+  const { data } = await supabase.from('agent_deployments').select('*').order('deployed_at', { ascending: false });
+  return data || [];
+}
+
+async function updateDeployment(id, fields) {
+  const update = {};
+  if (fields.status !== undefined) update.status = fields.status;
+  if (fields.tier !== undefined) {
+    update.tier = fields.tier;
+    update.monthly_token_limit = fields.tier === 'enterprise' ? 6000000 : fields.tier === 'professional' ? 1000000 : 20000;
+  }
+  if (fields.description !== undefined) update.description = fields.description;
+  if (fields.tagline !== undefined) update.tagline = fields.tagline;
+  if (fields.primary_color !== undefined) update.primary_color = fields.primary_color;
+  if (fields.custom_domain !== undefined) update.custom_domain = fields.custom_domain;
+  if (fields.config !== undefined) update.config = fields.config;
+  if (Object.keys(update).length === 0) return;
+  update.updated_at = new Date().toISOString();
+  await supabase.from('agent_deployments').update(update).eq('id', id);
+}
+
+async function deleteDeployment(id) {
+  await supabase.from('agent_deployments').delete().eq('id', id);
+}
+
+async function incrementDeploymentStats(id, inputTokens, outputTokens) {
+  const dep = await getDeployment(id);
+  if (!dep) return;
+  await supabase.from('agent_deployments').update({
+    total_requests: (dep.total_requests || 0) + 1,
+    total_input_tokens: (dep.total_input_tokens || 0) + inputTokens,
+    total_output_tokens: (dep.total_output_tokens || 0) + outputTokens,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
+}
+
+// Token usage logging
+async function logTokenUsage(deploymentId, agentName, model, inputTokens, outputTokens, requestType, callerIp, durationMs, status, errorMessage) {
+  const { data } = await supabase.from('deployment_token_usage').insert({
+    deployment_id: deploymentId, agent_name: agentName, model: model || '',
+    input_tokens: inputTokens || 0, output_tokens: outputTokens || 0,
+    total_tokens: (inputTokens || 0) + (outputTokens || 0),
+    request_type: requestType || 'chat', caller_ip: callerIp || '',
+    duration_ms: durationMs || 0, status: status || 'success',
+    error_message: errorMessage || '',
+  }).select('*').single();
+  return data;
+}
+
+async function getTokenUsage(deploymentId, { from, to, limit, offset } = {}) {
+  let query = supabase.from('deployment_token_usage').select('*').eq('deployment_id', deploymentId);
+  if (from) query = query.gte('created_at', from);
+  if (to) query = query.lte('created_at', to);
+  query = query.order('created_at', { ascending: false });
+  if (limit) query = query.limit(limit);
+  if (offset) query = query.range(offset, offset + (limit || 50) - 1);
+  const { data } = await query;
+  return data || [];
+}
+
+async function getTokenUsageStats(deploymentId, period) {
+  // Get all usage for the deployment
+  let query = supabase.from('deployment_token_usage').select('input_tokens, output_tokens, total_tokens, created_at, status, model');
+  query = query.eq('deployment_id', deploymentId);
+
+  // Filter by period
+  const now = new Date();
+  if (period === 'day') {
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    query = query.gte('created_at', dayAgo.toISOString());
+  } else if (period === 'week') {
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    query = query.gte('created_at', weekAgo.toISOString());
+  } else if (period === 'month') {
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    query = query.gte('created_at', monthAgo.toISOString());
+  }
+
+  const { data } = await query;
+  const rows = data || [];
+
+  const totalInput = rows.reduce((sum, r) => sum + (r.input_tokens || 0), 0);
+  const totalOutput = rows.reduce((sum, r) => sum + (r.output_tokens || 0), 0);
+  const totalTokens = totalInput + totalOutput;
+  const totalRequests = rows.length;
+  const successCount = rows.filter(r => r.status === 'success').length;
+  const errorCount = rows.filter(r => r.status === 'error').length;
+
+  // Group by model
+  const byModel = {};
+  rows.forEach(r => {
+    const m = r.model || 'unknown';
+    if (!byModel[m]) byModel[m] = { requests: 0, tokens: 0 };
+    byModel[m].requests++;
+    byModel[m].tokens += (r.total_tokens || 0);
+  });
+
+  return { totalInput, totalOutput, totalTokens, totalRequests, successCount, errorCount, byModel };
+}
+
+async function getMonthlyTokenUsage(deploymentId) {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const { data } = await supabase.from('deployment_token_usage')
+    .select('total_tokens')
+    .eq('deployment_id', deploymentId)
+    .gte('created_at', startOfMonth.toISOString());
+  return (data || []).reduce((sum, r) => sum + (r.total_tokens || 0), 0);
+}
+
+// API Keys management
+async function createDeploymentApiKey(deploymentId, keyHash, keyPrefix, name) {
+  const { data } = await supabase.from('deployment_api_keys').insert({
+    deployment_id: deploymentId, key_hash: keyHash, key_prefix: keyPrefix, name: name || 'Default',
+  }).select('*').single();
+  return data;
+}
+
+async function getDeploymentApiKeys(deploymentId) {
+  const { data } = await supabase.from('deployment_api_keys').select('*').eq('deployment_id', deploymentId).order('created_at', { ascending: true });
+  return data || [];
+}
+
+async function getApiKeyByHash(keyHash) {
+  const { data } = await supabase.from('deployment_api_keys').select('*').eq('key_hash', keyHash).eq('is_active', true).single();
+  return data || null;
+}
+
+async function deactivateApiKey(id) {
+  await supabase.from('deployment_api_keys').update({ is_active: false }).eq('id', id);
+}
+
+async function updateApiKeyLastUsed(id) {
+  await supabase.from('deployment_api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', id);
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -1087,4 +1252,12 @@ module.exports = {
   updateSkillConversation, deleteSkillConversation,
   // Skill Conversation Messages
   createSkillConversationMessage, getSkillConversationMessages,
+  // Agent Deployments
+  createDeployment, getDeployment, getDeploymentBySlug, getDeploymentByAgent,
+  getAllDeployments, updateDeployment, deleteDeployment, incrementDeploymentStats,
+  // Token Usage
+  logTokenUsage, getTokenUsage, getTokenUsageStats, getMonthlyTokenUsage,
+  // Deployment API Keys
+  createDeploymentApiKey, getDeploymentApiKeys, getApiKeyByHash,
+  deactivateApiKey, updateApiKeyLastUsed,
 };
