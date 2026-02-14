@@ -97,7 +97,7 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
       body: JSON.stringify({
         model: selectedModel,
         messages: fullMessages,
-        max_tokens: 4096,
+        max_completion_tokens: 4096,
       }),
     });
 
