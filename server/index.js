@@ -66,10 +66,10 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   agentsRoutes.syncCustomAgentsFromDB().then(async (n) => {
     if (n > 0) console.log(`[Startup] Restored ${n} custom agents from DB to filesystem`);
 
-    // Fix legacy personal agents: update category and patch .md files
+    // Fix legacy personal agents: update category, fix front matter format for Claude CLI
     try {
       const { data: personalAgents } = await db.supabase.from('agents')
-        .select('name, full_prompt, category')
+        .select('name, full_prompt, category, model, permission_mode')
         .like('description', 'Personal % agent with % skills');
       if (personalAgents && personalAgents.length > 0) {
         const CUSTOM_DIR = path.join(DATA_DIR, 'custom-agents');
@@ -78,18 +78,69 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
           if (agent.category !== 'persona') {
             await db.supabase.from('agents').update({ category: 'persona' }).eq('name', agent.name);
           }
-          // Patch .md file front matter with category if missing
+          // Fix .md front matter to match Claude CLI expected format
           const mdPath = path.join(CUSTOM_DIR, `${agent.name}.md`);
           if (fs.existsSync(mdPath)) {
             let content = fs.readFileSync(mdPath, 'utf-8');
-            if (!content.includes('category:')) {
+            let needsPatch = false;
+            // Fix missing name field
+            if (content.match(/^---\n/) && !content.includes('\nname:')) {
+              content = content.replace(/^---\n/, `---\nname: ${agent.name}\n`);
+              needsPatch = true;
+            }
+            // Fix max_turns -> maxTurns
+            if (content.includes('\nmax_turns:')) {
+              content = content.replace(/\nmax_turns:/g, '\nmaxTurns:');
+              needsPatch = true;
+            }
+            // Fix permission_mode -> permissionMode
+            if (content.includes('\npermission_mode:')) {
+              content = content.replace(/\npermission_mode:/g, '\npermissionMode:');
+              needsPatch = true;
+            }
+            // Fix tools: [X,Y,Z] -> tools: X, Y, Z
+            const toolsBracketMatch = content.match(/\ntools: \[([^\]]+)\]/);
+            if (toolsBracketMatch) {
+              const toolsFormatted = toolsBracketMatch[1].split(',').map(t => t.trim()).join(', ');
+              content = content.replace(/\ntools: \[[^\]]+\]/, `\ntools: ${toolsFormatted}`);
+              needsPatch = true;
+            }
+            // Fix missing category
+            if (!content.includes('\ncategory:')) {
               content = content.replace(/^(---\n)/, '$1category: persona\n');
+              needsPatch = true;
+            }
+            if (needsPatch) {
               fs.writeFileSync(mdPath, content, 'utf-8');
+              // Also update DB full_prompt so future syncs don't revert the fix
+              await db.supabase.from('agents').update({ full_prompt: content }).eq('name', agent.name);
               patched++;
             }
           }
         }
-        if (patched > 0) console.log(`[Startup] Patched ${patched} persona agent .md files with category`);
+        if (patched > 0) {
+          console.log(`[Startup] Patched ${patched} persona agent .md files + DB (front matter format fix)`);
+          // Re-copy fixed files to user homes
+          const { USERS_DIR } = require('./user-home');
+          if (fs.existsSync(USERS_DIR)) {
+            const userDirs = fs.readdirSync(USERS_DIR).filter(d => {
+              try { return fs.statSync(path.join(USERS_DIR, d)).isDirectory(); } catch (_) { return false; }
+            });
+            for (const userId of userDirs) {
+              const userAgentsDir = path.join(USERS_DIR, userId, '.claude', 'agents');
+              if (fs.existsSync(userAgentsDir)) {
+                for (const agent of personalAgents) {
+                  const src = path.join(CUSTOM_DIR, `${agent.name}.md`);
+                  const dest = path.join(userAgentsDir, `${agent.name}.md`);
+                  if (fs.existsSync(src)) {
+                    try { fs.copyFileSync(src, dest); } catch (_) {}
+                  }
+                }
+              }
+            }
+            console.log(`[Startup] Propagated fixed agents to ${userDirs.length} user home(s)`);
+          }
+        }
       }
     } catch (err) {
       console.warn('[Startup] Persona agent migration:', err.message);

@@ -357,13 +357,15 @@ router.post('/complete', async (req, res) => {
     }, gptData || null);
 
     const description = `Personal ${role.replace(/-/g, ' ')} agent with ${skills.length} skills`;
+    const toolsFormatted = (selectedTools || ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep']).join(', ');
     const fmParts = [
+      `name: ${agentName}`,
       `description: "${description}"`,
       `model: ${model || 'sonnet'}`,
       `category: persona`,
-      `tools: [${toolsList}]`,
-      `max_turns: 15`,
-      `permission_mode: ${permissionMode}`,
+      `tools: ${toolsFormatted}`,
+      `maxTurns: 15`,
+      `permissionMode: ${permissionMode}`,
     ];
     const frontMatter = `---\n${fmParts.join('\n')}\n---\n\n`;
     const fullContent = frontMatter + fullPrompt;
