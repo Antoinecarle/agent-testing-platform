@@ -39,7 +39,19 @@ router.get('/:slug', async (req, res) => {
     const monthlyUsage = await db.getMonthlyTokenUsage(deployment.id);
     const stats = await db.getTokenUsageStats(deployment.id, 'month');
 
-    const html = generateLandingPage(deployment, agent, monthlyUsage, stats);
+    // Load agent skills
+    let skills = [];
+    try {
+      skills = await db.getAgentSkills(deployment.agent_name);
+    } catch (_) {}
+
+    // Load projects count
+    let projectCount = 0;
+    try {
+      projectCount = await db.getAgentProjectCount(deployment.agent_name);
+    } catch (_) {}
+
+    const html = generateLandingPage(deployment, agent, monthlyUsage, stats, skills, projectCount);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (err) {
@@ -215,7 +227,7 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
-function generateLandingPage(deployment, agent, monthlyUsage, stats) {
+function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, projectCount) {
   const color = deployment.primary_color || '#8B5CF6';
   const agentName = escapeHtml(agent.name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
   const description = escapeHtml(deployment.description || agent.description || '');
@@ -226,6 +238,15 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats) {
   const tierLabels = { starter: 'Starter', professional: 'Professional', enterprise: 'Enterprise' };
   const usagePercent = deployment.monthly_token_limit > 0
     ? Math.round((monthlyUsage / deployment.monthly_token_limit) * 100) : 0;
+  const safeSkills = (skills || []).map(s => ({
+    name: escapeHtml(s.name || ''),
+    description: escapeHtml(s.description || ''),
+    category: escapeHtml(s.category || 'general'),
+    color: s.color || color,
+    promptLength: s.prompt ? s.prompt.length : 0,
+  }));
+  const promptTokens = agent.full_prompt ? Math.round(agent.full_prompt.length / 4) : 0;
+  const totalSkillTokens = (skills || []).reduce((sum, s) => sum + (s.prompt ? Math.round(s.prompt.length / 4) : 0), 0);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -519,6 +540,87 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats) {
     }
     .tool-badge:hover { border-color: var(--primary); color: var(--primary); }
 
+    /* ===== AGENT PROFILE ===== */
+    .agent-profile {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden;
+    }
+    .agent-profile-header {
+      padding: 32px; display: flex; gap: 24px; align-items: flex-start;
+      border-bottom: 1px solid var(--border);
+    }
+    .agent-avatar {
+      width: 72px; height: 72px; border-radius: 16px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--primary-light), ${color}22);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; border: 1px solid ${color}33;
+    }
+    .agent-meta { flex: 1; }
+    .agent-meta h3 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .agent-meta .agent-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6; }
+    .agent-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+    .agent-badge {
+      padding: 4px 12px; border-radius: 100px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .agent-badge.cat { background: ${color}15; color: var(--primary); border: 1px solid ${color}33; }
+    .agent-badge.model { background: rgba(34,197,94,0.1); color: var(--success); border: 1px solid rgba(34,197,94,0.2); }
+    .agent-badge.rating { background: rgba(234,179,8,0.1); color: var(--warning); border: 1px solid rgba(234,179,8,0.2); }
+    .agent-badge.projects { background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border); }
+    .agent-profile-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1px; background: var(--border);
+    }
+    .agent-profile-stat {
+      background: var(--bg-card); padding: 20px; text-align: center;
+    }
+    .agent-profile-stat .val {
+      font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    }
+    .agent-profile-stat .lbl {
+      font-size: 11px; color: var(--text-dim); margin-top: 4px; text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    /* ===== SKILLS SECTION ===== */
+    .skills-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+    .skill-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px; transition: all 0.3s;
+      position: relative; overflow: hidden;
+    }
+    .skill-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    }
+    .skill-card:hover {
+      border-color: var(--border-light); transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .skill-card-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+    }
+    .skill-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .skill-card h3 { font-size: 16px; font-weight: 600; }
+    .skill-category {
+      font-size: 10px; padding: 2px 8px; border-radius: 100px;
+      background: rgba(255,255,255,0.05); color: var(--text-dim);
+      font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .skill-card .skill-desc {
+      font-size: 13px; color: var(--text-muted); line-height: 1.7; margin-bottom: 12px;
+    }
+    .skill-card .skill-meta {
+      display: flex; gap: 12px; font-size: 11px; color: var(--text-dim);
+    }
+    .skill-card .skill-meta span {
+      display: flex; align-items: center; gap: 4px;
+    }
+
     /* ===== FOOTER ===== */
     footer {
       border-top: 1px solid var(--border); padding: 40px 0;
@@ -534,7 +636,9 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats) {
       .capabilities-grid { grid-template-columns: 1fr; }
       .pricing-grid { grid-template-columns: 1fr; }
       .stats-row { grid-template-columns: 1fr 1fr; }
+      .skills-grid { grid-template-columns: 1fr; }
       .nav-links { display: none; }
+      .agent-profile-header { flex-direction: column; }
     }
   </style>
 </head>
@@ -548,9 +652,9 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats) {
         <span class="nav-badge">MCP</span>
       </a>
       <div class="nav-links">
-        <a href="#capabilities">Capabilities</a>
+        <a href="#agent">Agent</a>
+        <a href="#skills">Skills</a>
         <a href="#setup">Setup</a>
-        <a href="#pricing">Pricing</a>
         <a href="#usage">Usage</a>
       </div>
       <a class="btn-primary" href="#setup">Get API Key</a>
@@ -581,76 +685,148 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats) {
         <div class="label">Total Requests</div>
       </div>
       <div class="stat-card">
-        <div class="value">${formatTokens(stats.totalTokens || 0)}</div>
-        <div class="label">Tokens Processed</div>
+        <div class="value">${safeSkills.length}</div>
+        <div class="label">Skills Loaded</div>
+      </div>
+      <div class="stat-card">
+        <div class="value">${formatTokens(promptTokens + totalSkillTokens)}</div>
+        <div class="label">Knowledge Tokens</div>
       </div>
       <div class="stat-card">
         <div class="value">${model}</div>
         <div class="label">AI Model</div>
       </div>
-      <div class="stat-card">
-        <div class="value">${tools.length || '6+'}</div>
-        <div class="label">Available Tools</div>
-      </div>
     </div>
   </div>
+
+  <!-- AGENT PROFILE -->
+  <section class="section" id="agent">
+    <div class="container">
+      <div class="section-header">
+        <h2>About This Agent</h2>
+        <p>Deep expertise encoded as a deployable AI service</p>
+      </div>
+      <div class="agent-profile">
+        <div class="agent-profile-header">
+          <div class="agent-avatar">&#x1f916;</div>
+          <div class="agent-meta">
+            <h3>${agentName}</h3>
+            <p class="agent-desc">${description}</p>
+            <div class="agent-badges">
+              <span class="agent-badge cat">${escapeHtml(category)}</span>
+              <span class="agent-badge model">${escapeHtml(model)}</span>
+              ${agent.rating > 0 ? `<span class="agent-badge rating">${'&#9733;'.repeat(agent.rating)}${'&#9734;'.repeat(5 - agent.rating)}</span>` : ''}
+              ${projectCount > 0 ? `<span class="agent-badge projects">${projectCount} project${projectCount > 1 ? 's' : ''}</span>` : ''}
+              ${safeSkills.length > 0 ? `<span class="agent-badge cat">${safeSkills.length} skill${safeSkills.length > 1 ? 's' : ''}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="agent-profile-stats">
+          <div class="agent-profile-stat">
+            <div class="val">${formatTokens(promptTokens)}</div>
+            <div class="lbl">Core Prompt</div>
+          </div>
+          <div class="agent-profile-stat">
+            <div class="val">${formatTokens(totalSkillTokens)}</div>
+            <div class="lbl">Skill Knowledge</div>
+          </div>
+          <div class="agent-profile-stat">
+            <div class="val">${formatTokens(promptTokens + totalSkillTokens)}</div>
+            <div class="lbl">Total Context</div>
+          </div>
+          <div class="agent-profile-stat">
+            <div class="val">${tools.length || 0}</div>
+            <div class="lbl">Tools</div>
+          </div>
+          ${agent.memory ? `<div class="agent-profile-stat">
+            <div class="val" style="font-size:14px">${escapeHtml(agent.memory)}</div>
+            <div class="lbl">Memory</div>
+          </div>` : ''}
+          ${agent.permission_mode ? `<div class="agent-profile-stat">
+            <div class="val" style="font-size:14px">${escapeHtml(agent.permission_mode)}</div>
+            <div class="lbl">Permission</div>
+          </div>` : ''}
+        </div>
+      </div>
+
+      ${tools.length > 0 ? `
+      <div style="margin-top: 24px">
+        <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--text-dim)">Agent Tools</h3>
+        <div class="tools-grid" style="justify-content: flex-start">
+          ${tools.map(t => `<span class="tool-badge">${escapeHtml(t)}</span>`).join('')}
+        </div>
+      </div>` : ''}
+    </div>
+  </section>
+
+  <!-- SKILLS -->
+  ${safeSkills.length > 0 ? `
+  <section class="section" id="skills">
+    <div class="container">
+      <div class="section-header">
+        <h2>Loaded Skills</h2>
+        <p>${safeSkills.length} specialized skill${safeSkills.length > 1 ? 's' : ''} injected into every conversation</p>
+      </div>
+      <div class="skills-grid">
+        ${safeSkills.map(s => `
+        <div class="skill-card" style="border-top: 3px solid ${s.color}">
+          <div class="skill-card-header">
+            <div class="skill-dot" style="background: ${s.color}; box-shadow: 0 0 8px ${s.color}66"></div>
+            <h3>${s.name}</h3>
+            <span class="skill-category">${s.category}</span>
+          </div>
+          ${s.description ? `<p class="skill-desc">${s.description}</p>` : ''}
+          <div class="skill-meta">
+            <span>&#x1f4dd; ${formatTokens(Math.round(s.promptLength / 4))} tokens</span>
+          </div>
+        </div>
+        `).join('')}
+      </div>
+    </div>
+  </section>
+  ` : ''}
 
   <!-- CAPABILITIES -->
   <section class="section" id="capabilities">
     <div class="container">
       <div class="section-header">
         <h2>MCP Capabilities</h2>
-        <p>${description}</p>
+        <p>Built-in features for every deployed agent</p>
       </div>
       <div class="capabilities-grid">
         <div class="capability-card">
           <div class="capability-icon">&#x1f4ac;</div>
-          <h3>chat</h3>
-          <p>Send messages to this agent via the MCP API. Full conversational context with system prompt built-in from the agent's configuration.</p>
+          <h3>Conversational API</h3>
+          <p>Send messages via REST API. Full multi-turn context with the agent's ${formatTokens(promptTokens + totalSkillTokens)}-token system prompt and ${safeSkills.length} skill${safeSkills.length !== 1 ? 's' : ''} automatically injected.</p>
         </div>
         <div class="capability-card">
           <div class="capability-icon">&#x1f9e0;</div>
-          <h3>Agent Intelligence</h3>
-          <p>Powered by ${agentName}'s specialized prompt with ${agent.full_prompt ? Math.round(agent.full_prompt.length / 4) : '1000'}+ tokens of domain knowledge built in.</p>
+          <h3>Deep Domain Knowledge</h3>
+          <p>${agentName} has ${formatTokens(promptTokens)} tokens of core expertise${safeSkills.length > 0 ? ` plus ${formatTokens(totalSkillTokens)} tokens across ${safeSkills.length} specialized skills` : ''}. Every response is grounded in this knowledge.</p>
         </div>
         <div class="capability-card">
           <div class="capability-icon">&#x1f4ca;</div>
           <h3>Token Tracking</h3>
-          <p>Real-time monitoring of input/output tokens, request counts, and usage analytics. Never exceed your budget.</p>
+          <p>Real-time monitoring of input/output tokens, request counts, success/error rates. Full visibility into your API consumption.</p>
         </div>
         <div class="capability-card">
           <div class="capability-icon">&#x1f512;</div>
           <h3>API Key Auth</h3>
-          <p>Secure Bearer token authentication. Generate multiple keys, revoke individually, track usage per key.</p>
+          <p>Secure Bearer token authentication. Generate multiple keys, revoke individually, track last-used timestamps per key.</p>
         </div>
         <div class="capability-card">
           <div class="capability-icon">&#x26a1;</div>
           <h3>Rate Limiting</h3>
-          <p>Automatic monthly token limits per tier. Graceful 429 responses when limits are reached with usage details.</p>
+          <p>Automatic monthly token limits per tier (${formatTokens(deployment.monthly_token_limit)}). Graceful 429 responses when limits are reached.</p>
         </div>
         <div class="capability-card">
           <div class="capability-icon">&#x1f310;</div>
-          <h3>REST API</h3>
-          <p>Standard REST endpoints compatible with any HTTP client. JSON request/response format matching OpenAI conventions.</p>
+          <h3>OpenAI-Compatible</h3>
+          <p>REST endpoints with JSON request/response format matching OpenAI conventions. Works with any HTTP client or SDK.</p>
         </div>
       </div>
     </div>
   </section>
-
-  <!-- TOOLS -->
-  ${tools.length > 0 ? `
-  <section class="section">
-    <div class="container">
-      <div class="section-header">
-        <h2>Agent Tools</h2>
-        <p>Tools available to this agent during execution</p>
-      </div>
-      <div class="tools-grid">
-        ${tools.map(t => `<span class="tool-badge">${t}</span>`).join('')}
-      </div>
-    </div>
-  </section>
-  ` : ''}
 
   <!-- SETUP -->
   <section class="section" id="setup">
