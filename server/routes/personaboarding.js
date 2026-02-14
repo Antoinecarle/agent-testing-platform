@@ -756,9 +756,6 @@ router.post('/complete', async (req, res) => {
     }
 
     const existing = await db.getAgent(agentName);
-    if (existing) {
-      return res.status(409).json({ error: `Agent "${agentName}" already exists` });
-    }
 
     // Merge AI skills + role skills + custom skills
     const aiSkills = Array.isArray(aiSkillsData) ? aiSkillsData : [];
@@ -808,9 +805,12 @@ router.post('/complete', async (req, res) => {
     }
 
     const promptPreview = fullContent.substring(0, 500);
-    await db.createAgentManual(
+    const screenshotPath = existing?.screenshot_path || '';
+    const rating = existing?.rating || 0;
+    await db.upsertAgent(
       agentName, description, model || 'sonnet', 'persona',
-      promptPreview, fullContent, toolsList, 15, '', permissionMode, req.user?.userId
+      promptPreview, screenshotPath, rating, fullContent, 'manual',
+      toolsList, 15, '', permissionMode
     );
 
     // Save profile image URL as agent screenshot (already on Supabase Storage)
@@ -842,10 +842,10 @@ router.post('/complete', async (req, res) => {
     const agent = await db.getAgent(agentName);
     const agentSkills = await db.getAgentSkills(agentName);
 
-    res.status(201).json({
+    res.status(existing ? 200 : 201).json({
       agent,
       skills: agentSkills,
-      message: `Agent "${displayName}" created with ${agentSkills.length} skills`,
+      message: `Agent "${displayName}" ${existing ? 'updated' : 'created'} with ${agentSkills.length} skills`,
     });
   } catch (err) {
     console.error('[Personaboarding] Complete error:', err.message);
