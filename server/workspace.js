@@ -464,4 +464,68 @@ To read a previous iteration for reference:
   return claudeMdPath;
 }
 
-module.exports = { generateWorkspaceContext, getAgentPrompt, getSkillContext, readBranchContext, writeBranchContext };
+/**
+ * Sync agent skills to a user's HOME ~/.claude/skills/ directory
+ * so Claude CLI /skills command finds them regardless of project root detection
+ */
+async function syncSkillsToHome(agentName, userHomePath) {
+  if (!agentName || !userHomePath) return;
+  try {
+    const skills = await db.getAgentSkills(agentName);
+    const homeSkillsDir = path.join(userHomePath, '.claude', 'skills');
+
+    if (!skills || skills.length === 0) {
+      // No skills — clean up any old skill files
+      if (fs.existsSync(homeSkillsDir)) {
+        const existing = fs.readdirSync(homeSkillsDir);
+        for (const f of existing) {
+          if (f.endsWith('.md')) fs.unlinkSync(path.join(homeSkillsDir, f));
+        }
+      }
+      return;
+    }
+
+    if (!fs.existsSync(homeSkillsDir)) fs.mkdirSync(homeSkillsDir, { recursive: true });
+
+    for (const skill of skills) {
+      let skillContent = `# ${skill.name}\n\n`;
+      if (skill.description) skillContent += `${skill.description}\n\n`;
+
+      // Try to read full content from disk (SKILL.md + references)
+      const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+      if (entryFile) {
+        skillContent = entryFile.content + '\n\n';
+      }
+
+      // Append reference files content
+      const tree = skillStorage.scanSkillTree(skill.slug);
+      if (tree) {
+        for (const item of tree) {
+          if (item.type === 'directory' && item.children) {
+            for (const child of item.children) {
+              if (child.type === 'file' && child.name.endsWith('.md')) {
+                const refFile = skillStorage.readSkillFile(skill.slug, child.path);
+                if (refFile) {
+                  skillContent += `\n---\n\n## ${child.name.replace('.md', '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}\n\n${refFile.content}\n`;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback to DB prompt if no files on disk
+      if (!entryFile && skill.prompt && skill.prompt.trim()) {
+        skillContent = skill.prompt;
+      }
+
+      const skillFilePath = path.join(homeSkillsDir, `${skill.slug}.md`);
+      fs.writeFileSync(skillFilePath, skillContent, 'utf8');
+    }
+    console.log(`[Workspace] Synced ${skills.length} skill(s) to ${homeSkillsDir}`);
+  } catch (err) {
+    console.warn(`[Workspace] Failed to sync skills to home for ${agentName}:`, err.message);
+  }
+}
+
+module.exports = { generateWorkspaceContext, getAgentPrompt, getSkillContext, syncSkillsToHome, readBranchContext, writeBranchContext };

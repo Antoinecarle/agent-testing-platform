@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
-const { generateWorkspaceContext } = require('./workspace');
+const { generateWorkspaceContext, syncSkillsToHome } = require('./workspace');
 const { ensureUserHome, getUserHomePath } = require('./user-home');
 
 // Lazy-load watcher to avoid circular deps
@@ -74,6 +74,18 @@ function getWorkspacePath(projectId) {
   return wsDir;
 }
 
+// Sync agent skills to user's HOME ~/.claude/skills/ so Claude CLI /skills finds them
+async function syncSkillsToUserHome(projectId, userId) {
+  if (!projectId || !userId) return;
+  try {
+    const project = await db.getProject(projectId);
+    if (!project || !project.agent_name) return;
+    await syncSkillsToHome(project.agent_name, getUserHomePath(userId));
+  } catch (err) {
+    console.error(`[Terminal] Failed to sync skills to user home:`, err.message);
+  }
+}
+
 function createSession(cols, rows, name, projectId, cwd, userId) {
   if (!PTY_AVAILABLE) return null;
   if (sessions.size >= MAX_SESSIONS) return null;
@@ -88,6 +100,8 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
     ensureUserHome(userId);
     userHome = getUserHomePath(userId);
     userName = IS_RAILWAY ? 'root' : 'claude-user';
+    // Sync agent skills to user HOME so Claude CLI /skills finds them
+    syncSkillsToUserHome(projectId, userId);
   } else {
     userHome = IS_RAILWAY ? (process.env.HOME || '/app') : '/home/claude-user';
     userName = IS_RAILWAY ? 'root' : 'claude-user';
