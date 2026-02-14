@@ -224,7 +224,14 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   app.use('/api/skill-creator', verifyToken, skillCreatorRoutes);
 
   const personaboardingRoutes = require('./routes/personaboarding');
-  app.use('/api/personaboarding', verifyToken, personaboardingRoutes);
+  // LinkedIn OAuth routes must be accessible without auth (callback comes from LinkedIn, not the user)
+  const personaboardingAuth = (req, res, next) => {
+    if (req.path.startsWith('/linkedin/auth') || req.path.startsWith('/linkedin/callback')) {
+      return next();
+    }
+    return verifyToken(req, res, next);
+  };
+  app.use('/api/personaboarding', personaboardingAuth, personaboardingRoutes);
 
   // Serve uploaded files for agent creator
   const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
