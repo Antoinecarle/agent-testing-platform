@@ -129,55 +129,22 @@ const AVAILABLE_TOOLS = [
   { id: 'NotebookEdit', label: 'Notebook', description: 'Edit Jupyter notebooks', category: 'files' },
 ];
 
-// ── Enrich LinkedIn data via DuckDuckGo search ─────────────────────────────
-async function enrichLinkedInFromSearch(username, url) {
-  const searchResults = [];
-  // Try DuckDuckGo to find LinkedIn profile snippets
-  const queries = [
-    `"${username.replace(/-/g, ' ')}" linkedin`,
-    `site:linkedin.com/in/${username}`,
-  ];
-  for (const q of queries) {
-    try {
-      const resp = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (resp.ok) {
-        const html = await resp.text();
-        // Extract snippets
-        const snippetRegex = /result__snippet[^>]*>([^<]+)/g;
-        let m;
-        while ((m = snippetRegex.exec(html)) !== null) {
-          const text = m[1].replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-          if (text.length > 20) searchResults.push(text);
-        }
-        // Extract titles
-        const titleRegex = /result__a[^>]*>([^<]+)/g;
-        while ((m = titleRegex.exec(html)) !== null) {
-          const text = m[1].replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim();
-          if (text.length > 5) searchResults.push(text);
-        }
-      }
-    } catch (err) {
-      console.warn(`[Personaboarding] DuckDuckGo search failed for "${q}":`, err.message);
-    }
-    if (searchResults.length > 0) break; // Got data, stop searching
-  }
-  return searchResults.slice(0, 8); // Top 8 results
-}
+// Chrome-like headers for LinkedIn fetching
+const CHROME_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+};
 
 // ── LinkedIn Profile Analysis ───────────────────────────────────────────────
 async function analyzeLinkedInWithGPT(pageData, url) {
-  // Enrich with search engine data
-  let searchContext = [];
-  if (pageData.username) {
-    searchContext = await enrichLinkedInFromSearch(pageData.username, url);
-    if (searchContext.length > 0) {
-      console.log(`[Personaboarding] Enriched with ${searchContext.length} search snippets`);
-    }
-  }
-
   const contextParts = [
     `LinkedIn URL: ${url}`,
     pageData.username ? `Username/slug: ${pageData.username}` : '',
@@ -185,13 +152,8 @@ async function analyzeLinkedInWithGPT(pageData, url) {
     pageData.description ? `Page description: ${pageData.description}` : '',
   ].filter(Boolean);
 
-  if (searchContext.length > 0) {
-    contextParts.push(`\nSearch engine results about this person:`);
-    searchContext.forEach((s, i) => contextParts.push(`  ${i + 1}. ${s}`));
-  }
-
   const context = contextParts.join('\n');
-  const hasRichData = !!(pageData.title || pageData.description || searchContext.length > 0);
+  const hasRichData = !!(pageData.title || pageData.description);
 
   const prompt = `Analyze this LinkedIn profile and create a personalized AI agent configuration.
 
@@ -246,31 +208,43 @@ Return ONLY valid JSON:
   }
 }
 
-// ── Fetch LinkedIn page (best-effort, LinkedIn often blocks) ────────────────
+// ── Fetch LinkedIn page with Chrome UA (best-effort) ────────────────────────
 async function fetchLinkedInPage(url, username) {
   try {
     const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
-      },
-      signal: AbortSignal.timeout(8000),
+      headers: CHROME_HEADERS,
+      signal: AbortSignal.timeout(10000),
       redirect: 'follow',
     });
+    console.log(`[Personaboarding] LinkedIn fetch status: ${response.status} (${url})`);
+    if (response.status === 999) {
+      console.warn(`[Personaboarding] LinkedIn rate-limited (999) — will use slug-based analysis`);
+      return null;
+    }
     if (response.ok) {
       const html = await response.text();
+      console.log(`[Personaboarding] LinkedIn HTML size: ${html.length} bytes`);
+      // Check for "profile not found" page
+      if (html.includes('profile-not-found') || html.includes('Profil introuvable') || html.includes('Page not found')) {
+        console.warn(`[Personaboarding] LinkedIn profile not found: ${url}`);
+        return null;
+      }
       // Only useful if we got real content (not auth wall / blocked)
       if (html.length > 3000) {
         const hasOgData = html.includes('og:title') || html.includes('og:image') || html.includes('og:description');
         if (hasOgData) {
-          console.log(`[Personaboarding] LinkedIn fetch got og data (${html.length} bytes)`);
+          console.log(`[Personaboarding] LinkedIn fetch got og data`);
+          return html;
+        }
+        // Even without og tags, if we got substantial HTML it might have useful title/description
+        if (html.includes('<title') && html.length > 10000) {
+          console.log(`[Personaboarding] LinkedIn fetch got HTML with title (no og tags)`);
           return html;
         }
       }
     }
   } catch (err) {
-    console.warn(`[Personaboarding] LinkedIn direct fetch failed:`, err.message);
+    console.warn(`[Personaboarding] LinkedIn fetch failed:`, err.message);
   }
   return null;
 }
