@@ -67,6 +67,16 @@ function getWorkspacePath(projectId) {
   if (!IS_RAILWAY) {
     try { fs.chownSync(wsDir, TERMINAL_UID, TERMINAL_GID); } catch (_) {}
   }
+  // Ensure workspace has a .git so Claude CLI recognizes it as project root
+  // This allows /agents and /skills commands to find .claude/agents/ and .claude/skills/
+  const gitDir = path.join(wsDir, '.git');
+  if (!fs.existsSync(gitDir)) {
+    try {
+      const { execSync } = require('child_process');
+      execSync('git init', { cwd: wsDir, timeout: 5000, stdio: 'ignore' });
+      console.log(`[Terminal] Initialized git in workspace ${projectId}`);
+    } catch (_) {}
+  }
   // Generate/refresh CLAUDE.md with project context (async, fire & forget but log errors)
   generateWorkspaceContext(projectId).catch(err => {
     console.error(`[Terminal] Failed to generate workspace context for ${projectId}:`, err.message);
