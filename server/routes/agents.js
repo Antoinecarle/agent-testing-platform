@@ -679,6 +679,93 @@ router.delete('/:name', async (req, res) => {
   }
 });
 
+// ==================== TEST CHAT — Simulate MCP chat with full agent context ====================
+
+router.post('/:name/test-chat', async (req, res) => {
+  try {
+    const agent = await db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const { messages } = req.body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array required' });
+    }
+
+    // Build rich system prompt: agent prompt + all skills with file content
+    let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+
+    // Inject assigned skills (deep — including skill file content from disk)
+    try {
+      const skills = await db.getAgentSkills(req.params.name);
+      if (skills && skills.length > 0) {
+        const skillStorage = require('../skill-storage');
+        systemPrompt += '\n\n## Assigned Skills\n\n';
+        systemPrompt += 'The following skills are loaded. Use them as reference and follow their patterns:\n\n';
+        for (const skill of skills) {
+          systemPrompt += `### ${skill.name}\n`;
+          if (skill.description) systemPrompt += `${skill.description}\n\n`;
+          // Try to read SKILL.md from disk for richer context
+          try {
+            const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+            if (entryFile && entryFile.content) {
+              systemPrompt += entryFile.content.slice(0, 6000) + '\n\n';
+            } else if (skill.prompt) {
+              systemPrompt += skill.prompt.slice(0, 6000) + '\n\n';
+            }
+          } catch (_) {
+            if (skill.prompt) systemPrompt += skill.prompt.slice(0, 6000) + '\n\n';
+          }
+          // Also read reference files for deeper knowledge
+          try {
+            const tree = skillStorage.scanSkillTree(skill.slug);
+            if (tree) {
+              const refFiles = [];
+              const walkTree = (items) => {
+                for (const item of items) {
+                  if (item.type === 'file' && item.path !== 'SKILL.md' && item.path !== (skill.entry_point || 'SKILL.md') && refFiles.length < 4) {
+                    refFiles.push(item.path);
+                  }
+                  if (item.children) walkTree(item.children);
+                }
+              };
+              walkTree(tree);
+              for (const refPath of refFiles) {
+                const refFile = skillStorage.readSkillFile(skill.slug, refPath);
+                if (refFile && refFile.content) {
+                  systemPrompt += `#### ${refPath}\n${refFile.content.slice(0, 3000)}\n\n`;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn('[TestChat] Failed to load skills for', req.params.name, err.message);
+    }
+
+    // Call GPT
+    const { callGPT5 } = require('../lib/agent-analysis');
+    const fullMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ];
+
+    const response = await callGPT5(fullMessages, { max_completion_tokens: 8000 });
+
+    res.json({
+      role: 'assistant',
+      content: response,
+      context: {
+        systemPromptLength: systemPrompt.length,
+        systemPromptTokens: Math.round(systemPrompt.length / 4),
+      },
+    });
+  } catch (err) {
+    console.error('[TestChat] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Chat failed' });
+  }
+});
+
 // Auto-sync on first load
 let synced = false;
 function ensureSynced() {

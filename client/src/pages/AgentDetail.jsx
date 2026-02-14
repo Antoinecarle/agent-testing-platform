@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles, MessageCircle, Send, Bot, User } from 'lucide-react';
 import { api, getUser } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 import AgentCreator from '../components/AgentCreator';
@@ -229,6 +229,39 @@ export default function AgentDetail() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
   const [savedApiKey, setSavedApiKey] = useState(null);
+
+  // MCP Test Chat
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showTestChat, setShowTestChat] = useState(false);
+  const [chatContext, setChatContext] = useState(null);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const sendTestMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const msg = chatInput.trim();
+    setChatInput('');
+    const newMessages = [...chatMessages, { role: 'user', content: msg }];
+    setChatMessages(newMessages);
+    setChatLoading(true);
+    try {
+      const res = await api(`/api/agents/${name}/test-chat`, {
+        method: 'POST',
+        body: JSON.stringify({ messages: newMessages }),
+      });
+      setChatMessages(prev => [...prev, { role: 'assistant', content: res.content }]);
+      if (res.context) setChatContext(res.context);
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + (err.message || 'Failed to get response') }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   // Load saved API key from localStorage
   useEffect(() => {
@@ -1377,6 +1410,176 @@ Use this agent to delegate tasks matching its expertise.`;
                 );
               })()}
               </>
+            )}
+          </div>
+
+          {/* MCP Test Chat */}
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '14px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <MessageCircle size={14} style={{ color: t.violet }} />
+                Test Agent
+              </h2>
+              <button
+                onClick={() => setShowTestChat(!showTestChat)}
+                style={{
+                  background: showTestChat ? t.violetG : t.surfaceEl, border: `1px solid ${showTestChat ? t.violet : t.border}`,
+                  color: showTestChat ? t.violet : t.ts, padding: '4px 10px', fontSize: '10px', fontWeight: '600',
+                  borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                <MessageCircle size={10} /> {showTestChat ? 'Close' : 'Open Chat'}
+              </button>
+            </div>
+
+            {showTestChat && (
+              <div style={{
+                background: t.surface, border: `1px solid ${t.border}`, borderRadius: '8px',
+                overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                height: '420px',
+              }}>
+                {/* Chat header with context info */}
+                <div style={{
+                  padding: '10px 14px', borderBottom: `1px solid ${t.border}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'rgba(139,92,246,0.04)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Bot size={13} style={{ color: t.violet }} />
+                    <span style={{ fontSize: '11px', fontWeight: '600' }}>
+                      {agent.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </span>
+                    {chatContext && (
+                      <span style={{
+                        fontSize: '9px', color: t.tm, fontFamily: t.mono,
+                        padding: '1px 6px', borderRadius: '100px', background: 'rgba(255,255,255,0.05)',
+                      }}>
+                        {formatTokenCount(chatContext.systemPromptTokens)} tokens context
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {chatMessages.length > 0 && (
+                      <button onClick={() => { setChatMessages([]); setChatContext(null); }}
+                        style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Trash size={9} /> Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Messages area */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                  {chatMessages.length === 0 ? (
+                    <div style={{ padding: '30px 12px', textAlign: 'center' }}>
+                      <Bot size={28} style={{ color: t.tm, marginBottom: '10px', opacity: 0.2 }} />
+                      <div style={{ fontSize: '12px', color: t.ts, marginBottom: '6px' }}>
+                        Chat with this agent to test it
+                      </div>
+                      <div style={{ fontSize: '10px', color: t.tm, lineHeight: '1.5' }}>
+                        Full system prompt + all skills are injected.
+                        {agentSkills.length > 0 && (
+                          <span> {agentSkills.length} skill{agentSkills.length > 1 ? 's' : ''} loaded.</span>
+                        )}
+                      </div>
+                      {/* Quick prompts */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', marginTop: '14px' }}>
+                        {[
+                          'What can you do?',
+                          'List your skills',
+                          'Help me get started',
+                        ].map(q => (
+                          <button key={q} onClick={() => { setChatInput(q); }}
+                            style={{
+                              padding: '4px 10px', fontSize: '10px', borderRadius: '100px',
+                              background: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts,
+                              cursor: 'pointer', transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = t.violet; e.currentTarget.style.color = t.violet; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.ts; }}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {chatMessages.map((m, i) => (
+                        <div key={i} style={{
+                          display: 'flex', gap: '8px', marginBottom: '12px',
+                          flexDirection: m.role === 'user' ? 'row-reverse' : 'row',
+                        }}>
+                          <div style={{
+                            width: '24px', height: '24px', borderRadius: '6px', flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: m.role === 'user' ? 'rgba(255,255,255,0.08)' : t.violetG,
+                          }}>
+                            {m.role === 'user' ? <User size={11} style={{ color: t.ts }} /> : <Bot size={11} style={{ color: t.violet }} />}
+                          </div>
+                          <div style={{
+                            maxWidth: '85%', padding: '8px 12px', borderRadius: m.role === 'user' ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                            background: m.role === 'user' ? 'rgba(139,92,246,0.12)' : t.surfaceEl,
+                            border: `1px solid ${m.role === 'user' ? 'rgba(139,92,246,0.2)' : t.border}`,
+                            fontSize: '12px', lineHeight: '1.6', color: t.tp,
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          }}>
+                            {m.content}
+                          </div>
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                          <div style={{
+                            width: '24px', height: '24px', borderRadius: '6px', flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: t.violetG,
+                          }}>
+                            <Bot size={11} style={{ color: t.violet }} />
+                          </div>
+                          <div style={{
+                            padding: '8px 12px', borderRadius: '10px 10px 10px 2px',
+                            background: t.surfaceEl, border: `1px solid ${t.border}`,
+                            fontSize: '11px', color: t.tm, fontStyle: 'italic',
+                          }}>
+                            Thinking...
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </>
+                  )}
+                </div>
+
+                {/* Input */}
+                <div style={{ padding: '10px 12px', borderTop: `1px solid ${t.border}`, display: 'flex', gap: '6px' }}>
+                  <input
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendTestMessage()}
+                    placeholder="Test a message..."
+                    disabled={chatLoading}
+                    style={{
+                      flex: 1, backgroundColor: t.bg, border: `1px solid ${t.border}`,
+                      borderRadius: '6px', padding: '8px 12px', color: '#fff', fontSize: '12px',
+                      outline: 'none', fontFamily: 'inherit',
+                    }}
+                  />
+                  <button
+                    onClick={sendTestMessage}
+                    disabled={chatLoading || !chatInput.trim()}
+                    style={{
+                      backgroundColor: chatInput.trim() ? t.violet : t.surfaceEl,
+                      border: 'none', borderRadius: '6px', padding: '8px 12px',
+                      color: chatInput.trim() ? '#fff' : t.tm, cursor: chatInput.trim() ? 'pointer' : 'default',
+                      display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '600',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <Send size={12} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 
