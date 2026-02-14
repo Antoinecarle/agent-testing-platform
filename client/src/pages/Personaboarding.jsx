@@ -449,8 +449,6 @@ export default function Personaboarding() {
 
   // ── Source Picker ───────────────────────────────────────────────────────
   function renderSourcePicker() {
-    const [hovLi, setHovLi] = useState(false);
-    const [hovMan, setHovMan] = useState(false);
     return (
       <div style={{ animation: 'fadeInUp 0.5s ease' }}>
         <div style={{
@@ -466,15 +464,14 @@ export default function Personaboarding() {
           {/* LinkedIn Card */}
           <button
             onClick={() => { setSourceMode('linkedin'); setLinkedinPhase('input'); }}
-            onMouseEnter={() => setHovLi(true)}
-            onMouseLeave={() => setHovLi(false)}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#1e3a5f20'; e.currentTarget.style.borderColor = '#3B82F640'; e.currentTarget.style.boxShadow = '0 0 20px rgba(59,130,246,0.1)'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; e.currentTarget.style.boxShadow = 'none'; }}
             style={{
               display: 'flex', alignItems: 'center', gap: '16px',
-              padding: '20px 24px', backgroundColor: hovLi ? '#1e3a5f20' : t.surface,
-              border: `1px solid ${hovLi ? '#3B82F640' : t.border}`,
+              padding: '20px 24px', backgroundColor: t.surface,
+              border: `1px solid ${t.border}`,
               borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
-              transition: 'all 0.25s ease',
-              boxShadow: hovLi ? '0 0 20px rgba(59,130,246,0.1)' : 'none',
+              transition: 'all 0.25s ease', boxShadow: 'none',
             }}
           >
             <div style={{
@@ -492,18 +489,18 @@ export default function Personaboarding() {
                 Collez votre URL LinkedIn — l'IA analysera votre profil et suggérera nom, rôle, compétences et plus.
               </div>
             </div>
-            <ArrowRight size={18} color={hovLi ? '#3B82F6' : t.tm} style={{ transition: 'color 0.2s', flexShrink: 0 }} />
+            <ArrowRight size={18} color={t.tm} style={{ flexShrink: 0 }} />
           </button>
 
           {/* Manual Card */}
           <button
             onClick={handleManualMode}
-            onMouseEnter={() => setHovMan(true)}
-            onMouseLeave={() => setHovMan(false)}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = t.surfaceEl; e.currentTarget.style.borderColor = t.borderS; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; }}
             style={{
               display: 'flex', alignItems: 'center', gap: '16px',
-              padding: '20px 24px', backgroundColor: hovMan ? t.surfaceEl : t.surface,
-              border: `1px solid ${hovMan ? t.borderS : t.border}`,
+              padding: '20px 24px', backgroundColor: t.surface,
+              border: `1px solid ${t.border}`,
               borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
               transition: 'all 0.25s ease',
             }}
@@ -523,7 +520,7 @@ export default function Personaboarding() {
                 Configurez chaque aspect de votre agent étape par étape, en toute liberté.
               </div>
             </div>
-            <ArrowRight size={18} color={hovMan ? t.ts : t.tm} style={{ transition: 'color 0.2s', flexShrink: 0 }} />
+            <ArrowRight size={18} color={t.tm} style={{ flexShrink: 0 }} />
           </button>
         </div>
       </div>
