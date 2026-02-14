@@ -1530,7 +1530,7 @@ export default function Personaboarding() {
         {/* Book content */}
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column',
-          width: '100%',
+          width: '100%', minHeight: 0,
           padding: '0 64px',
           position: 'relative', zIndex: 1,
           animation: 'bookGlow 6s ease-in-out infinite',
