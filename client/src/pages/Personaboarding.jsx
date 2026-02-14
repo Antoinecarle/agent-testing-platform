@@ -1611,7 +1611,7 @@ export default function Personaboarding() {
           </div>
 
           {/* Scrollable narrative area */}
-          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: '8px' }}>
             {sourceMode === null ? (
               renderSourcePicker()
             ) : sourceMode === 'oauth-headline' ? (
