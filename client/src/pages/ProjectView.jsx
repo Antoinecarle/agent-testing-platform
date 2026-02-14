@@ -528,6 +528,7 @@ export default function ProjectView() {
         <div style={{
           height: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', fontSize: '12px', color: t.ts, flexShrink: 0,
+          overflow: 'hidden',
         }}>
           <span style={{ color: t.tp, fontWeight: '500' }}>{project?.name || 'Loading...'}</span>
           {selected && <>
@@ -538,18 +539,21 @@ export default function ProjectView() {
             </span>
           </>}
           {agentSkills.length > 0 && (
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-              <span style={{ color: t.tm, fontSize: '10px' }}>Skills:</span>
-              {agentSkills.map(s => (
-                <span key={s.id} style={{
-                  background: s.color ? `${s.color}20` : 'rgba(139,92,246,0.12)',
-                  color: s.color || t.violet,
-                  padding: '1px 6px', borderRadius: '99px', fontSize: '9px', fontWeight: '600',
-                  border: `1px solid ${s.color ? `${s.color}40` : 'rgba(139,92,246,0.2)'}`,
-                }}>
-                  {s.name}
-                </span>
-              ))}
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', overflow: 'hidden', flexShrink: 1, minWidth: 0 }}>
+              <span style={{ color: t.tm, fontSize: '10px', flexShrink: 0 }}>Skills:</span>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', overflow: 'auto', maxWidth: '100%' }}>
+                {agentSkills.map(s => (
+                  <span key={s.id} style={{
+                    background: s.color ? `${s.color}20` : 'rgba(139,92,246,0.12)',
+                    color: s.color || t.violet,
+                    padding: '1px 6px', borderRadius: '99px', fontSize: '9px', fontWeight: '600',
+                    border: `1px solid ${s.color ? `${s.color}40` : 'rgba(139,92,246,0.2)'}`,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>
+                    {s.name}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
           <div style={{ flex: 1 }} />
@@ -557,14 +561,14 @@ export default function ProjectView() {
             style={{
               color: '#fff', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px',
               background: t.violet, padding: '4px 10px', borderRadius: '6px', textDecoration: 'none',
-              fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`,
+              fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`, flexShrink: 0, whiteSpace: 'nowrap',
             }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             Client Preview
           </a>
           {selected && (
             <a href={`/api/preview/${projectId}/${selected.id}`} target="_blank" rel="noreferrer"
-              style={{ color: t.ts, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              style={{ color: t.ts, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               Open
             </a>
