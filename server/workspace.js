@@ -360,23 +360,23 @@ To read a previous iteration for reference:
     fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
   }
 
-  // Write agent skills as Claude CLI skill files in .claude/skills/
-  // so /skills command in Claude CLI shows them
+  // Write agent skills as Claude CLI commands AND skills
+  // .claude/commands/<slug>.md → user-invocable as /<slug>
+  // .claude/skills/<slug>/SKILL.md → model-invocable skill with front matter
   if (agentName) {
     try {
       const skills = await db.getAgentSkills(agentName);
       if (skills && skills.length > 0) {
-        const wsSkillsDir = path.join(wsDir, '.claude', 'skills');
-        if (!fs.existsSync(wsSkillsDir)) fs.mkdirSync(wsSkillsDir, { recursive: true });
+        const wsCommandsDir = path.join(wsDir, '.claude', 'commands');
+        if (!fs.existsSync(wsCommandsDir)) fs.mkdirSync(wsCommandsDir, { recursive: true });
 
         for (const skill of skills) {
-          let skillContent = `# ${skill.name}\n\n`;
-          if (skill.description) skillContent += `${skill.description}\n\n`;
+          let skillContent = '';
 
           // Try to read full content from disk (SKILL.md + references)
           const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
           if (entryFile) {
-            skillContent = entryFile.content + '\n\n';
+            skillContent = entryFile.content;
           }
 
           // Append reference files content
@@ -397,15 +397,29 @@ To read a previous iteration for reference:
           }
 
           // Fallback to DB prompt if no files on disk
-          if (!entryFile && skill.prompt && skill.prompt.trim()) {
+          if (!skillContent.trim() && skill.prompt && skill.prompt.trim()) {
             skillContent = skill.prompt;
           }
 
-          const skillFilePath = path.join(wsSkillsDir, `${skill.slug}.md`);
-          fs.writeFileSync(skillFilePath, skillContent, 'utf8');
+          // Fallback to basic content
+          if (!skillContent.trim()) {
+            skillContent = `# ${skill.name}\n\n${skill.description || 'No description'}`;
+          }
+
+          // 1. Write as command (.claude/commands/<slug>.md) — shows as /<slug>
+          const cmdFilePath = path.join(wsCommandsDir, `${skill.slug}.md`);
+          fs.writeFileSync(cmdFilePath, skillContent, 'utf8');
+          try { fs.chownSync(cmdFilePath, 1001, 1001); } catch (_) {}
+
+          // 2. Write as skill (.claude/skills/<slug>/SKILL.md) — model-invocable
+          const wsSkillDir = path.join(wsDir, '.claude', 'skills', skill.slug);
+          if (!fs.existsSync(wsSkillDir)) fs.mkdirSync(wsSkillDir, { recursive: true });
+          const skillFrontMatter = `---\nname: ${skill.slug}\ndescription: "${(skill.description || skill.name).replace(/"/g, '\\"')}"\n---\n\n`;
+          const skillFilePath = path.join(wsSkillDir, 'SKILL.md');
+          fs.writeFileSync(skillFilePath, skillFrontMatter + skillContent, 'utf8');
           try { fs.chownSync(skillFilePath, 1001, 1001); } catch (_) {}
         }
-        console.log(`[Workspace] Wrote ${skills.length} skill file(s) to ${wsSkillsDir}`);
+        console.log(`[Workspace] Wrote ${skills.length} skill(s) to commands/ + skills/ in ${wsDir}/.claude`);
       }
     } catch (err) {
       console.warn(`[Workspace] Failed to write skill files for ${agentName}:`, err.message);
@@ -465,36 +479,51 @@ To read a previous iteration for reference:
 }
 
 /**
- * Sync agent skills to a user's HOME ~/.claude/skills/ directory
- * so Claude CLI /skills command finds them regardless of project root detection
+ * Sync agent skills to a user's HOME directory:
+ * - ~/.claude/commands/<slug>.md → user-invocable as /<slug>
+ * - ~/.claude/skills/<slug>/SKILL.md → model-invocable with front matter
  */
 async function syncSkillsToHome(agentName, userHomePath) {
   if (!agentName || !userHomePath) return;
   try {
     const skills = await db.getAgentSkills(agentName);
+    const homeCommandsDir = path.join(userHomePath, '.claude', 'commands');
     const homeSkillsDir = path.join(userHomePath, '.claude', 'skills');
 
     if (!skills || skills.length === 0) {
-      // No skills — clean up any old skill files
-      if (fs.existsSync(homeSkillsDir)) {
-        const existing = fs.readdirSync(homeSkillsDir);
-        for (const f of existing) {
-          if (f.endsWith('.md')) fs.unlinkSync(path.join(homeSkillsDir, f));
+      // No skills — clean up old files
+      for (const dir of [homeCommandsDir, homeSkillsDir]) {
+        if (fs.existsSync(dir)) {
+          try {
+            const existing = fs.readdirSync(dir);
+            for (const f of existing) {
+              const fp = path.join(dir, f);
+              try {
+                const stat = fs.statSync(fp);
+                if (stat.isFile() && f.endsWith('.md')) fs.unlinkSync(fp);
+                if (stat.isDirectory()) {
+                  // Remove skill subdirectories
+                  const children = fs.readdirSync(fp);
+                  for (const c of children) fs.unlinkSync(path.join(fp, c));
+                  fs.rmdirSync(fp);
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
         }
       }
       return;
     }
 
-    if (!fs.existsSync(homeSkillsDir)) fs.mkdirSync(homeSkillsDir, { recursive: true });
+    if (!fs.existsSync(homeCommandsDir)) fs.mkdirSync(homeCommandsDir, { recursive: true });
 
     for (const skill of skills) {
-      let skillContent = `# ${skill.name}\n\n`;
-      if (skill.description) skillContent += `${skill.description}\n\n`;
+      let skillContent = '';
 
       // Try to read full content from disk (SKILL.md + references)
       const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
       if (entryFile) {
-        skillContent = entryFile.content + '\n\n';
+        skillContent = entryFile.content;
       }
 
       // Append reference files content
@@ -515,14 +544,24 @@ async function syncSkillsToHome(agentName, userHomePath) {
       }
 
       // Fallback to DB prompt if no files on disk
-      if (!entryFile && skill.prompt && skill.prompt.trim()) {
+      if (!skillContent.trim() && skill.prompt && skill.prompt.trim()) {
         skillContent = skill.prompt;
       }
+      if (!skillContent.trim()) {
+        skillContent = `# ${skill.name}\n\n${skill.description || 'No description'}`;
+      }
 
-      const skillFilePath = path.join(homeSkillsDir, `${skill.slug}.md`);
-      fs.writeFileSync(skillFilePath, skillContent, 'utf8');
+      // 1. Write as command (~/.claude/commands/<slug>.md)
+      const cmdPath = path.join(homeCommandsDir, `${skill.slug}.md`);
+      fs.writeFileSync(cmdPath, skillContent, 'utf8');
+
+      // 2. Write as skill (~/.claude/skills/<slug>/SKILL.md)
+      const skillDir = path.join(homeSkillsDir, skill.slug);
+      if (!fs.existsSync(skillDir)) fs.mkdirSync(skillDir, { recursive: true });
+      const skillFrontMatter = `---\nname: ${skill.slug}\ndescription: "${(skill.description || skill.name).replace(/"/g, '\\"')}"\n---\n\n`;
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillFrontMatter + skillContent, 'utf8');
     }
-    console.log(`[Workspace] Synced ${skills.length} skill(s) to ${homeSkillsDir}`);
+    console.log(`[Workspace] Synced ${skills.length} skill(s) to commands/ + skills/ in ${userHomePath}/.claude`);
   } catch (err) {
     console.warn(`[Workspace] Failed to sync skills to home for ${agentName}:`, err.message);
   }
