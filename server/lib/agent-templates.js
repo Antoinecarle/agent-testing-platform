@@ -1,213 +1,228 @@
-// Agent Templates - Prompts, structure definitions, and quality validation
-// Used by agent-creator routes for professional 600-900 line agent generation
+// Agent Templates - Type-aware prompts, structure definitions, and quality validation
+// Used by agent-creator routes for professional agent generation across all types
 
-const AGENT_TEMPLATE_STRUCTURE = {
-  sections: [
-    { name: 'Frontmatter', minLines: 5, description: 'YAML frontmatter with name, description, model, tools, max_turns, memory, permission_mode' },
-    { name: 'Identity & Design DNA', minLines: 40, description: 'Core identity paragraph + design DNA bullet points defining the aesthetic philosophy' },
-    { name: 'Color System', minLines: 60, description: 'Complete CSS custom properties for backgrounds, accents, text, borders, gradients with usage rules' },
-    { name: 'Typography', minLines: 40, description: 'Font families, scale (display to micro), weight rules, line-height, letter-spacing rules' },
-    { name: 'Layout Architecture', minLines: 50, description: 'ASCII wireframe of page structure + spacing tokens (section, block, container, radius, border)' },
-    { name: 'Core UI Components', minLines: 100, description: 'At least 6 components with props, variants, CSS patterns, hover/focus states' },
-    { name: 'Animation Patterns', minLines: 60, description: 'Animation technology choice + 4-6 animation code snippets (keyframes, scroll, hover, entrance)' },
-    { name: 'Style Injection Pattern', minLines: 20, description: 'How CSS is injected (style tag pattern with unique ID, ensureStyles function)' },
-    { name: 'Section Templates', minLines: 100, description: 'At least 4 section wireframes with ASCII art (Hero, Features, Content, Footer + extras)' },
-    { name: 'Responsive & Quality', minLines: 40, description: 'Breakpoints, mobile rules, reduced motion, quality checklist with checkboxes' },
-  ],
-  totalMinLines: 600,
-  totalTargetLines: 800,
+// ==================== AGENT TYPE CONFIGURATIONS ====================
+
+const AGENT_TYPE_CONFIGS = {
+  'ux-design': {
+    id: 'ux-design',
+    label: 'UX / Design',
+    icon: 'Palette',
+    color: '#EC4899',
+    description: 'Landing pages, UI components, design systems, visual interfaces',
+    sections: [
+      { name: 'Your Design DNA', required: true, minLines: 40 },
+      { name: 'Color System', required: true, minLines: 60 },
+      { name: 'Typography', required: true, minLines: 40 },
+      { name: 'Layout Architecture', required: true, minLines: 50 },
+      { name: 'Core UI Components', required: true, minLines: 100 },
+      { name: 'Animation Patterns', required: true, minLines: 60 },
+      { name: 'Style Injection Pattern', required: false, minLines: 20 },
+      { name: 'Section Templates', required: true, minLines: 100 },
+      { name: 'Responsive & Quality', required: true, minLines: 40 },
+    ],
+    welcomeMessage: "I'm your AI agent architect. I can see your uploaded screenshots directly — upload references and let's discuss the design.\n\nStart by uploading screenshots, adding URLs, or describing the style you want.",
+  },
+  'development': {
+    id: 'development',
+    label: 'Development',
+    icon: 'Code',
+    color: '#3B82F6',
+    description: 'Full-stack code, APIs, architecture, testing, debugging',
+    sections: [
+      { name: 'Core Identity & Expertise', required: true, minLines: 40 },
+      { name: 'Tech Stack & Tooling', required: true, minLines: 50 },
+      { name: 'Architecture Patterns', required: true, minLines: 60 },
+      { name: 'Code Style & Conventions', required: true, minLines: 50 },
+      { name: 'Error Handling Strategy', required: true, minLines: 40 },
+      { name: 'Testing Approach', required: true, minLines: 50 },
+      { name: 'Security Practices', required: true, minLines: 40 },
+      { name: 'Performance Optimization', required: true, minLines: 40 },
+      { name: 'Workflow & Git Conventions', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **development agents**. Let's craft an agent specialized in coding, architecture, and software engineering.\n\nDescribe the tech stack, coding philosophy, and type of projects this agent should handle.",
+  },
+  'orchestration': {
+    id: 'orchestration',
+    label: 'Orchestration',
+    icon: 'GitBranch',
+    color: '#8B5CF6',
+    description: 'Multi-agent coordination, task delegation, pipeline management',
+    sections: [
+      { name: 'Orchestration Identity', required: true, minLines: 40 },
+      { name: 'Agent Registry & Capabilities', required: true, minLines: 60 },
+      { name: 'Delegation Strategy', required: true, minLines: 60 },
+      { name: 'Task Decomposition Rules', required: true, minLines: 50 },
+      { name: 'Communication Protocol', required: true, minLines: 50 },
+      { name: 'Error Recovery & Fallbacks', required: true, minLines: 40 },
+      { name: 'Parallel Execution Patterns', required: true, minLines: 40 },
+      { name: 'Quality Assurance Pipeline', required: true, minLines: 40 },
+      { name: 'Monitoring & Reporting', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **orchestration agents**. Let's design an agent that coordinates other agents, delegates tasks, and manages complex multi-step workflows.\n\nDescribe what agents it should orchestrate, what kind of tasks it manages, and the desired execution patterns.",
+  },
+  'workflow': {
+    id: 'workflow',
+    label: 'Workflow',
+    icon: 'Workflow',
+    color: '#F59E0B',
+    description: 'Process automation, state machines, CI/CD, rendering pipelines',
+    sections: [
+      { name: 'Workflow Identity', required: true, minLines: 40 },
+      { name: 'Process Definitions', required: true, minLines: 60 },
+      { name: 'State Machine Patterns', required: true, minLines: 50 },
+      { name: 'Trigger & Event System', required: true, minLines: 50 },
+      { name: 'Data Flow Architecture', required: true, minLines: 50 },
+      { name: 'Integration Points', required: true, minLines: 40 },
+      { name: 'Validation & Guards', required: true, minLines: 40 },
+      { name: 'Notification System', required: true, minLines: 30 },
+      { name: 'Monitoring & Logging', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **workflow agents**. Let's design an agent that automates processes, manages state transitions, and orchestrates rendering/build pipelines.\n\nDescribe the workflows, triggers, and automations this agent should handle.",
+  },
+  'operational': {
+    id: 'operational',
+    label: 'Operational',
+    icon: 'Settings',
+    color: '#10B981',
+    description: 'DevOps, infrastructure, monitoring, incident response',
+    sections: [
+      { name: 'Operations Identity', required: true, minLines: 40 },
+      { name: 'Infrastructure Configuration', required: true, minLines: 60 },
+      { name: 'Deployment Pipelines', required: true, minLines: 50 },
+      { name: 'Monitoring & Alerting', required: true, minLines: 50 },
+      { name: 'Incident Response', required: true, minLines: 40 },
+      { name: 'Scaling Strategies', required: true, minLines: 40 },
+      { name: 'Security & Compliance', required: true, minLines: 40 },
+      { name: 'Backup & Recovery', required: true, minLines: 30 },
+      { name: 'Runbook Templates', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **operational agents**. Let's design an agent specialized in DevOps, infrastructure management, and operational excellence.\n\nDescribe the infrastructure, tools, and operational challenges this agent should handle.",
+  },
+  'marketing': {
+    id: 'marketing',
+    label: 'Marketing',
+    icon: 'Megaphone',
+    color: '#F97316',
+    description: 'Content strategy, SEO, copywriting, campaigns, analytics',
+    sections: [
+      { name: 'Brand Voice & Identity', required: true, minLines: 50 },
+      { name: 'Content Strategy', required: true, minLines: 60 },
+      { name: 'SEO & Keywords', required: true, minLines: 50 },
+      { name: 'Channel Templates', required: true, minLines: 60 },
+      { name: 'Audience Segments', required: true, minLines: 40 },
+      { name: 'Campaign Workflows', required: true, minLines: 40 },
+      { name: 'Metrics & KPIs', required: true, minLines: 30 },
+      { name: 'A/B Testing Framework', required: true, minLines: 30 },
+      { name: 'Editorial Guidelines', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **marketing agents**. Let's design an agent specialized in content creation, SEO, copywriting, and campaign management.\n\nDescribe the brand, target audience, and marketing goals this agent should serve.",
+  },
+  'data-ai': {
+    id: 'data-ai',
+    label: 'Data / AI',
+    icon: 'BarChart3',
+    color: '#06B6D4',
+    description: 'Data pipelines, ML models, analytics, AI integrations',
+    sections: [
+      { name: 'Data Identity', required: true, minLines: 40 },
+      { name: 'Data Sources & Pipelines', required: true, minLines: 60 },
+      { name: 'Processing Patterns', required: true, minLines: 50 },
+      { name: 'ML Model Integration', required: true, minLines: 50 },
+      { name: 'Visualization Strategy', required: true, minLines: 40 },
+      { name: 'Quality & Validation', required: true, minLines: 40 },
+      { name: 'Caching & Performance', required: true, minLines: 30 },
+      { name: 'API Design', required: true, minLines: 40 },
+      { name: 'Monitoring & Drift Detection', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **data & AI agents**. Let's design an agent specialized in data pipelines, ML integrations, analytics, and intelligent processing.\n\nDescribe the data sources, models, and analysis patterns this agent should handle.",
+  },
+  'custom': {
+    id: 'custom',
+    label: 'Custom',
+    icon: 'Wrench',
+    color: '#71717A',
+    description: 'Freeform agent — define your own structure and specialization',
+    sections: [
+      { name: 'Core Identity', required: true, minLines: 40 },
+      { name: 'Expertise Domains', required: true, minLines: 50 },
+      { name: 'Methodology', required: true, minLines: 50 },
+      { name: 'Tools & Integrations', required: true, minLines: 40 },
+      { name: 'Decision Framework', required: true, minLines: 40 },
+      { name: 'Output Standards', required: true, minLines: 40 },
+      { name: 'Error Handling', required: true, minLines: 30 },
+      { name: 'Quality Checklist', required: true, minLines: 30 },
+    ],
+    welcomeMessage: "I'm your AI agent architect. Let's design a **custom agent** from scratch — any specialization, any domain.\n\nDescribe what this agent should do, its expertise areas, and how it should work.",
+  },
 };
 
-// Abbreviated example from cyberpunk-terminal.md showing format expectations
-const AGENT_EXAMPLE_ABBREVIATED = `---
-name: cyberpunk-terminal
-description: "Expert frontend engineer for cyberpunk/terminal-style landing pages..."
-model: sonnet
----
+// ==================== TYPE-SPECIFIC CONVERSATION PROMPTS ====================
 
-You are a **senior frontend engineer** specialized in building premium cyberpunk and terminal-style landing pages...
+function getConversationSystemPrompt(agentType) {
+  const type = agentType || 'ux-design';
 
-## Your Design DNA
+  if (type === 'ux-design') {
+    return UX_CONVERSATION_PROMPT;
+  }
 
-You build pages that feel **electric, precise, and futuristic**:
-- **Pure black void**: Everything floats on \`#000\` or \`#0a0a0a\`
-- **Monospace dominance**: Code-style typography for most elements
-- **Neon glow**: Cyan, magenta, green glow effects on text, borders, and elements
-[... 6-8 bullet points defining the visual identity ...]
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
+  const sectionList = config.sections.map(s => s.name).join(', ');
 
-## Color System
+  return `You are an expert AI agent architect. Your job is to help the user create a PROFESSIONAL agent configuration file specialized in **${config.label}** (${config.description}).
 
-\`\`\`css
-:root {
-  /* Backgrounds */
-  --color-bg-void: #000000;
-  --color-bg-base: #0a0a0a;
-  --color-bg-elevated: #111111;
-  --color-bg-surface: #1a1a1a;
+## Your Expertise
 
-  /* Primary accent */
-  --neon-cyan: #00ffff;
-  --neon-magenta: #ff00ff;
-  --neon-green: #00ff41;
+You have deep knowledge of:
+- Agent design patterns: prompt engineering, tool orchestration, decision trees, error recovery
+- ${type === 'development' ? 'Software architecture, code quality, testing strategies, CI/CD, security patterns' : ''}
+- ${type === 'orchestration' ? 'Multi-agent systems, task delegation, parallel execution, pipeline coordination, agent communication protocols' : ''}
+- ${type === 'workflow' ? 'Process automation, state machines, event-driven architectures, trigger systems, data flow design' : ''}
+- ${type === 'operational' ? 'Infrastructure management, Docker/K8s, monitoring systems, incident response, security compliance' : ''}
+- ${type === 'marketing' ? 'Brand voice design, content strategy, SEO optimization, audience segmentation, campaign analytics' : ''}
+- ${type === 'data-ai' ? 'Data pipeline design, ML model integration, data validation, analytics dashboards, drift detection' : ''}
+- ${type === 'custom' ? 'Cross-domain agent design, methodology definition, quality assurance frameworks' : ''}
+- How to write prompts that make Claude Code agents highly effective and specialized
 
-  /* Glow variants */
-  --glow-cyan: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 40px rgba(0, 255, 255, 0.2);
+## Your Process
 
-  /* Text hierarchy */
-  --text-primary: rgba(255, 255, 255, 0.90);
-  --text-secondary: rgba(255, 255, 255, 0.50);
-  --text-tertiary: rgba(255, 255, 255, 0.30);
+### Phase 1: UNDERSTAND (first 2-3 messages)
+Ask focused questions about:
+- What SPECIFIC tasks should this agent handle? (push for concrete examples, not vague descriptions)
+- What TOOLS and INTEGRATIONS does it need?
+- What makes this agent UNIQUE vs a generic assistant?
+- What are the most critical quality criteria?
+${type === 'orchestration' ? '- What OTHER AGENTS will this orchestrator delegate to?\n- What is the execution topology (sequential, parallel, DAG)?' : ''}
+${type === 'workflow' ? '- What TRIGGERS initiate workflows?\n- What are the KEY STATE TRANSITIONS?\n- What external systems are involved?' : ''}
+${type === 'development' ? '- What TECH STACK does it target?\n- What CODING STANDARDS should it enforce?\n- What testing frameworks does it use?' : ''}
 
-  /* Borders */
-  --border-dim: rgba(255, 255, 255, 0.06);
-  --border-medium: rgba(255, 255, 255, 0.12);
+### Phase 2: DEEP ANALYSIS (after user describes requirements)
+For each requirement, provide DETAILED analysis:
+- Specific prompt patterns that would implement this capability
+- Tool configurations needed
+- Edge cases and error scenarios to handle
+- Example interactions showing how the agent would respond
+
+### Phase 3: CONFIRM
+Before generating, present a DETAILED summary of the agent's:
+- Core capabilities (ordered by priority)
+- Tool configuration
+- Decision framework
+- Quality criteria
+Ask: "Does this capture your vision?"
+
+## Target Sections for this ${config.label} Agent:
+${sectionList}
+
+## IMPORTANT
+- NEVER be vague — every capability must have specific implementation details
+- NEVER say "handle errors gracefully" — specify EXACTLY how errors are caught, retried, escalated
+- NEVER say "use best practices" — list the SPECIFIC practices and rules
+- Your goal is that someone reading the agent file could understand EXACTLY what it does and how`;
 }
-\`\`\`
 
-**Color usage rules:**
-- Background is ALWAYS pure black (#000)
-- Neon colors for GLOW EFFECTS only — not flat backgrounds
-- Maximum 2 neon colors dominant per section
-[... 5-8 concrete rules ...]
-
-## Typography
-
-\`\`\`css
-:root {
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-display: 'JetBrains Mono', monospace;
-  --font-body: 'Inter', sans-serif;
-
-  --text-display: clamp(48px, 8vw, 96px);
-  --text-h1: clamp(36px, 6vw, 64px);
-  --text-h2: clamp(28px, 4vw, 48px);
-  --text-body: 16px;
-  --text-caption: 12px;
-}
-\`\`\`
-
-**Typography rules:**
-- Mono for: headlines, nav, labels, buttons, code
-- Sans for: body paragraphs only
-- Headlines: uppercase + letter-spacing: 0.08em
-[... concrete rules ...]
-
-## Layout Architecture
-
-\`\`\`
-┌─────────────────────────────────────────┐
-│ body (#000)                              │
-│   ┌─ nav (transparent, mono) ──────┐   │
-│   │ LOGO   DOCS  API  [LAUNCH ▸]  │   │
-│   └────────────────────────────────┘   │
-│   ┌────────────────────────────────┐   │
-│   │  Terminal Window (hero)         │   │
-│   │  $ command typed here_         │   │
-│   └────────────────────────────────┘   │
-│   ┌──────┐ ┌──────┐ ┌──────┐         │
-│   │panel │ │panel │ │panel │         │
-│   └──────┘ └──────┘ └──────┘         │
-└─────────────────────────────────────────┘
-\`\`\`
-
-**Spacing tokens:**
-- \`--space-section: clamp(80px, 10vw, 140px)\`
-- \`--container-max: 1200px\`
-- \`--panel-radius: 12px\`
-[... complete spacing system ...]
-
-## Core UI Components
-
-### TerminalWindow
-Simulated terminal container.
-- Props: \`title\`, \`variant\` (dark | darker), \`animate\`
-- Header: 3 dots (● ● ●) + title, 1px bottom border
-- Content: dark bg, mono text, left-aligned
-- Lines prefixed with \`$\` (command), \`>\` (output), \`✓\` (success)
-- Hover: border glow
-
-### CyberPanel
-Feature card with neon glow.
-- Props: \`glowColor\` (cyan | magenta | green), \`hoverable\`
-- Background: var(--color-bg-surface)
-- Hover: box-shadow with glow, border color change
-- Transition: all 0.3s ease
-[... 4-6 more components ...]
-
-## Animation Patterns
-
-### Technology: GSAP 3 + ScrollTrigger + CSS
-
-### Typing Effect
-\`\`\`css
-@keyframes blink-cursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-\`\`\`
-
-### Neon Flicker
-\`\`\`css
-@keyframes neon-flicker {
-  0%, 100% { opacity: 1; text-shadow: var(--glow-cyan); }
-  93% { opacity: 0.8; text-shadow: none; }
-}
-\`\`\`
-[... 3-4 more animation snippets ...]
-
-## Style Injection Pattern
-
-\`\`\`tsx
-const styleId = 'component-styles'
-function ensureStyles() {
-  if (document.getElementById(styleId)) return
-  const sheet = document.createElement('style')
-  sheet.id = styleId
-  sheet.textContent = \`...\`
-  document.head.appendChild(sheet)
-}
-\`\`\`
-
-## Section Templates
-
-### Hero
-\`\`\`
-┌─────────────────────────────────────────┐
-│  > INITIALIZING_           ← typed      │
-│  THE FUTURE IS TERMINAL    ← neon glow  │
-│  subtitle text                           │
-│  [▸ GET STARTED]  [▸ DOCS]             │
-└─────────────────────────────────────────┘
-\`\`\`
-
-### Feature Grid
-\`\`\`
-┌──────────────┐ ┌──────────────┐
-│ ◆ FEATURE 1  │ │ ◆ FEATURE 2  │
-│ description   │ │ description   │
-│ cyan glow ↗  │ │ magenta glow ↗│
-└──────────────┘ └──────────────┘
-\`\`\`
-[... 2-4 more section templates ...]
-
-## Responsive & Quality
-
-- **Breakpoints:** 640px, 768px, 1024px
-- Terminal windows: full-width on mobile
-- Glow effects: reduced on mobile (battery)
-- Touch targets: 44x44px minimum
-
-### Quality Checklist
-- [ ] Pure black background everywhere
-- [ ] Monospace font for non-body text
-- [ ] Neon glow on key elements
-- [ ] At least one terminal component
-- [ ] Responsive at all breakpoints
-- [ ] Reduced motion support
-[... 8-12 checklist items ...]`;
-
-// System prompt for the conversation phase
-const CONVERSATION_SYSTEM_PROMPT = `You are an expert UI/UX design system architect. Your job is to help the user create a PROFESSIONAL agent configuration file — the kind that produces pixel-perfect pages matching a specific design aesthetic.
+// Original UX conversation prompt (preserved for backwards compat)
+const UX_CONVERSATION_PROMPT = `You are an expert UI/UX design system architect. Your job is to help the user create a PROFESSIONAL agent configuration file — the kind that produces pixel-perfect pages matching a specific design aesthetic.
 
 ## Your Expertise
 
@@ -259,8 +274,102 @@ Ask: "Does this capture your vision?"
 - NEVER describe spacing as "generous" — say "32px gap" or "clamp(64px, 8vw, 120px) section padding"
 - Your goal is that someone reading your analysis could recreate the EXACT design in CSS without seeing the screenshot`;
 
-// System prompt for the generation phase
-const GENERATION_SYSTEM_PROMPT = `You are a world-class UI design system engineer. You produce agent configuration files that are so detailed, an AI can build pixel-perfect pages from them alone — WITHOUT ever seeing the reference screenshots.
+// ==================== TYPE-SPECIFIC GENERATION PROMPTS ====================
+
+function getGenerationSystemPrompt(agentType) {
+  const type = agentType || 'ux-design';
+
+  if (type === 'ux-design') {
+    return UX_GENERATION_PROMPT;
+  }
+
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
+  const sectionHeaders = config.sections.map(s => `## ${s.name}`).join('\n');
+
+  return `You are a world-class AI agent architect. You produce agent configuration files that are so detailed and precise, any AI reading them becomes an expert specialist.
+
+## ABSOLUTE REQUIREMENTS
+
+### Structure
+The file MUST contain ALL sections in this exact order:
+1. **Frontmatter** (YAML between --- delimiters): name, description, model: claude-opus-4-6, tools, permission_mode
+${config.sections.map((s, i) => `${i + 2}. **${s.name}** — Minimum ${s.minLines} lines of detailed, actionable content`).join('\n')}
+
+### The "Expert-Level" Standard
+Every instruction in the file must be CONCRETE and ACTIONABLE:
+- Not "handle errors" but "catch HTTP 4xx with retry logic: max 3 attempts, exponential backoff starting at 1s, log each failure with context"
+- Not "write clean code" but "max function length: 30 lines, max parameters: 4, mandatory JSDoc for exported functions"
+- Not "be helpful" but "always provide 3 alternative approaches when the first solution is rejected, with pros/cons for each"
+- Not "use tools effectively" but "prefer Glob over Bash for file search, use Grep with -C 3 for context, batch Read calls for related files"
+
+${type === 'orchestration' ? `### Orchestration-Specific Requirements
+- Agent Registry: list EVERY agent by name with its capabilities, tools, model, and when to invoke it
+- Delegation patterns: specify EXACT conditions for choosing which agent handles which task
+- Communication protocol: how agents pass context, results, and errors between each other
+- Parallel execution: when to fan-out, when to wait, max concurrency limits
+- Quality gates: what checks happen between agent hand-offs` : ''}
+
+${type === 'development' ? `### Development-Specific Requirements
+- Every code pattern must include REAL code examples (not pseudocode)
+- Architecture decisions must include trade-offs and when to use alternatives
+- Testing section must include example test structures for unit, integration, and e2e
+- Error handling must specify exact error types, retry policies, and escalation paths
+- Security section must reference OWASP top 10 with specific mitigations` : ''}
+
+${type === 'workflow' ? `### Workflow-Specific Requirements
+- Every process must have a clear state diagram (ASCII art or description)
+- Triggers must specify exact conditions, debounce rules, and priority ordering
+- Data flow must show transformation steps with input/output schemas
+- Guards must specify exact validation rules with error messages
+- Integration points must include auth, retry, and timeout configurations` : ''}
+
+${type === 'operational' ? `### Operational-Specific Requirements
+- Infrastructure configs must include exact commands, file paths, and environment variables
+- Monitoring must specify exact metrics, thresholds, and alert routing
+- Incident response must include severity levels with SLA times and escalation procedures
+- Security section must reference specific compliance frameworks (SOC2, GDPR, etc.)
+- Runbooks must be step-by-step with exact commands and verification steps` : ''}
+
+${type === 'marketing' ? `### Marketing-Specific Requirements
+- Brand voice must include DO/DON'T examples with specific word choices
+- Content templates must be fill-in-the-blank ready with character limits
+- SEO rules must include specific keyword density targets and meta tag templates
+- Campaign workflows must have clear stages with entry/exit criteria
+- Metrics must specify exact KPIs with target ranges and measurement methods` : ''}
+
+${type === 'data-ai' ? `### Data/AI-Specific Requirements
+- Pipeline definitions must include exact data schemas (input/output types)
+- Processing patterns must specify exact transformation functions and error handling
+- ML integration must include model selection criteria, inference patterns, and fallbacks
+- Validation rules must specify exact data quality checks with pass/fail criteria
+- Monitoring must include specific drift metrics and alert thresholds` : ''}
+
+### Quality Rules
+- Total length: 500-900 lines. No less than 400.
+- EVERY instruction must be specific enough that another AI could follow it without guessing
+- NO generic filler. If a section doesn't have enough material, add more specifics
+- The file should read like a complete operations manual for this domain
+- Someone should be able to deploy this agent and get expert-level behavior immediately
+
+### MANDATORY SECTION HEADERS — USE THESE EXACT NAMES
+
+You MUST use these EXACT ## headers in this EXACT order:
+
+\`\`\`
+${sectionHeaders}
+\`\`\`
+
+Any deviation from these exact header names will cause validation failure.
+
+### What NOT to do
+- Don't produce generic agents — every instruction must be specific to the described use case
+- Don't use placeholder values or vague descriptions
+- Don't write sections with just bullet points and no depth
+- Don't copy example content — derive everything from the conversation context`;
+}
+
+// Original UX generation prompt
+const UX_GENERATION_PROMPT = `You are a world-class UI design system engineer. You produce agent configuration files that are so detailed, an AI can build pixel-perfect pages from them alone — WITHOUT ever seeing the reference screenshots.
 
 ## ABSOLUTE REQUIREMENTS
 
@@ -334,250 +443,140 @@ Any deviation from these exact header names will cause validation failure. Do NO
 - Don't reuse the reference example's colors/fonts — derive everything from the brief
 - Don't rename or rephrase the section headers — use the EXACT names specified above`;
 
-// ========== PIXEL-PERFECT IMAGE ANALYSIS PROMPTS ==========
+// ==================== TYPE-SPECIFIC GENERATION USER PROMPTS ====================
 
-const IMAGE_ANALYSIS_PROMPTS = {
-  colors: `You are a UI design engineer extracting the EXACT color system from a screenshot. Analyze every color you can identify with precision.
+function getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample) {
+  const type = agentType || 'ux-design';
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
+  const sectionHeaders = config.sections.map(s => `## ${s.name}`).join('\n');
 
-Return a JSON object:
-{
-  "dominantBackground": "#hex — the main page background color",
-  "backgroundLayers": {
-    "base": "#hex",
-    "elevated": "#hex — card/panel surfaces",
-    "overlay": "rgba() — modal/dialog overlays",
-    "subtle": "#hex — very subtle bg differences (hover states, alternating rows)"
-  },
-  "backgroundGradients": [
-    "CSS gradient string if any gradients are visible (e.g., 'radial-gradient(ellipse at top, rgba(99,102,241,0.08), transparent 60%)')"
-  ],
-  "accentColors": {
-    "primary": "#hex — main brand/action color",
-    "primaryHover": "#hex — hovered version (usually 8-12% lighter or darker)",
-    "secondary": "#hex or null",
-    "tertiary": "#hex or null"
-  },
-  "textColors": {
-    "heading": "#hex or rgba() — main headline color",
-    "body": "rgba() — body text (usually 80-90% white on dark, 80-90% black on light)",
-    "muted": "rgba() — secondary/description text",
-    "disabled": "rgba() — placeholder or disabled text",
-    "link": "#hex — link or interactive text color",
-    "inverse": "#hex — text on accent-colored backgrounds"
-  },
-  "borderColors": {
-    "subtle": "rgba() — very faint borders between cards/sections",
-    "default": "rgba() — normal borders",
-    "strong": "rgba() — emphasized borders (focus states, dividers)",
-    "accent": "#hex or rgba() — accent-colored borders"
-  },
-  "shadows": {
-    "card": "full box-shadow CSS value for cards (e.g., '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)')",
-    "cardHover": "full box-shadow CSS value for hovered cards",
-    "elevated": "full box-shadow for dropdowns/modals",
-    "button": "full box-shadow for buttons",
-    "glow": "full box-shadow if any glow effects exist, null otherwise"
-  },
-  "effects": {
-    "glassmorphism": "backdrop-filter value if glassmorphism is present (e.g., 'blur(20px) saturate(180%)')",
-    "glassBackground": "rgba() background for glass elements (e.g., 'rgba(255,255,255,0.05)')",
-    "glassOpacity": "0.0-1.0 opacity range of glass panels",
-    "overlayGradient": "any decorative gradient overlays on the page"
-  },
-  "stateColors": {
-    "success": "#hex",
-    "warning": "#hex",
-    "error": "#hex",
-    "info": "#hex"
-  },
-  "mood": "dark | light | mixed",
-  "contrast": "high | medium | low",
-  "colorTemperature": "warm | cool | neutral",
-  "colorStrategy": "describe in one sentence HOW colors are used — e.g., 'Monochrome dark with a single indigo accent; color used sparingly only for interactive elements'"
-}
+  if (type === 'ux-design') {
+    return `Create a complete, production-ready agent configuration file.
 
-Be EXACT. Estimate hex values as precisely as possible. Return ONLY valid JSON.`,
+## Design Brief
+${JSON.stringify(brief, null, 2)}
 
-  typography: `You are a typography expert extracting the EXACT type system from a screenshot. Identify every text style visible.
+## Conversation Context
+${conversationSummary}
 
-Return a JSON object:
-{
-  "fontFamilies": {
-    "display": "best guess of display/headline font (e.g., 'Inter', 'Satoshi', 'Plus Jakarta Sans', 'Cal Sans')",
-    "body": "body text font",
-    "mono": "monospace font if any (e.g., 'JetBrains Mono', 'Geist Mono', 'SF Mono')",
-    "accent": "any special decorative font if present, null otherwise",
-    "googleFontsImport": "the @import URL or <link> for Google Fonts if identifiable"
-  },
-  "typeScale": {
-    "display": {"size": "px", "weight": "100-900", "lineHeight": "ratio like 1.1", "letterSpacing": "em value like -0.03em", "textTransform": "none|uppercase|capitalize"},
-    "h1": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
-    "h2": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
-    "h3": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
-    "bodyLarge": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
-    "body": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
-    "small": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
-    "caption": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
-    "overline": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""}
-  },
-  "typographyRules": {
-    "headlineStyle": "How headlines are styled — e.g., 'Tight tracking (-0.03em), heavy weight (700-800), line-height 1.1'",
-    "bodyStyle": "How body text is styled — e.g., 'Regular weight (400), generous line-height (1.6), neutral gray color'",
-    "labelStyle": "How labels/captions are styled — e.g., 'Uppercase, 11px, 600 weight, 0.08em tracking, muted color'",
-    "buttonTextStyle": "How text inside buttons looks — e.g., '14px, 600, 0.01em tracking, no transform'",
-    "navStyle": "How navigation links are styled — e.g., '14px, 500, normal tracking, hover underline offset 4px'"
-  },
-  "textEffects": {
-    "gradientText": "CSS background-clip text gradient if visible, null otherwise",
-    "textShadow": "text-shadow value if any",
-    "decorations": ["underline styles", "highlight overlays", "animated underlines", etc.]
-  },
-  "hierarchy": "describe in 2-3 sentences how the typographic hierarchy creates visual flow — what draws the eye first, second, third"
-}
+## Requirements
+- Agent name: ${derivedName}
+- Target aesthetic: ${brief?.agentIdentity?.aesthetic || 'professional'}
+- Primary use case: ${brief?.agentIdentity?.role || 'frontend page builder'}
+- Model: claude-opus-4-6
 
-Estimate sizes as precisely as possible. Return ONLY valid JSON.`,
+## Reference Example (showing expected FORMAT and DEPTH — your content must be DIFFERENT)
+${agentExample}
 
-  layout: `You are a layout engineer extracting the EXACT spatial system from a screenshot. Measure everything.
+## END OF REFERENCE
 
-Return a JSON object:
-{
-  "pageStructure": {
-    "primaryLayout": "single-column | two-column | grid | bento | asymmetric | dashboard",
-    "containerMaxWidth": "px estimate (e.g., '1120px', '1280px', '960px')",
-    "containerPadding": "px estimate of horizontal padding on each side",
-    "overallDensity": "spacious | balanced | dense | ultra-dense"
-  },
-  "spacingSystem": {
-    "sectionPadding": "px vertical space between major page sections",
-    "blockGap": "px gap between content blocks within a section",
-    "cardPadding": "px internal padding of card components",
-    "cardGap": "px gap between cards in a grid",
-    "inlineGap": "px gap between inline elements (icon + text, label + value)",
-    "stackGap": "px gap between stacked elements within a card"
-  },
-  "gridSystem": {
-    "columns": "number of columns (e.g., 3, 4, 'auto-fill minmax(300px, 1fr)')",
-    "gutterWidth": "px gap between columns",
-    "templatePattern": "CSS grid-template-columns value if identifiable"
-  },
-  "borderRadius": {
-    "card": "px border-radius of main cards",
-    "button": "px border-radius of buttons",
-    "input": "px border-radius of input fields",
-    "badge": "px border-radius of badges/pills",
-    "image": "px border-radius of images",
-    "container": "px border-radius of large containers/sections",
-    "strategy": "describe the radius philosophy — e.g., 'Progressive: 4px inputs → 8px buttons → 16px cards → 24px sections'"
-  },
-  "navigation": {
-    "position": "top-fixed | top-static | sidebar-left | sidebar-right | hidden | bottom",
-    "height": "px height of navbar",
-    "style": "transparent | solid-bg | glass | bordered-bottom",
-    "logoPosition": "left | center",
-    "ctaPosition": "right | none"
-  },
-  "heroSection": {
-    "height": "vh or px estimate",
-    "alignment": "center | left | split (text left, image right)",
-    "hasImage": true,
-    "imagePosition": "right | below | background | floating"
-  },
-  "cardLayout": {
-    "style": "flat | bordered | elevated | glass | neumorphic",
-    "borderWidth": "px — 0 if no border",
-    "hasDividers": false,
-    "headerPattern": "icon-left | top-badge | no-header"
-  },
-  "whitespace": {
-    "amount": "minimal | moderate | generous | dramatic",
-    "strategy": "describe how whitespace is used — e.g., 'Large section gaps (100px+) create breathing room; tight internal card spacing (12-16px) creates density within blocks'"
+Now generate the complete agent file. It MUST be 600-900 lines with ALL 10 sections.
+Every CSS value, every color, every spacing token must be specific to the design brief above.
+Do NOT copy the reference example content — use it only as a format guide.
+
+CRITICAL — Use these EXACT ## section headers in this EXACT order:
+## Your Design DNA
+## Color System
+## Typography
+## Layout Architecture
+## Core UI Components
+## Animation Patterns
+## Style Injection Pattern
+## Section Templates
+## Responsive & Quality
+
+Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if you use different names.`;
   }
+
+  // Non-UX types
+  return `Create a complete, production-ready agent configuration file for a **${config.label}** agent.
+
+## Agent Brief
+${JSON.stringify(brief, null, 2)}
+
+## Conversation Context
+${conversationSummary}
+
+## Requirements
+- Agent name: ${derivedName}
+- Type: ${config.label} (${config.description})
+- Model: claude-opus-4-6
+- Tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch
+
+## Instructions
+Generate a complete agent .md file with frontmatter (---) and ALL required sections.
+The file should be 500-900 lines of DETAILED, ACTIONABLE instructions.
+Every rule, pattern, and instruction must be SPECIFIC — not vague.
+
+CRITICAL — Use these EXACT ## section headers in this EXACT order:
+${sectionHeaders}
+
+Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if you use different names.
+
+Remember:
+- Frontmatter must include: name, description, model (claude-opus-4-6), tools, permission_mode
+- Every section must have enough depth to be useful (minimum ${config.sections.reduce((a, s) => a + s.minLines, 0)} total lines)
+- Include code examples, decision trees, and specific rules — not generic advice`;
 }
 
-Be precise with pixel estimates. Return ONLY valid JSON.`,
+// ==================== TYPE-SPECIFIC BRIEF PROMPTS ====================
 
-  components: `You are a UI component engineer cataloguing EVERY component visible in this screenshot with EXACT CSS details.
+function getBriefSynthesisPrompt(agentType) {
+  const type = agentType || 'ux-design';
 
-Return a JSON object:
+  if (type === 'ux-design') {
+    return UX_DESIGN_BRIEF_PROMPT;
+  }
+
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
+
+  return `You are synthesizing conversation context into a structured Agent Brief for a **${config.label}** agent. This brief must be detailed enough for an AI to generate a complete, production-ready agent configuration.
+
+## Reference Context:
+{analyses}
+
+## Conversation Context:
+{conversationSummary}
+
+## Generate an Agent Brief as JSON:
 {
-  "components": [
+  "agentIdentity": {
+    "role": "what this agent does — be specific",
+    "expertise": ["list 5-8 specific expertise areas"],
+    "personality": "how this agent communicates and makes decisions",
+    "uniqueValue": "what makes this agent different from a generic assistant"
+  },
+  "capabilities": [
     {
-      "type": "name (e.g., 'NavBar', 'HeroSection', 'FeatureCard', 'PricingCard', 'Button', 'Badge', 'Input', 'TestimonialCard')",
-      "count": 1,
-      "cssDetails": {
-        "background": "exact CSS value",
-        "border": "exact CSS value (e.g., '1px solid rgba(255,255,255,0.06)')",
-        "borderRadius": "px value",
-        "padding": "CSS padding value",
-        "shadow": "full box-shadow CSS or 'none'",
-        "dimensions": "width/height constraints if identifiable"
-      },
-      "hoverState": "describe what changes on hover — transform, shadow, border color, background",
-      "content": "what content is inside — icon + heading + description? image + text? number + label?",
-      "variants": ["list any variations visible (different colors, sizes, states)"]
+      "name": "capability name",
+      "description": "what it does",
+      "implementation": "how it works — specific tools, patterns, steps",
+      "edgeCases": ["how it handles failures and edge cases"]
     }
   ],
-  "overallAesthetic": "glassmorphism | flat-modern | neumorphic | brutalist | minimal-clean | cyberpunk | organic | luxury-editorial | bento-playful | developer-dark",
-  "designInfluences": ["2-3 real sites this design resembles (e.g., 'Linear.app card style', 'Vercel dashboard layout', 'Stripe gradient approach')"],
-  "microInteractions": {
-    "buttonHover": "describe button hover effect (e.g., 'translateY(-1px) + shadow expand + slight bg lighten')",
-    "cardHover": "describe card hover effect (e.g., 'border-color brightens to rgba(255,255,255,0.12), subtle translateY(-2px)')",
-    "linkHover": "describe link hover (e.g., 'underline slides in from left, color shifts to accent')",
-    "inputFocus": "describe input focus (e.g., 'border-color changes to accent, ring: 0 0 0 3px rgba(accent,0.1)')",
-    "transitions": "default transition timing (e.g., 'all 0.2s ease' or 'all 0.15s cubic-bezier(0.4,0,0.2,1)')"
+  "toolConfiguration": {
+    "primaryTools": ["tools this agent uses most"],
+    "toolPatterns": ["specific patterns for tool usage"],
+    "restrictions": ["what this agent should NOT do with tools"]
   },
-  "iconStyle": {
-    "type": "line | filled | duotone | none",
-    "size": "px estimate",
-    "color": "same as text | accent | custom per icon",
-    "library": "best guess of icon library (Lucide, Heroicons, Phosphor, custom SVG)"
+  "decisionFramework": {
+    "priorities": ["ordered list of decision priorities"],
+    "tradeoffs": ["how to resolve conflicting requirements"],
+    "escalation": "when and how to ask for human input"
   },
-  "imageStyle": {
-    "treatment": "how images are handled — rounded? overlapping? masked? shadowed?",
-    "aspectRatio": "common aspect ratios used",
-    "placeholder": "how empty image states might look"
-  },
-  "uniqueElements": ["anything distinctive or unusual about this design that an agent MUST replicate"],
-  "technicalNotes": ["CSS techniques needed: backdrop-filter, CSS Grid subgrid, container queries, scroll-snap, etc."]
+  "qualityCriteria": [
+    "specific, measurable quality standards"
+  ],
+  "bannedPatterns": ["things this agent should NEVER do"]
 }
 
-List EVERY distinct component visible. Return ONLY valid JSON.`
-};
-
-// URL analysis prompt
-const URL_ANALYSIS_PROMPT = `You are analyzing a website's design system based on extracted data. Given the following extracted information from the webpage, provide a structured design analysis.
-
-## Extracted Data:
-{extractedData}
-
-## Provide a JSON analysis:
-{
-  "siteName": "name of the site",
-  "designStyle": "primary design aesthetic (glassmorphism, minimal, brutalist, etc.)",
-  "colorScheme": {
-    "primary": "hex",
-    "secondary": "hex",
-    "background": "hex",
-    "surface": "hex",
-    "text": "hex",
-    "accent": "hex"
-  },
-  "typography": {
-    "headingFont": "font family",
-    "bodyFont": "font family",
-    "style": "uppercase | mixed | lowercase"
-  },
-  "layoutPatterns": ["grid", "single-column", "bento", etc.],
-  "components": ["list of UI component types visible"],
-  "animationStyle": "minimal | moderate | heavy",
-  "overallMood": "description of the visual mood",
-  "keyDesignPrinciples": ["3-5 design principles evident in this site"]
-}
+CRITICAL: Every value must be specific and actionable. Not "handle errors" but "retry 3x with exponential backoff, then report failure with full context".
 
 Return ONLY valid JSON.`;
+}
 
-// Design brief synthesis prompt — now demands pixel-perfect output
-const DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into a PIXEL-PERFECT Design Brief. This brief must be so detailed that an AI can reproduce the exact design aesthetic without seeing the screenshots.
+// Original UX design brief prompt
+const UX_DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into a PIXEL-PERFECT Design Brief. This brief must be so detailed that an AI can reproduce the exact design aesthetic without seeing the screenshots.
 
 ## Reference Analyses:
 {analyses}
@@ -688,7 +687,7 @@ const DESIGN_BRIEF_PROMPT = `You are synthesizing multiple design analyses into 
     "technology": "CSS | GSAP | CSS + IntersectionObserver",
     "defaultTransition": "all Xs cubic-bezier(X,X,X,X)",
     "patterns": [
-      {"name": "entrance", "css": "exact CSS or description: 'opacity 0→1, translateY(20px→0), duration 0.5s, stagger 0.1s'"},
+      {"name": "entrance", "css": "exact CSS or description"},
       {"name": "hoverLift", "css": "translateY(-2px), shadow expands"},
       {"name": "scrollReveal", "css": "IntersectionObserver at 0.1 threshold, fade-up"},
       {"name": "buttonClick", "css": "scale(0.97) for 0.1s"},
@@ -703,7 +702,487 @@ CRITICAL: Every value in cssVariables, spacingTokens, and component CSS must be 
 
 Return ONLY valid JSON.`;
 
-// Refinement prompt for improving a specific section
+// ==================== AGENT EXAMPLES BY TYPE ====================
+
+function getAgentExample(agentType) {
+  const type = agentType || 'ux-design';
+
+  if (type === 'ux-design') {
+    return AGENT_EXAMPLE_ABBREVIATED;
+  }
+
+  // For non-UX types, return a type-appropriate abbreviated example
+  if (type === 'orchestration') {
+    return ORCHESTRATION_EXAMPLE;
+  }
+  if (type === 'development') {
+    return DEVELOPMENT_EXAMPLE;
+  }
+
+  // Generic example for other types
+  return GENERIC_AGENT_EXAMPLE;
+}
+
+const ORCHESTRATION_EXAMPLE = `---
+name: project-orchestrator
+description: "Multi-agent orchestrator for complex project execution"
+model: claude-opus-4-6
+tools: [Read, Write, Edit, Bash, Glob, Grep, WebFetch, Task]
+permission_mode: bypassPermissions
+---
+
+You are a **senior orchestration agent** that coordinates multiple specialized agents to complete complex projects...
+
+## Orchestration Identity
+
+You are the **conductor** of a multi-agent system:
+- **Never do the work yourself** — always delegate to the right specialist agent
+- **Decompose before delegating** — break complex tasks into atomic units
+- **Monitor actively** — check agent outputs against quality criteria before accepting
+- **Fail fast, recover smart** — detect failures early and re-route to alternative agents
+[... 8-12 specific principles ...]
+
+## Agent Registry & Capabilities
+
+### Available Agents
+| Agent | Specialization | Tools | Best For |
+|-------|---------------|-------|----------|
+| ux-designer | Visual interfaces | Read,Write,Edit,Bash | HTML/CSS pages, components |
+| backend-dev | API & server code | Read,Write,Edit,Bash,Grep | Node.js, Express, databases |
+| tester | Quality assurance | Read,Bash,Grep | Unit tests, integration tests |
+| reviewer | Code review | Read,Grep,Glob | PR reviews, quality checks |
+
+### Agent Selection Rules
+- UI/visual work → ux-designer (NEVER backend-dev)
+- API endpoints → backend-dev
+- After any code change → tester for verification
+- Before merge → reviewer for sign-off
+[... detailed routing rules ...]
+
+## Delegation Strategy
+[... task assignment patterns, context passing, result validation ...]
+
+## Task Decomposition Rules
+[... how to break complex tasks into atomic units ...]
+
+## Communication Protocol
+[... message formats, context passing, error reporting ...]
+
+## Error Recovery & Fallbacks
+[... retry strategies, agent substitution, escalation ...]
+
+## Parallel Execution Patterns
+[... when to fan-out, max concurrency, dependency resolution ...]
+
+## Quality Assurance Pipeline
+[... acceptance criteria, automated checks, human review gates ...]
+
+## Monitoring & Reporting
+[... status tracking, progress reporting, performance metrics ...]`;
+
+const DEVELOPMENT_EXAMPLE = `---
+name: fullstack-engineer
+description: "Expert full-stack development agent for Node.js + React applications"
+model: claude-opus-4-6
+tools: [Read, Write, Edit, Bash, Glob, Grep, WebFetch]
+permission_mode: default
+---
+
+You are a **senior full-stack engineer** specialized in building production-grade applications...
+
+## Core Identity & Expertise
+
+Your development philosophy:
+- **Type safety first**: TypeScript everywhere, strict mode, no \`any\` types
+- **Test before ship**: minimum 80% coverage, write tests alongside implementation
+- **Security by default**: validate all inputs, sanitize outputs, never trust client data
+[... 8-12 principles with specific details ...]
+
+## Tech Stack & Tooling
+
+### Primary Stack
+- **Runtime**: Node.js 20+ with ESM modules
+- **Backend**: Express.js with Zod validation middleware
+- **Frontend**: React 18+ with TypeScript, Vite bundler
+- **Database**: PostgreSQL via Prisma ORM (or Supabase client)
+- **Testing**: Vitest for unit/integration, Playwright for e2e
+[... detailed tool configurations ...]
+
+## Architecture Patterns
+[... clean architecture, dependency injection, repository pattern ...]
+
+## Code Style & Conventions
+[... naming conventions, file structure, import ordering ...]
+
+## Error Handling Strategy
+[... error types, retry policies, logging patterns ...]
+
+## Testing Approach
+[... test structure, mocking strategies, coverage targets ...]
+
+## Security Practices
+[... input validation, auth patterns, OWASP mitigations ...]
+
+## Performance Optimization
+[... caching strategies, query optimization, bundle size ...]
+
+## Workflow & Git Conventions
+[... branch naming, commit format, PR templates ...]`;
+
+const GENERIC_AGENT_EXAMPLE = `---
+name: specialist-agent
+description: "Expert specialist agent"
+model: claude-opus-4-6
+tools: [Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch]
+permission_mode: default
+---
+
+You are a **domain expert agent** specialized in your field...
+
+## Core Identity
+
+Your working principles:
+- **Precision over speed** — take time to get it right
+- **Evidence-based** — back every recommendation with data or references
+- **Transparent reasoning** — explain your decision process step by step
+[... domain-specific principles ...]
+
+## Expertise Domains
+[... detailed knowledge areas with specific capabilities ...]
+
+## Methodology
+[... step-by-step processes for common tasks ...]
+
+## Tools & Integrations
+[... how to use each tool effectively for this domain ...]
+
+## Decision Framework
+[... how to prioritize, resolve conflicts, handle ambiguity ...]
+
+## Output Standards
+[... formatting, quality criteria, review checklists ...]
+
+## Error Handling
+[... failure modes, recovery strategies, escalation rules ...]
+
+## Quality Checklist
+[... specific checks before completing any task ...]`;
+
+// Abbreviated example from cyberpunk-terminal.md (UX type)
+const AGENT_EXAMPLE_ABBREVIATED = `---
+name: cyberpunk-terminal
+description: "Expert frontend engineer for cyberpunk/terminal-style landing pages..."
+model: sonnet
+---
+
+You are a **senior frontend engineer** specialized in building premium cyberpunk and terminal-style landing pages...
+
+## Your Design DNA
+
+You build pages that feel **electric, precise, and futuristic**:
+- **Pure black void**: Everything floats on \`#000\` or \`#0a0a0a\`
+- **Monospace dominance**: Code-style typography for most elements
+- **Neon glow**: Cyan, magenta, green glow effects on text, borders, and elements
+[... 6-8 bullet points defining the visual identity ...]
+
+## Color System
+
+\`\`\`css
+:root {
+  /* Backgrounds */
+  --color-bg-void: #000000;
+  --color-bg-base: #0a0a0a;
+  --color-bg-elevated: #111111;
+  --color-bg-surface: #1a1a1a;
+
+  /* Primary accent */
+  --neon-cyan: #00ffff;
+  --neon-magenta: #ff00ff;
+  --neon-green: #00ff41;
+
+  /* Glow variants */
+  --glow-cyan: 0 0 10px rgba(0, 255, 255, 0.5), 0 0 40px rgba(0, 255, 255, 0.2);
+
+  /* Text hierarchy */
+  --text-primary: rgba(255, 255, 255, 0.90);
+  --text-secondary: rgba(255, 255, 255, 0.50);
+  --text-tertiary: rgba(255, 255, 255, 0.30);
+
+  /* Borders */
+  --border-dim: rgba(255, 255, 255, 0.06);
+  --border-medium: rgba(255, 255, 255, 0.12);
+}
+\`\`\`
+
+**Color usage rules:**
+- Background is ALWAYS pure black (#000)
+- Neon colors for GLOW EFFECTS only — not flat backgrounds
+- Maximum 2 neon colors dominant per section
+[... 5-8 concrete rules ...]
+
+## Typography
+
+\`\`\`css
+:root {
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'JetBrains Mono', monospace;
+  --font-body: 'Inter', sans-serif;
+
+  --text-display: clamp(48px, 8vw, 96px);
+  --text-h1: clamp(36px, 6vw, 64px);
+  --text-h2: clamp(28px, 4vw, 48px);
+  --text-body: 16px;
+  --text-caption: 12px;
+}
+\`\`\`
+
+## Layout Architecture
+
+\`\`\`
+┌─────────────────────────────────────────┐
+│ body (#000)                              │
+│   ┌─ nav (transparent, mono) ──────┐   │
+│   │ LOGO   DOCS  API  [LAUNCH ▸]  │   │
+│   └────────────────────────────────┘   │
+│   ┌────────────────────────────────┐   │
+│   │  Terminal Window (hero)         │   │
+│   │  $ command typed here_         │   │
+│   └────────────────────────────────┘   │
+│   ┌──────┐ ┌──────┐ ┌──────┐         │
+│   │panel │ │panel │ │panel │         │
+│   └──────┘ └──────┘ └──────┘         │
+└─────────────────────────────────────────┘
+\`\`\`
+
+## Core UI Components
+
+### TerminalWindow
+- Props: \`title\`, \`variant\` (dark | darker), \`animate\`
+- Header: 3 dots (● ● ●) + title, 1px bottom border
+- Hover: border glow
+[... 4-6 more components ...]
+
+## Animation Patterns
+
+### Typing Effect
+\`\`\`css
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+\`\`\`
+[... 3-4 more animation snippets ...]
+
+## Style Injection Pattern
+
+\`\`\`tsx
+const styleId = 'component-styles'
+function ensureStyles() { ... }
+\`\`\`
+
+## Section Templates
+
+### Hero
+\`\`\`
+┌─────────────────────────────────────────┐
+│  > INITIALIZING_           ← typed      │
+│  THE FUTURE IS TERMINAL    ← neon glow  │
+│  [▸ GET STARTED]  [▸ DOCS]             │
+└─────────────────────────────────────────┘
+\`\`\`
+[... 2-4 more section templates ...]
+
+## Responsive & Quality
+
+- **Breakpoints:** 640px, 768px, 1024px
+- [ ] Pure black background everywhere
+- [ ] Monospace font for non-body text
+[... 8-12 checklist items ...]`;
+
+// ==================== IMAGE ANALYSIS PROMPTS (UX-specific) ====================
+
+const IMAGE_ANALYSIS_PROMPTS = {
+  colors: `You are a UI design engineer extracting the EXACT color system from a screenshot. Analyze every color you can identify with precision.
+
+Return a JSON object:
+{
+  "dominantBackground": "#hex — the main page background color",
+  "backgroundLayers": {
+    "base": "#hex",
+    "elevated": "#hex — card/panel surfaces",
+    "overlay": "rgba() — modal/dialog overlays",
+    "subtle": "#hex — very subtle bg differences"
+  },
+  "backgroundGradients": ["CSS gradient string if any"],
+  "accentColors": {
+    "primary": "#hex",
+    "primaryHover": "#hex",
+    "secondary": "#hex or null",
+    "tertiary": "#hex or null"
+  },
+  "textColors": {
+    "heading": "#hex or rgba()",
+    "body": "rgba()",
+    "muted": "rgba()",
+    "disabled": "rgba()",
+    "link": "#hex",
+    "inverse": "#hex"
+  },
+  "borderColors": {
+    "subtle": "rgba()",
+    "default": "rgba()",
+    "strong": "rgba()",
+    "accent": "#hex or rgba()"
+  },
+  "shadows": {
+    "card": "full box-shadow CSS value",
+    "cardHover": "full box-shadow CSS value",
+    "elevated": "full box-shadow for dropdowns/modals",
+    "button": "full box-shadow for buttons",
+    "glow": "full box-shadow if any glow effects exist, null otherwise"
+  },
+  "effects": {
+    "glassmorphism": "backdrop-filter value if present",
+    "glassBackground": "rgba() background for glass elements",
+    "glassOpacity": "0.0-1.0 opacity range",
+    "overlayGradient": "any decorative gradient overlays"
+  },
+  "stateColors": { "success": "#hex", "warning": "#hex", "error": "#hex", "info": "#hex" },
+  "mood": "dark | light | mixed",
+  "contrast": "high | medium | low",
+  "colorTemperature": "warm | cool | neutral",
+  "colorStrategy": "describe in one sentence HOW colors are used"
+}
+
+Be EXACT. Return ONLY valid JSON.`,
+
+  typography: `You are a typography expert extracting the EXACT type system from a screenshot.
+
+Return a JSON object:
+{
+  "fontFamilies": {
+    "display": "font name",
+    "body": "font name",
+    "mono": "font name or null",
+    "accent": "font name or null",
+    "googleFontsImport": "URL if identifiable"
+  },
+  "typeScale": {
+    "display": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "h1": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "h2": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "h3": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""},
+    "body": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
+    "small": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": ""},
+    "caption": {"size": "px", "weight": "", "lineHeight": "", "letterSpacing": "", "textTransform": ""}
+  },
+  "typographyRules": {
+    "headlineStyle": "",
+    "bodyStyle": "",
+    "labelStyle": "",
+    "buttonTextStyle": "",
+    "navStyle": ""
+  },
+  "hierarchy": "2-3 sentences about typographic flow"
+}
+
+Return ONLY valid JSON.`,
+
+  layout: `You are a layout engineer extracting the EXACT spatial system from a screenshot.
+
+Return a JSON object:
+{
+  "pageStructure": {
+    "primaryLayout": "single-column | two-column | grid | bento",
+    "containerMaxWidth": "px estimate",
+    "containerPadding": "px estimate",
+    "overallDensity": "spacious | balanced | dense"
+  },
+  "spacingSystem": {
+    "sectionPadding": "px",
+    "blockGap": "px",
+    "cardPadding": "px",
+    "cardGap": "px",
+    "inlineGap": "px",
+    "stackGap": "px"
+  },
+  "gridSystem": {
+    "columns": "number",
+    "gutterWidth": "px",
+    "templatePattern": "CSS grid value"
+  },
+  "borderRadius": {
+    "card": "px", "button": "px", "input": "px", "badge": "px",
+    "strategy": "radius philosophy description"
+  },
+  "navigation": {
+    "position": "top-fixed | sidebar-left | hidden",
+    "height": "px",
+    "style": "transparent | solid-bg | glass"
+  },
+  "whitespace": {
+    "amount": "minimal | moderate | generous",
+    "strategy": "how whitespace is used"
+  }
+}
+
+Return ONLY valid JSON.`,
+
+  components: `You are a UI component engineer cataloguing EVERY component visible in this screenshot with EXACT CSS details.
+
+Return a JSON object:
+{
+  "components": [
+    {
+      "type": "component name",
+      "count": 1,
+      "cssDetails": {
+        "background": "exact CSS",
+        "border": "exact CSS",
+        "borderRadius": "px",
+        "padding": "CSS padding",
+        "shadow": "full box-shadow or none"
+      },
+      "hoverState": "what changes on hover",
+      "content": "what content is inside",
+      "variants": ["list variations"]
+    }
+  ],
+  "overallAesthetic": "glassmorphism | flat-modern | neumorphic | brutalist | minimal-clean | cyberpunk | organic | luxury-editorial",
+  "designInfluences": ["2-3 real sites this resembles"],
+  "microInteractions": {
+    "buttonHover": "", "cardHover": "", "linkHover": "", "inputFocus": "",
+    "transitions": "default timing"
+  },
+  "iconStyle": { "type": "line | filled", "size": "px", "library": "guess" },
+  "uniqueElements": ["distinctive design elements"]
+}
+
+Return ONLY valid JSON.`
+};
+
+// URL analysis prompt
+const URL_ANALYSIS_PROMPT = `You are analyzing a website's design system. Given extracted data, provide a structured design analysis.
+
+## Extracted Data:
+{extractedData}
+
+## Provide a JSON analysis:
+{
+  "siteName": "",
+  "designStyle": "",
+  "colorScheme": { "primary": "", "secondary": "", "background": "", "surface": "", "text": "", "accent": "" },
+  "typography": { "headingFont": "", "bodyFont": "", "style": "" },
+  "layoutPatterns": [],
+  "components": [],
+  "animationStyle": "",
+  "overallMood": "",
+  "keyDesignPrinciples": []
+}
+
+Return ONLY valid JSON.`;
+
+// Refinement prompt
 const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent configuration file.
 
 ## Current Full Agent File:
@@ -720,138 +1199,164 @@ const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent co
 ## Instructions:
 1. Rewrite ONLY the specified section, keeping the same ## header
 2. Address the user's feedback specifically
-3. Maintain consistency with the rest of the agent file (same colors, same aesthetic, same component names)
-4. The refined section should be at least as long as the original, preferably longer with more detail
+3. Maintain consistency with the rest of the agent file
+4. The refined section should be at least as long as the original, preferably longer
 5. Keep the same markdown formatting style
-6. Make EVERY CSS value specific — no vague descriptions
+6. Make EVERY instruction specific and actionable
 
 Return ONLY the refined section content (including the ## header). Nothing else.`;
 
-/**
- * Validate agent file quality - checks for all 10 sections and minimum length
- * @param {string} content - The generated agent markdown content
- * @returns {{ valid: boolean, score: number, totalLines: number, sections: object[], issues: string[] }}
- */
-function validateAgentQuality(content) {
+// ==================== VALIDATION (type-aware) ====================
+
+function validateAgentQuality(content, agentType) {
+  const type = agentType || 'ux-design';
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['ux-design'];
   const lines = content.split('\n');
   const totalLines = lines.length;
   const issues = [];
 
-  // Check section presence
-  const sectionChecks = [
-    { name: 'Frontmatter', pattern: /^---/, required: true },
-    { name: 'Identity / Design DNA', pattern: /##.*(?:identity|design dna|your design|core identity|visual identity|dna|aesthetic|design philosophy)/i, required: true },
-    { name: 'Color System', pattern: /##.*(?:color|colour|palette)/i, required: true },
-    { name: 'Typography', pattern: /##.*(?:typo|font|type system|type scale)/i, required: true },
-    { name: 'Layout Architecture', pattern: /##.*(?:layout|spacing|grid|architecture)/i, required: true },
-    { name: 'Core UI Components', pattern: /##.*(?:component|ui component|core ui|ui element)/i, required: true },
-    { name: 'Animation Patterns', pattern: /##.*(?:animat|motion|transition|interaction)/i, required: true },
-    { name: 'Style Injection', pattern: /##.*(?:style inject|injection|ensure.*style)/i, required: false },
-    { name: 'Section Templates', pattern: /##.*(?:section template|template|page section|section layout)/i, required: true },
-    { name: 'Responsive / Quality', pattern: /##.*(?:responsive|quality|checklist|breakpoint|mobile)/i, required: true },
-  ];
+  // Check frontmatter
+  const hasFrontmatter = /^---/.test(content);
+  if (!hasFrontmatter) {
+    issues.push('Missing frontmatter (--- delimiters)');
+  }
 
-  const sections = sectionChecks.map(check => {
-    const found = lines.some(line => check.pattern.test(line));
-    if (!found && check.required) {
-      issues.push(`Missing required section: ${check.name}`);
+  // Check section presence based on type
+  const sections = config.sections.map(section => {
+    // Build a flexible regex from the section name
+    const words = section.name.toLowerCase().split(/[&\s]+/).filter(w => w.length > 2);
+    const pattern = new RegExp(`##.*(?:${words.join('|')})`, 'i');
+    const found = lines.some(line => pattern.test(line));
+    if (!found && section.required) {
+      issues.push(`Missing required section: ${section.name}`);
     }
-    return { name: check.name, found, required: check.required };
+    return { name: section.name, found, required: section.required };
   });
 
   const foundCount = sections.filter(s => s.found).length;
 
-  // Check CSS custom properties
-  const cssVarCount = (content.match(/--[\w-]+\s*:/g) || []).length;
-  if (cssVarCount < 20) {
-    issues.push(`Only ${cssVarCount} CSS custom properties found (minimum 20)`);
+  if (type === 'ux-design') {
+    // UX-specific checks
+    const cssVarCount = (content.match(/--[\w-]+\s*:/g) || []).length;
+    if (cssVarCount < 20) {
+      issues.push(`Only ${cssVarCount} CSS custom properties found (minimum 20)`);
+    }
+
+    const hexColors = (content.match(/#[0-9a-fA-F]{6}\b/g) || []).length;
+    const rgbaValues = (content.match(/rgba?\s*\([^)]+\)/g) || []).length;
+    const pxValues = (content.match(/\d+px/g) || []).length;
+    const specificCssScore = hexColors + rgbaValues + pxValues;
+
+    if (specificCssScore < 50) {
+      issues.push(`Only ${specificCssScore} specific CSS values found (minimum 50)`);
+    }
+
+    const asciiPatterns = (content.match(/[┌┐└┘│─┬┴├┤╭╮╯╰═║╔╗╚╝]/g) || []).length;
+    if (asciiPatterns < 20) {
+      issues.push('Insufficient ASCII wireframes');
+    }
+
+    const boxShadows = (content.match(/box-shadow|shadow.*:/gi) || []).length;
+    if (boxShadows < 3) {
+      issues.push('Missing box-shadow definitions');
+    }
+
+    // UX scoring
+    const codeBlocks = (content.match(/```/g) || []).length / 2;
+    const componentHeaders = (content.match(/^###\s+\w/gm) || []).length;
+    const checklistItems = (content.match(/- \[ \]/g) || []).length;
+
+    let score = 0;
+    score += Math.min(foundCount / 10 * 3, 3);
+    score += Math.min(totalLines / 800 * 2, 2);
+    score += Math.min(cssVarCount / 30 * 1, 1);
+    score += Math.min(specificCssScore / 80 * 1.5, 1.5);
+    score += Math.min(codeBlocks / 6 * 0.5, 0.5);
+    score += Math.min(componentHeaders / 8 * 1, 1);
+    score += Math.min(checklistItems / 10 * 0.5, 0.5);
+    score += Math.min(boxShadows / 5 * 0.5, 0.5);
+    score = Math.round(score * 10) / 10;
+
+    return {
+      valid: issues.length === 0 && totalLines >= 400,
+      score,
+      totalLines,
+      sections,
+      issues,
+      stats: {
+        cssVariables: cssVarCount,
+        codeBlocks: Math.floor(codeBlocks),
+        componentHeaders,
+        checklistItems,
+        hexColors,
+        rgbaValues,
+        pxValues,
+        boxShadows,
+      }
+    };
   }
 
-  // Check for specific CSS values (hex colors, px values, rgba)
-  const hexColors = (content.match(/#[0-9a-fA-F]{6}\b/g) || []).length;
-  const rgbaValues = (content.match(/rgba?\s*\([^)]+\)/g) || []).length;
-  const pxValues = (content.match(/\d+px/g) || []).length;
-  const specificCssScore = hexColors + rgbaValues + pxValues;
-
-  if (specificCssScore < 50) {
-    issues.push(`Only ${specificCssScore} specific CSS values found (hex+rgba+px). Minimum 50 for pixel-perfect quality.`);
-  }
-
-  // Check for ASCII wireframes
-  const asciiPatterns = (content.match(/[┌┐└┘│─┬┴├┤╭╮╯╰═║╔╗╚╝]/g) || []).length;
-  if (asciiPatterns < 20) {
-    issues.push('Insufficient ASCII wireframes (need at least 20 box-drawing characters)');
-  }
-
-  // Check for code blocks
+  // Non-UX validation
   const codeBlocks = (content.match(/```/g) || []).length / 2;
-  if (codeBlocks < 4) {
-    issues.push(`Only ${Math.floor(codeBlocks)} code blocks found (minimum 4)`);
-  }
-
-  // Check for component definitions
-  const componentHeaders = (content.match(/^###\s+\w/gm) || []).length;
-  if (componentHeaders < 6) {
-    issues.push(`Only ${componentHeaders} component/subsection headers found (minimum 6)`);
-  }
-
-  // Check minimum line count
-  if (totalLines < 400) {
-    issues.push(`Only ${totalLines} lines (minimum 400 for acceptable quality)`);
-  }
-
-  // Check for checklist items
+  const subHeaders = (content.match(/^###\s+\w/gm) || []).length;
+  const bulletPoints = (content.match(/^[-*]\s+\*?\*?[A-Z]/gm) || []).length;
   const checklistItems = (content.match(/- \[ \]/g) || []).length;
-  if (checklistItems < 6) {
-    issues.push(`Only ${checklistItems} quality checklist items (minimum 6)`);
+
+  if (totalLines < 300) {
+    issues.push(`Only ${totalLines} lines (minimum 300 for acceptable quality)`);
+  }
+  if (subHeaders < 6) {
+    issues.push(`Only ${subHeaders} subsection headers (minimum 6)`);
+  }
+  if (codeBlocks < 2) {
+    issues.push(`Only ${Math.floor(codeBlocks)} code blocks (minimum 2)`);
   }
 
-  // Check for box-shadow values (key indicator of detail level)
-  const boxShadows = (content.match(/box-shadow|shadow.*:/gi) || []).length;
-  if (boxShadows < 3) {
-    issues.push('Missing box-shadow definitions (need at least 3 for cards, hover, elevated)');
-  }
-
-  // Calculate score out of 10
   let score = 0;
-  score += Math.min(foundCount / 10 * 3, 3); // Sections: 0-3 points
-  score += Math.min(totalLines / 800 * 2, 2); // Length: 0-2 points
-  score += Math.min(cssVarCount / 30 * 1, 1); // CSS vars: 0-1 point
-  score += Math.min(specificCssScore / 80 * 1.5, 1.5); // CSS specificity: 0-1.5 points
-  score += Math.min(codeBlocks / 6 * 0.5, 0.5); // Code blocks: 0-0.5 point
-  score += Math.min(componentHeaders / 8 * 1, 1); // Components: 0-1 point
-  score += Math.min(checklistItems / 10 * 0.5, 0.5); // Checklist: 0-0.5 point
-  score += Math.min(boxShadows / 5 * 0.5, 0.5); // Shadows detail: 0-0.5 point
+  score += Math.min(foundCount / config.sections.length * 3, 3);
+  score += Math.min(totalLines / 600 * 2, 2);
+  score += Math.min(subHeaders / 12 * 1.5, 1.5);
+  score += Math.min(codeBlocks / 6 * 1, 1);
+  score += Math.min(bulletPoints / 30 * 1, 1);
+  score += Math.min(checklistItems / 6 * 0.5, 0.5);
+  score += hasFrontmatter ? 1 : 0;
   score = Math.round(score * 10) / 10;
 
   return {
-    valid: issues.length === 0 && totalLines >= 400,
+    valid: issues.length === 0 && totalLines >= 300,
     score,
     totalLines,
     sections,
     issues,
     stats: {
-      cssVariables: cssVarCount,
       codeBlocks: Math.floor(codeBlocks),
-      componentHeaders,
+      subHeaders,
+      bulletPoints,
       checklistItems,
-      asciiChars: asciiPatterns,
-      hexColors,
-      rgbaValues,
-      pxValues,
-      boxShadows,
     }
   };
 }
 
+// ==================== EXPORTS ====================
+
 module.exports = {
-  AGENT_TEMPLATE_STRUCTURE,
-  AGENT_EXAMPLE_ABBREVIATED,
-  CONVERSATION_SYSTEM_PROMPT,
-  GENERATION_SYSTEM_PROMPT,
+  AGENT_TYPE_CONFIGS,
+  getConversationSystemPrompt,
+  getGenerationSystemPrompt,
+  getGenerationUserPrompt,
+  getBriefSynthesisPrompt,
+  getAgentExample,
   IMAGE_ANALYSIS_PROMPTS,
   URL_ANALYSIS_PROMPT,
-  DESIGN_BRIEF_PROMPT,
   REFINEMENT_PROMPT,
   validateAgentQuality,
+  // Backwards compat aliases
+  CONVERSATION_SYSTEM_PROMPT: UX_CONVERSATION_PROMPT,
+  GENERATION_SYSTEM_PROMPT: UX_GENERATION_PROMPT,
+  AGENT_EXAMPLE_ABBREVIATED,
+  AGENT_TEMPLATE_STRUCTURE: {
+    sections: AGENT_TYPE_CONFIGS['ux-design'].sections,
+    totalMinLines: 600,
+    totalTargetLines: 800,
+  },
 };

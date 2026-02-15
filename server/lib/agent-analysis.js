@@ -2,7 +2,7 @@
 // Uses GPT-5 Vision for image analysis, GPT-5 for URL/brief synthesis
 
 const fs = require('fs').promises;
-const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, DESIGN_BRIEF_PROMPT } = require('./agent-templates');
+const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, getBriefSynthesisPrompt } = require('./agent-templates');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
@@ -350,7 +350,7 @@ async function deepAnalyzeImage(filePath, mimeType) {
  * @param {Array} messages - Conversation messages
  * @returns {object} Design Brief JSON
  */
-async function synthesizeDesignBrief(references, messages) {
+async function synthesizeDesignBrief(references, messages, agentType) {
   // Build analyses summary from references
   const analyses = references.map((ref, idx) => {
     const analysis = ref.structured_analysis;
@@ -370,13 +370,19 @@ async function synthesizeDesignBrief(references, messages) {
     return `${m.role}: ${content}`;
   }).join('\n\n');
 
-  const prompt = DESIGN_BRIEF_PROMPT
+  const type = agentType || 'ux-design';
+  const briefTemplate = getBriefSynthesisPrompt(type);
+  const prompt = briefTemplate
     .replace('{analyses}', analyses)
     .replace('{conversationSummary}', conversationSummary);
 
+  const systemRole = type === 'ux-design'
+    ? 'You are a design system architect. Synthesize reference analyses into a comprehensive Design Brief. Respond ONLY with valid JSON.'
+    : `You are an expert agent architect specializing in ${type} agents. Synthesize conversation context into a structured Agent Brief. Respond ONLY with valid JSON.`;
+
   const result = await callGPT5(
     [
-      { role: 'system', content: 'You are a design system architect. Synthesize reference analyses into a comprehensive Design Brief. Respond ONLY with valid JSON.' },
+      { role: 'system', content: systemRole },
       { role: 'user', content: prompt }
     ],
     { max_completion_tokens: 12000, responseFormat: 'json' }

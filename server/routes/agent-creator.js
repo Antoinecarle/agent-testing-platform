@@ -12,9 +12,12 @@ const db = require('../db');
 // Import analysis and template modules
 const { deepAnalyzeURL, deepAnalyzeImage, synthesizeDesignBrief, callGPT5 } = require('../lib/agent-analysis');
 const {
-  CONVERSATION_SYSTEM_PROMPT,
-  GENERATION_SYSTEM_PROMPT,
-  AGENT_EXAMPLE_ABBREVIATED,
+  AGENT_TYPE_CONFIGS,
+  getConversationSystemPrompt,
+  getGenerationSystemPrompt,
+  getGenerationUserPrompt,
+  getBriefSynthesisPrompt,
+  getAgentExample,
   REFINEMENT_PROMPT,
   validateAgentQuality,
 } = require('../lib/agent-templates');
@@ -173,12 +176,25 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
+// Get available agent types for the type selector
+router.get('/types', (req, res) => {
+  const types = Object.values(AGENT_TYPE_CONFIGS).map(t => ({
+    id: t.id,
+    label: t.label,
+    icon: t.icon,
+    color: t.color,
+    description: t.description,
+    welcomeMessage: t.welcomeMessage,
+  }));
+  res.json({ types });
+});
+
 // Create a new conversation
 router.post('/conversations', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, agent_type } = req.body;
     const userId = req.user.userId || req.user.id;
-    const conversation = await db.createAgentConversation(userId, name || 'New Agent');
+    const conversation = await db.createAgentConversation(userId, name || 'New Agent', agent_type || 'ux-design');
     res.json({ conversation });
   } catch (err) {
     console.error('[agent-creator] Error creating conversation:', err);
@@ -378,9 +394,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const referencesContext = buildReferencesContext(references);
 
     // Build the upgraded system prompt — cap total size to avoid context overflow
-    let systemPrompt = CONVERSATION_SYSTEM_PROMPT
+    const agentType = conversation.agent_type || 'ux-design';
+    let systemPrompt = getConversationSystemPrompt(agentType)
       + (referencesContext.length > 8000 ? referencesContext.slice(0, 8000) + '\n...(truncated)' : referencesContext)
-      + `\n\nCurrent conversation: Creating an agent for "${conversation.name}".`;
+      + `\n\nCurrent conversation: Creating a ${agentType} agent for "${conversation.name}".`;
 
     // Save user message
     await db.createConversationMessage(id, 'user', message);
@@ -554,13 +571,14 @@ router.post('/conversations/:id/analyze', async (req, res) => {
     const messages = await db.getConversationMessages(id);
 
     if (references.length === 0 && messages.length < 2) {
-      return res.status(400).json({ error: 'Add at least one reference or chat about the design before analyzing' });
+      return res.status(400).json({ error: 'Add at least one reference or chat about the agent before analyzing' });
     }
 
-    console.log(`[agent-creator] Synthesizing design brief for conversation ${id} (${references.length} refs, ${messages.length} msgs)`);
+    const agentType = conversation.agent_type || 'ux-design';
+    console.log(`[agent-creator] Synthesizing ${agentType} brief for conversation ${id} (${references.length} refs, ${messages.length} msgs)`);
 
-    // Synthesize design brief from all analyses + conversation
-    const brief = await synthesizeDesignBrief(references, messages);
+    // Synthesize brief from all analyses + conversation (type-aware)
+    const brief = await synthesizeDesignBrief(references, messages, agentType);
 
     // Store brief
     await db.updateConversationBrief(id, brief);
@@ -608,10 +626,12 @@ router.post('/conversations/:id/generate', async (req, res) => {
     const references = await db.getConversationReferences(id);
     let brief = conversation.design_brief;
 
+    const agentType = conversation.agent_type || 'ux-design';
+
     // Auto-analyze if no brief exists
     if (!brief) {
       console.log(`[agent-creator] No brief found, auto-analyzing...`);
-      brief = await synthesizeDesignBrief(references, messages);
+      brief = await synthesizeDesignBrief(references, messages, agentType);
       await db.updateConversationBrief(id, brief);
     }
 
@@ -629,55 +649,22 @@ router.post('/conversations/:id/generate', async (req, res) => {
       ? brief.agentIdentity.aesthetic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
       : conversation.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    // Build the generation prompt
-    const generationUserPrompt = `Create a complete, production-ready agent configuration file.
+    // Build type-aware generation prompts
+    const agentExample = getAgentExample(agentType);
+    const generationUserPrompt = getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample);
 
-## Design Brief
-${JSON.stringify(brief, null, 2)}
-
-## Conversation Context
-${conversationSummary}
-
-## Requirements
-- Agent name: ${derivedName}
-- Target aesthetic: ${brief.agentIdentity?.aesthetic || 'professional'}
-- Primary use case: ${brief.agentIdentity?.role || 'frontend page builder'}
-- Model: claude-opus-4-6
-
-## Reference Example (showing expected FORMAT and DEPTH — your content must be DIFFERENT)
-${AGENT_EXAMPLE_ABBREVIATED}
-
-## END OF REFERENCE
-
-Now generate the complete agent file. It MUST be 600-900 lines with ALL 10 sections.
-Every CSS value, every color, every spacing token must be specific to the design brief above.
-Do NOT copy the reference example content — use it only as a format guide.
-
-CRITICAL — Use these EXACT ## section headers in this EXACT order:
-## Your Design DNA
-## Color System
-## Typography
-## Layout Architecture
-## Core UI Components
-## Animation Patterns
-## Style Injection Pattern
-## Section Templates
-## Responsive & Quality
-
-Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if you use different names.`;
-
-    console.log(`[agent-creator] Generating agent for ${derivedName} (conversation ${id})`);
+    console.log(`[agent-creator] Generating ${agentType} agent for ${derivedName} (conversation ${id})`);
 
     const agentFile = await callGPT5(
       [
-        { role: 'system', content: GENERATION_SYSTEM_PROMPT },
+        { role: 'system', content: getGenerationSystemPrompt(agentType) },
         { role: 'user', content: generationUserPrompt },
       ],
       { max_completion_tokens: 32000 }
     );
 
-    // Validate quality
-    const validation = validateAgentQuality(agentFile);
+    // Validate quality (type-aware)
+    const validation = validateAgentQuality(agentFile, agentType);
 
     // Store generated agent
     await db.updateConversationGeneratedAgent(id, agentFile, 'complete');
@@ -746,7 +733,8 @@ router.post('/conversations/:id/refine', async (req, res) => {
     // Store updated agent
     await db.updateConversationGeneratedAgent(id, updatedAgent, 'complete');
 
-    const validation = validateAgentQuality(updatedAgent);
+    const agentType = conversation.agent_type || 'ux-design';
+    const validation = validateAgentQuality(updatedAgent, agentType);
 
     res.json({ agentFile: updatedAgent, refinedSection: section, validation });
   } catch (err) {
@@ -1184,13 +1172,30 @@ router.post('/conversations/:id/save', async (req, res) => {
     const memory = memoryMatch ? memoryMatch[1].trim() : 'true';
     const permissionMode = permissionMatch ? permissionMatch[1].trim() : 'default';
 
-    // Detect category from content
+    // Detect category from agent_type + content
+    const convAgentType = conversation.agent_type || 'ux-design';
     const lowerContent = (description + ' ' + prompt.slice(0, 500)).toLowerCase();
     let category = 'Custom';
-    if (lowerContent.includes('landing page') || lowerContent.includes('marketing')) category = 'Landing Pages';
-    else if (lowerContent.includes('dashboard') || lowerContent.includes('saas')) category = 'SaaS';
-    else if (lowerContent.includes('portfolio') || lowerContent.includes('creative')) category = 'Creative';
-    else if (lowerContent.includes('e-commerce') || lowerContent.includes('shop')) category = 'E-Commerce';
+    // Map agent_type to category first
+    const TYPE_CATEGORY_MAP = {
+      'ux-design': null, // Fall through to content-based detection
+      'development': 'Development',
+      'orchestration': 'Orchestration',
+      'workflow': 'Workflow',
+      'operational': 'Operational',
+      'marketing': 'Marketing',
+      'data-ai': 'Data / AI',
+      'custom': 'Custom',
+    };
+    if (TYPE_CATEGORY_MAP[convAgentType]) {
+      category = TYPE_CATEGORY_MAP[convAgentType];
+    } else {
+      // UX-design: detect from content
+      if (lowerContent.includes('landing page') || lowerContent.includes('marketing')) category = 'Landing Pages';
+      else if (lowerContent.includes('dashboard') || lowerContent.includes('saas')) category = 'SaaS';
+      else if (lowerContent.includes('portfolio') || lowerContent.includes('creative')) category = 'Creative';
+      else if (lowerContent.includes('e-commerce') || lowerContent.includes('shop')) category = 'E-Commerce';
+    }
 
     // Write agent .md file to BOTH bundled dir AND persistent DATA_DIR
     const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');

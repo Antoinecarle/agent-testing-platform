@@ -7,7 +7,8 @@ import {
   UploadCloud, Link as LinkIcon, Send, X, FileCode, Plus,
   Trash2, Bot, User, Sparkles, Zap, CheckCircle, AlertTriangle,
   RefreshCw, ChevronDown, ChevronRight, Palette, Type, Layout,
-  Layers, Save, MessageSquare, Edit3, Check, Clock, Image, Maximize2
+  Layers, Save, MessageSquare, Edit3, Check, Clock, Image, Maximize2,
+  Code, GitBranch, Settings, Megaphone, BarChart3, Wrench, Workflow
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -30,6 +31,19 @@ const t = {
   mono: '"JetBrains Mono","Fira Code",monospace',
 };
 
+interface AgentTypeInfo {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  description: string;
+  welcomeMessage: string;
+}
+
+const TYPE_ICONS: Record<string, any> = {
+  Palette, Code, GitBranch, Workflow, Settings, Megaphone, BarChart3, Wrench,
+};
+
 interface Conversation {
   id: string;
   name: string;
@@ -38,6 +52,7 @@ interface Conversation {
   design_brief?: any;
   generated_agent?: string;
   generation_status?: string;
+  agent_type?: string;
 }
 
 interface Reference {
@@ -69,11 +84,11 @@ interface AgentCreatorProps {
   initialAgent?: { name: string; prompt: string };
 }
 
-const WELCOME_MSG: Message = {
+const getWelcomeMsg = (welcomeText?: string): Message => ({
   id: 'welcome',
   role: 'assistant',
-  content: "I'm your AI agent architect. I can see your uploaded screenshots directly — upload references and let's discuss the design.\n\nStart by uploading screenshots, adding URLs, or describing the style you want.",
-};
+  content: welcomeText || "I'm your AI agent architect. I can see your uploaded screenshots directly — upload references and let's discuss the design.\n\nStart by uploading screenshots, adding URLs, or describing the style you want.",
+});
 
 const ENHANCE_WELCOME_MSG = (agentName: string): Message => ({
   id: 'welcome',
@@ -82,6 +97,11 @@ const ENHANCE_WELCOME_MSG = (agentName: string): Message => ({
 });
 
 const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) => {
+  // Agent types
+  const [agentTypes, setAgentTypes] = useState<AgentTypeInfo[]>([]);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [currentAgentType, setCurrentAgentType] = useState<string>('ux-design');
+
   // Conversation list
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -118,6 +138,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Load agent types on mount
+  useEffect(() => {
+    api('/api/agent-creator/types').then(res => {
+      if (res.types) setAgentTypes(res.types);
+    }).catch(() => {});
+  }, []);
 
   // Load conversations on mount + auto-select last active (or init enhance mode)
   useEffect(() => {
@@ -189,14 +216,16 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     }
   };
 
-  const createConversation = async (name?: string) => {
+  const createConversation = async (name?: string, agentType?: string) => {
     try {
+      const type = agentType || 'ux-design';
       const result = await api('/api/agent-creator/conversations', {
         method: 'POST',
-        body: JSON.stringify({ name: name || 'New Agent' }),
+        body: JSON.stringify({ name: name || 'New Agent', agent_type: type }),
       });
       const conv = result.conversation;
       setConversations(prev => [conv, ...prev]);
+      setShowTypeSelector(false);
       selectConversation(conv);
     } catch (err: any) {
       console.error('Failed to create conversation:', err);
@@ -206,6 +235,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const selectConversation = async (conv: Conversation) => {
     setConversationId(conv.id);
     setConvName(conv.name);
+    setCurrentAgentType(conv.agent_type || 'ux-design');
     localStorage.setItem('atp-agent-creator-conv', conv.id);
     setEditingConvName(false);
     setDesignBrief(null);
@@ -216,33 +246,38 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     setAgentNameOverride('');
     setPreviewImageUrl(null);
     setShowImageModal(false);
+    setShowTypeSelector(false);
 
     // Load full conversation data
     try {
       const result = await api(`/api/agent-creator/conversations/${conv.id}`);
       const c = result.conversation;
+      const convType = c.agent_type || 'ux-design';
+      setCurrentAgentType(convType);
       const msgs: Message[] = (c.messages || []).map((m: any) => ({
         id: m.id, role: m.role, content: m.content,
       }));
-      const welcomeMsg = conv.name.startsWith('Enhance:') ? ENHANCE_WELCOME_MSG(conv.name.replace('Enhance: ', '')) : WELCOME_MSG;
+      // Type-aware welcome message
+      const typeInfo = agentTypes.find(t => t.id === convType);
+      const welcomeMsg = conv.name.startsWith('Enhance:')
+        ? ENHANCE_WELCOME_MSG(conv.name.replace('Enhance: ', ''))
+        : getWelcomeMsg(typeInfo?.welcomeMessage);
       setMessages(msgs.length > 0 ? msgs : [welcomeMsg]);
       setReferences(c.references || []);
       if (c.design_brief) setDesignBrief(c.design_brief);
       if (c.generated_agent) {
         setGeneratedAgent(c.generated_agent);
         setIsPreviewOpen(true);
-        // Restore agent name from frontmatter
         const nameMatch = c.generated_agent.match(/^name:\s*(.+)$/m);
         if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
       }
-      // Check for existing preview image (convention: preview-{id}.png)
       const previewCheckUrl = `/uploads/agent-creator/preview-${conv.id}.png`;
       fetch(previewCheckUrl, { method: 'HEAD' }).then(r => {
         if (r.ok) setPreviewImageUrl(previewCheckUrl + '?t=' + Date.now());
       }).catch(() => {});
     } catch (err: any) {
       console.error('Failed to load conversation:', err);
-      setMessages([WELCOME_MSG]);
+      setMessages([getWelcomeMsg()]);
       setReferences([]);
     }
   };
@@ -379,15 +414,29 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     try {
       const result = await api(`/api/agent-creator/conversations/${conversationId}/analyze`, { method: 'POST' });
       setDesignBrief(result.brief);
+      // Build type-aware brief message
+      const brief = result.brief;
+      const isUX = currentAgentType === 'ux-design';
+      let briefContent = '';
+      if (isUX) {
+        briefContent = `Design Brief synthesized from ${references.length} reference(s):\n\n` +
+          `**Aesthetic**: ${brief.agentIdentity?.aesthetic || 'custom'}\n` +
+          `**Colors**: ${Object.keys(brief.colorSystem?.cssVariables || {}).length} CSS variables\n` +
+          `**Fonts**: ${brief.typographySystem?.displayFont || '?'} + ${brief.typographySystem?.bodyFont || '?'}\n` +
+          `**Components**: ${(brief.componentInventory || []).map((c: any) => c.name).join(', ')}\n\n` +
+          `Ready to generate. Click **Generate Agent**.`;
+      } else {
+        briefContent = `Agent Brief synthesized:\n\n` +
+          `**Role**: ${brief.agentIdentity?.role || 'specialist'}\n` +
+          `**Expertise**: ${(brief.agentIdentity?.expertise || []).slice(0, 4).join(', ') || '?'}\n` +
+          `**Capabilities**: ${(brief.capabilities || []).map((c: any) => c.name).join(', ') || '?'}\n` +
+          `**Tools**: ${(brief.toolConfiguration?.primaryTools || []).join(', ') || 'standard'}\n\n` +
+          `Ready to generate. Click **Generate Agent**.`;
+      }
       setMessages(prev => [...prev, {
         id: `brief-${Date.now()}`,
         role: 'assistant',
-        content: `Design Brief synthesized from ${references.length} reference(s):\n\n` +
-          `**Aesthetic**: ${result.brief.agentIdentity?.aesthetic || 'custom'}\n` +
-          `**Colors**: ${Object.keys(result.brief.colorSystem?.cssVariables || {}).length} CSS variables\n` +
-          `**Fonts**: ${result.brief.typographySystem?.displayFont || '?'} + ${result.brief.typographySystem?.bodyFont || '?'}\n` +
-          `**Components**: ${(result.brief.componentInventory || []).map((c: any) => c.name).join(', ')}\n\n` +
-          `Ready to generate. Click **Generate Agent**.`
+        content: briefContent,
       }]);
     } catch (err: any) {
       console.error('Failed to analyze:', err);
@@ -523,8 +572,20 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
             ) : (
               <h1 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>Agent Architect</h1>
             )}
-            <span style={{ fontSize: '11px', color: t.tm }}>
-              {conversationId ? `${references.length} refs | ${messages.filter(m => m.id !== 'welcome').length} msgs` : 'Select or create a conversation'}
+            <span style={{ fontSize: '11px', color: t.tm, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {conversationId ? (
+                <>
+                  {(() => {
+                    const ti = agentTypes.find(at => at.id === currentAgentType);
+                    return ti ? (
+                      <span style={{ fontSize: '10px', color: ti.color, padding: '1px 6px', background: `${ti.color}15`, borderRadius: '4px', fontWeight: 600 }}>
+                        {ti.label}
+                      </span>
+                    ) : null;
+                  })()}
+                  {references.length} refs | {messages.filter(m => m.id !== 'welcome').length} msgs
+                </>
+              ) : 'Select or create a conversation'}
             </span>
           </div>
         </div>
@@ -548,13 +609,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         {/* FAR LEFT: Conversation List */}
         <aside style={{ borderRight: `1px solid ${t.border}`, background: t.bg, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px', borderBottom: `1px solid ${t.border}` }}>
-            <button onClick={() => createConversation()}
+            <button onClick={() => setShowTypeSelector(true)}
               style={{
                 width: '100%', padding: '8px', borderRadius: '8px', fontWeight: 600, fontSize: '12px', cursor: 'pointer',
                 background: t.violetG, color: t.violet, border: `1px solid ${t.violetM}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               }}>
-              <Plus size={14} /> New Conversation
+              <Plus size={14} /> New Agent
             </button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -581,6 +642,14 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       <span style={{ fontSize: '10px', color: t.tm, display: 'flex', alignItems: 'center', gap: '3px' }}>
                         <Clock size={9} /> {timeAgo(conv.updated_at || conv.created_at)}
                       </span>
+                      {conv.agent_type && conv.agent_type !== 'ux-design' && (() => {
+                        const ti = agentTypes.find(at => at.id === conv.agent_type);
+                        return ti ? (
+                          <span style={{ fontSize: '8px', color: ti.color, padding: '0 4px', background: `${ti.color}15`, borderRadius: '3px' }}>
+                            {ti.label}
+                          </span>
+                        ) : null;
+                      })()}
                       {conv.generation_status === 'complete' && (
                         <span style={{ fontSize: '9px', color: t.success, padding: '0 4px', background: 'rgba(34,197,94,0.1)', borderRadius: '3px' }}>generated</span>
                       )}
@@ -729,22 +798,45 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                 <div style={{ padding: '8px', borderRadius: '6px', background: t.bg, border: `1px solid ${t.border}`, fontSize: '10px' }}>
                   <div style={{ color: t.tm, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontSize: '9px' }}>Brief</div>
                   <div style={{ color: t.ts, lineHeight: '1.5' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
-                      <Palette size={9} color={t.cyan} />
-                      {Object.keys(designBrief.colorSystem?.cssVariables || {}).length} CSS vars
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
-                      <Type size={9} color={t.cyan} />
-                      {designBrief.typographySystem?.displayFont || '?'}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
-                      <Layout size={9} color={t.cyan} />
-                      {designBrief.layoutArchitecture?.primaryLayout || '?'}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      <Layers size={9} color={t.cyan} />
-                      {(designBrief.componentInventory || []).length} comps
-                    </div>
+                    {currentAgentType === 'ux-design' ? (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Palette size={9} color={t.cyan} />
+                          {Object.keys(designBrief.colorSystem?.cssVariables || {}).length} CSS vars
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Type size={9} color={t.cyan} />
+                          {designBrief.typographySystem?.displayFont || '?'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Layout size={9} color={t.cyan} />
+                          {designBrief.layoutArchitecture?.primaryLayout || '?'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Layers size={9} color={t.cyan} />
+                          {(designBrief.componentInventory || []).length} comps
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Bot size={9} color={t.cyan} />
+                          {designBrief.agentIdentity?.role?.slice(0, 40) || 'specialist'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Layers size={9} color={t.cyan} />
+                          {(designBrief.capabilities || []).length} capabilities
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '2px' }}>
+                          <Settings size={9} color={t.cyan} />
+                          {(designBrief.toolConfiguration?.primaryTools || []).length} tools
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <CheckCircle size={9} color={t.cyan} />
+                          {(designBrief.qualityCriteria || []).length} quality rules
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -752,16 +844,51 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
           )}
         </aside>
 
-        {/* CENTER: Chat */}
+        {/* CENTER: Chat or Type Selector */}
         <section style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-          {!conversationId ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', color: t.tm }}>
-              <Bot size={40} color={t.tm} />
-              <span style={{ fontSize: '14px' }}>Create or select a conversation</span>
-              <button onClick={() => createConversation()}
-                style={{ padding: '10px 20px', borderRadius: '8px', background: t.violet, color: 'white', border: 'none', fontWeight: 600, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Plus size={14} /> New Conversation
-              </button>
+          {showTypeSelector || !conversationId ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', overflowY: 'auto' }}>
+              <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', border: `1px solid ${t.violetM}` }}>
+                  <Sparkles size={24} color={t.violet} />
+                </div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: t.tp, margin: '0 0 6px' }}>Create a New Agent</h2>
+                <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Choose the type of agent you want to craft</p>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', maxWidth: '520px', width: '100%' }}>
+                {agentTypes.map(at => {
+                  const Icon = TYPE_ICONS[at.icon] || Bot;
+                  return (
+                    <motion.button key={at.id}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => createConversation(`New ${at.label} Agent`, at.id)}
+                      style={{
+                        padding: '16px', borderRadius: '12px', background: t.surface,
+                        border: `1px solid ${at.color}30`, cursor: 'pointer', textAlign: 'left',
+                        display: 'flex', alignItems: 'flex-start', gap: '12px',
+                        transition: '0.2s', boxShadow: `0 0 20px ${at.color}08`,
+                      }}>
+                      <div style={{
+                        padding: '8px', borderRadius: '8px', background: `${at.color}18`,
+                        color: at.color, flexShrink: 0, boxShadow: `0 0 12px ${at.color}20`,
+                      }}>
+                        <Icon size={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '13px', color: t.tp, marginBottom: '3px' }}>{at.label}</div>
+                        <div style={{ fontSize: '11px', color: t.ts, lineHeight: '1.4' }}>{at.description}</div>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+              {showTypeSelector && conversationId && (
+                <button onClick={() => setShowTypeSelector(false)}
+                  style={{ marginTop: '16px', padding: '6px 16px', borderRadius: '6px', background: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, fontSize: '12px', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              )}
             </div>
           ) : (
             <>

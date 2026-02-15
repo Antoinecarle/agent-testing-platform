@@ -720,10 +720,11 @@ async function countShowcases(agentName) {
 
 // ===================== AGENT CONVERSATIONS =====================
 
-async function createAgentConversation(userId, name) {
+async function createAgentConversation(userId, name, agentType) {
   const { data } = await supabase.from('agent_conversations').insert({
     user_id: userId,
     name: name || 'New Agent',
+    agent_type: agentType || 'ux-design',
   }).select('*').single();
   return data;
 }
