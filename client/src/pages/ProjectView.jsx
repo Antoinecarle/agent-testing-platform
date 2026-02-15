@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
+import OrchestraBuilder from '../components/OrchestraBuilder';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -807,6 +808,7 @@ export default function ProjectView() {
 const TYPE_ICONS = { Palette, Code, Settings, Megaphone, BarChart3, Wrench };
 
 function NewProjectForm({ onCreated }) {
+  const [mode, setMode] = useState(null); // null | 'solo' | 'orchestra'
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [agent, setAgent] = useState('');
@@ -814,6 +816,9 @@ function NewProjectForm({ onCreated }) {
   const [agentTypes, setAgentTypes] = useState([]);
   const [selectedType, setSelectedType] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Orchestra state
+  const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [] });
+  const [orchestraReady, setOrchestraReady] = useState(false); // team built, show form
 
   useEffect(() => {
     api('/api/agents').then(a => setAgents(a || [])).catch(() => {});
@@ -821,7 +826,7 @@ function NewProjectForm({ onCreated }) {
     const params = new URLSearchParams(window.location.search);
     if (params.get('agent')) {
       setAgent(params.get('agent'));
-      // Skip type selection if agent is pre-selected
+      setMode('solo');
       setSelectedType({ id: 'preselected', label: 'Agent', color: t.violet, icon: 'Wrench', defaults: { category: '' } });
     }
   }, []);
@@ -836,7 +841,21 @@ function NewProjectForm({ onCreated }) {
     if (!name) return;
     setSaving(true);
     try {
-      const p = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, description: desc, agent_name: agent }) });
+      const body = { name, description: desc, mode: mode || 'solo' };
+
+      if (mode === 'orchestra') {
+        body.agent_name = orchestraTeam.orchestrator;
+        body.team_config = {
+          name: `${name} Team`,
+          description: `Orchestra team for ${name}`,
+          orchestrator: orchestraTeam.orchestrator,
+          workers: orchestraTeam.workers.map(w => ({ agent_name: w.agent_name })),
+        };
+      } else {
+        body.agent_name = agent;
+      }
+
+      const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
       onCreated(p.id);
     } catch (e) { console.error(e); }
     finally { setSaving(false); }
@@ -848,17 +867,192 @@ function NewProjectForm({ onCreated }) {
     width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s',
   };
 
-  // ── Step 1: Type selector ──────────────────────────────────────────
-  if (!selectedType) {
+  // ── Step 0: Mode selector ─────────────────────────────────────────
+  if (!mode) {
+    const modes = [
+      {
+        id: 'solo', label: 'Solo', icon: User, color: t.violet,
+        desc: 'Un seul agent travaille sur le projet',
+      },
+      {
+        id: 'orchestra', label: 'Orchestra', icon: Users, color: '#F59E0B',
+        desc: 'Plusieurs agents coordonnes par un orchestrateur',
+      },
+    ];
     return (
-      <div style={{ maxWidth: '700px', width: '100%' }}>
+      <div style={{ maxWidth: '520px', width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: t.tp }}>
             Nouveau projet
           </h1>
           <p style={{ fontSize: '14px', color: t.ts, margin: 0, lineHeight: 1.6 }}>
-            Quel type de projet souhaitez-vous demarrer ?
+            Choisissez le mode de votre projet
           </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
+          {modes.map(m => {
+            const IconComp = m.icon;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = m.color + '60';
+                  e.currentTarget.style.backgroundColor = m.color + '08';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = t.border;
+                  e.currentTarget.style.backgroundColor = t.surface;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: '16px', padding: '32px 24px',
+                  backgroundColor: t.surface,
+                  border: `1.5px solid ${t.border}`,
+                  borderRadius: '14px', cursor: 'pointer',
+                  transition: 'all 0.25s ease', textAlign: 'center',
+                  color: t.tp,
+                }}
+              >
+                <div style={{
+                  width: 56, height: 56, borderRadius: '14px',
+                  backgroundColor: m.color + '15',
+                  border: `1.5px solid ${m.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <IconComp size={26} color={m.color} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
+                    {m.label}
+                  </div>
+                  <div style={{ fontSize: '12px', color: t.tm, lineHeight: 1.5 }}>
+                    {m.desc}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Orchestra: Step 1b — Team builder ──────────────────────────────
+  if (mode === 'orchestra' && !orchestraReady) {
+    return (
+      <OrchestraBuilder
+        agents={agents}
+        team={orchestraTeam}
+        onUpdate={setOrchestraTeam}
+        onBack={() => { setMode(null); setOrchestraTeam({ orchestrator: null, workers: [] }); }}
+        onNext={() => setOrchestraReady(true)}
+      />
+    );
+  }
+
+  // ── Orchestra: Step 2b — Name/desc form ────────────────────────────
+  if (mode === 'orchestra' && orchestraReady) {
+    return (
+      <div style={{ maxWidth: '480px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          <button
+            onClick={() => setOrchestraReady(false)}
+            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+            backgroundColor: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30',
+          }}>
+            <Shield size={11} />
+            Orchestra
+          </div>
+        </div>
+
+        {/* Team summary */}
+        <div style={{
+          background: t.surfaceEl, borderRadius: '10px', padding: '14px', marginBottom: '20px',
+          border: `1px solid ${t.border}`,
+        }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Equipe</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+              background: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30',
+            }}>
+              <Shield size={10} /> {orchestraTeam.orchestrator}
+            </span>
+            {orchestraTeam.workers.map(w => (
+              <span key={w.id} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 500,
+                background: t.violet + '15', color: t.violet, border: `1px solid ${t.violet}30`,
+              }}>
+                <User size={10} /> {w.agent_name}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
+            <input
+              value={name} onChange={e => setName(e.target.value)} required
+              placeholder="Mon super projet..."
+              style={inputBase}
+              onFocus={e => e.target.style.borderColor = '#F59E0B'}
+              onBlur={e => e.target.style.borderColor = t.border}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+            <input
+              value={desc} onChange={e => setDesc(e.target.value)}
+              placeholder="Optionnel..."
+              style={inputBase}
+              onFocus={e => e.target.style.borderColor = '#F59E0B'}
+              onBlur={e => e.target.style.borderColor = t.border}
+            />
+          </div>
+          <button type="submit" disabled={saving || !name.trim()} style={{
+            background: name.trim() ? '#F59E0B' : t.surfaceEl,
+            color: name.trim() ? '#000' : '#fff', border: 'none', borderRadius: '10px',
+            padding: '12px', fontSize: '14px', fontWeight: 600,
+            opacity: saving || !name.trim() ? 0.5 : 1, cursor: name.trim() ? 'pointer' : 'default',
+            transition: 'all 0.2s', marginTop: '4px',
+          }}>{saving ? 'Creation...' : 'Creer le projet Orchestra'}</button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── Solo: Step 1a — Type selector ──────────────────────────────────
+  if (!selectedType) {
+    return (
+      <div style={{ maxWidth: '700px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          <button
+            onClick={() => setMode(null)}
+            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 4px', letterSpacing: '-0.02em', color: t.tp }}>
+              Nouveau projet Solo
+            </h1>
+            <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>
+              Quel type de projet souhaitez-vous demarrer ?
+            </p>
+          </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
           {agentTypes.map(type => {
@@ -911,7 +1105,7 @@ function NewProjectForm({ onCreated }) {
     );
   }
 
-  // ── Step 2: Project form ───────────────────────────────────────────
+  // ── Solo: Step 2a — Project form ───────────────────────────────────
   const typeColor = selectedType.color || t.violet;
   const TypeIcon = TYPE_ICONS[selectedType.icon] || Wrench;
 

@@ -236,9 +236,10 @@ async function reorderCategories(orderedIds) {
 
 // ===================== PROJECTS =====================
 
-async function createProject(id, name, description, agentName) {
+async function createProject(id, name, description, agentName, mode, teamId) {
   await supabase.from('projects').insert({
     id, name, description: description || '', agent_name: agentName || '', status: 'active',
+    mode: mode || 'solo', team_id: teamId || null,
   });
 }
 
@@ -258,10 +259,13 @@ async function getProject(id) {
   return data || null;
 }
 
-async function updateProject(id, name, description, agentName, status) {
-  await supabase.from('projects').update({
+async function updateProject(id, name, description, agentName, status, mode, teamId) {
+  const update = {
     name, description: description || '', agent_name: agentName || '', status: status || 'active', updated_at: now(),
-  }).eq('id', id);
+  };
+  if (mode !== undefined) update.mode = mode;
+  if (teamId !== undefined) update.team_id = teamId;
+  await supabase.from('projects').update(update).eq('id', id);
 }
 
 async function updateProjectIterationCount(id, count) {
@@ -270,6 +274,16 @@ async function updateProjectIterationCount(id, count) {
 
 async function deleteProject(id) {
   await supabase.from('projects').delete().eq('id', id);
+}
+
+async function getProjectWithTeam(projectId) {
+  const project = await getProject(projectId);
+  if (!project || project.mode !== 'orchestra' || !project.team_id) {
+    return { project, team: null, members: [] };
+  }
+  const team = await getTeam(project.team_id);
+  const members = await getTeamMembers(project.team_id);
+  return { project, team, members };
 }
 
 // ===================== ITERATIONS =====================
@@ -1222,7 +1236,7 @@ module.exports = {
   getAllCategories, getCategory, getCategoryByName,
   createCategory, updateCategory, deleteCategory, reorderCategories,
   // Projects
-  createProject, getAllProjects, getProject, updateProject,
+  createProject, getAllProjects, getProject, getProjectWithTeam, updateProject,
   updateProjectIterationCount, deleteProject,
   // Iterations
   createIteration, getAllIterations, getIteration,

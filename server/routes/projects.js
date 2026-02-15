@@ -15,15 +15,36 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/projects — create project
+// POST /api/projects — create project (solo or orchestra)
 router.post('/', async (req, res) => {
   try {
-    const { name, description, agent_name } = req.body;
+    const { name, description, agent_name, mode, team_config } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
 
-    const id = crypto.randomUUID();
-    await db.createProject(id, name, description, agent_name);
-    const project = await db.getProject(id);
+    const projectId = crypto.randomUUID();
+    let teamId = null;
+
+    // Orchestra mode: create team with orchestrator + workers
+    if (mode === 'orchestra' && team_config) {
+      teamId = crypto.randomUUID();
+      await db.createTeam(teamId, team_config.name || `${name} Team`, team_config.description || '');
+
+      if (team_config.orchestrator) {
+        await db.addTeamMember(crypto.randomUUID(), teamId, team_config.orchestrator, 'leader', 0);
+      }
+      if (team_config.workers && Array.isArray(team_config.workers)) {
+        for (let i = 0; i < team_config.workers.length; i++) {
+          await db.addTeamMember(crypto.randomUUID(), teamId, team_config.workers[i].agent_name, 'member', i + 1);
+        }
+      }
+    }
+
+    const orchestratorAgent = (mode === 'orchestra' && team_config?.orchestrator)
+      ? team_config.orchestrator
+      : (agent_name || '');
+
+    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId);
+    const project = await db.getProject(projectId);
     res.status(201).json(project);
   } catch (err) {
     console.error('[Projects] Create error:', err.message);
@@ -77,12 +98,12 @@ router.post('/fork', async (req, res) => {
   }
 });
 
-// GET /api/projects/:id — get project
+// GET /api/projects/:id — get project (enriched with team data for orchestra)
 router.get('/:id', async (req, res) => {
   try {
-    const project = await db.getProject(req.params.id);
+    const { project, team, members } = await db.getProjectWithTeam(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(project);
+    res.json({ ...project, team: team || null, team_members: members || [] });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

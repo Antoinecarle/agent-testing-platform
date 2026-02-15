@@ -123,9 +123,14 @@ const ProjectCard = ({ project, navigate, onDelete, t }) => {
         }}>
           <Shield size={18} color={t.violet} />
         </div>
-        <Badge color={project.status === 'active' ? t.success : t.ts}>
-          {project.status || 'Idle'}
-        </Badge>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {project.mode === 'orchestra' && (
+            <Badge color="#F59E0B">Orchestra</Badge>
+          )}
+          <Badge color={project.status === 'active' ? t.success : t.ts}>
+            {project.status || 'Idle'}
+          </Badge>
+        </div>
       </div>
       <div>
         <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '4px' }}>{project.name}</div>

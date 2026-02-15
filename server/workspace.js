@@ -180,6 +180,12 @@ async function generateWorkspaceContext(projectId, branchContext = null) {
   const project = await db.getProject(projectId);
   if (!project) return null;
 
+  const isOrchestra = project.mode === 'orchestra' && project.team_id;
+  let teamMembers = [];
+  if (isOrchestra) {
+    teamMembers = await db.getTeamMembers(project.team_id);
+  }
+
   const iterations = await db.getIterationsByProject(projectId);
   const agentName = project.agent_name || '';
   const agentPrompt = agentName ? await getAgentPrompt(agentName) : null;
@@ -337,6 +343,39 @@ ${agentPrompt}` : `## No Agent Assigned
 
 No specific agent is assigned to this project. You can use any design style. Consider asking the user which agent/style they'd like to use.`}
 
+${isOrchestra && teamMembers.length > 0 ? (() => {
+    const leader = teamMembers.find(m => m.role === 'leader');
+    const workers = teamMembers.filter(m => m.role !== 'leader');
+    return `## Orchestra Mode — Team Structure
+
+This project runs in **Orchestra mode**. You are the **orchestrator** (${leader?.agent_name || agentName}).
+
+### Your Team
+
+| Role | Agent | Specialty |
+|------|-------|-----------|
+| **Orchestrator (You)** | ${leader?.agent_name || agentName} | ${leader?.agent_description || agentDesc || 'Primary coordinator'} |
+${workers.map(w => `| Worker | ${w.agent_name} | ${w.agent_description || 'Team member'} |`).join('\n')}
+
+### How to Delegate to Team Members
+
+All team member agents are available in \`.claude/agents/\`. You can delegate work by using the Task tool to spawn a sub-agent:
+
+Available agents you can delegate to:
+${workers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Available for tasks'}`).join('\n')}
+
+### Orchestration Guidelines
+
+1. **You coordinate** — break down the user's request into sub-tasks
+2. **Delegate specialized work** to the appropriate team member agents
+3. **Synthesize results** — combine outputs into the final \`index.html\`
+4. **Each agent writes to its own version subdirectory** when doing parallel work:
+   - You write to \`./index.html\` (the final combined version)
+   - Sub-agents can write to \`./version-{N}/index.html\` for drafts
+5. **Quality control** — review sub-agent outputs before finalizing
+`;
+  })() : ''}
+
 ${agentName ? await getSkillContext(agentName) : ''}
 
 ${iterations.length > 0 ? `## Previous Iterations Reference
@@ -354,10 +393,25 @@ To read a previous iteration for reference:
 
   // Ensure this agent's .md file exists in the workspace .claude/agents/ too
   // so Claude CLI /agents command shows it
+  const wsAgentsDir = path.join(wsDir, '.claude', 'agents');
   if (agentName && agentPrompt) {
-    const wsAgentsDir = path.join(wsDir, '.claude', 'agents');
     if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
     fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
+  }
+
+  // Orchestra mode: write ALL team member agent .md files to .claude/agents/
+  if (isOrchestra && teamMembers.length > 0) {
+    if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
+    for (const member of teamMembers) {
+      if (member.agent_name === agentName) continue; // already written above
+      const memberPrompt = await getAgentPrompt(member.agent_name);
+      if (memberPrompt) {
+        const memberFilePath = path.join(wsAgentsDir, `${member.agent_name}.md`);
+        fs.writeFileSync(memberFilePath, memberPrompt, 'utf8');
+        try { fs.chownSync(memberFilePath, 1001, 1001); } catch (_) {}
+      }
+    }
+    console.log(`[Workspace] Orchestra: wrote ${teamMembers.length} agent files to ${wsAgentsDir}`);
   }
 
   // Write agent skills as Claude CLI commands AND skills
