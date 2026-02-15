@@ -1182,6 +1182,65 @@ const URL_ANALYSIS_PROMPT = `You are analyzing a website's design system. Given 
 
 Return ONLY valid JSON.`;
 
+// ==================== CONTENT URL ANALYSIS PROMPT ====================
+
+const CONTENT_URL_ANALYSIS_PROMPT = `Analyze the following web page content and extract structured knowledge relevant for creating an AI agent.
+
+URL: {url}
+Title: {title}
+
+## Page Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "sourceType": "article | discussion | documentation | tutorial | repository | social-post | other",
+  "title": "page title or best description",
+  "summary": "2-3 sentence summary of the content",
+  "keyTopics": ["main topics discussed"],
+  "keyInsights": ["5-10 actionable insights or key points from the content"],
+  "technicalDetails": {
+    "technologies": ["any technologies/tools mentioned"],
+    "patterns": ["any patterns, best practices, or methodologies mentioned"],
+    "codeSnippets": ["any important code patterns or commands mentioned (short excerpts only)"]
+  },
+  "relevanceForAgent": "how this content is useful for creating/improving an AI agent",
+  "recommendations": ["specific things an agent should know or do based on this content"]
+}
+
+Focus on extracting ACTIONABLE knowledge — things that would help build a better AI agent. Ignore navigation, ads, and boilerplate.
+
+Return ONLY valid JSON.`;
+
+// ==================== DOCUMENT ANALYSIS PROMPT ====================
+
+const DOCUMENT_ANALYSIS_PROMPT = `Analyze the following document and extract structured knowledge relevant for creating an AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "specification | guide | configuration | reference | notes | code | prompt | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary",
+  "keyTopics": ["main topics covered"],
+  "keyInsights": ["5-10 key points or rules from the document"],
+  "structuredData": {
+    "configurations": ["any configuration patterns or settings"],
+    "rules": ["any rules, constraints, or requirements"],
+    "examples": ["any important examples or templates"]
+  },
+  "relevanceForAgent": "how this document informs agent behavior or capabilities",
+  "recommendations": ["specific instructions an agent should follow based on this"]
+}
+
+Focus on extracting ACTIONABLE knowledge — rules, patterns, configurations that shape agent behavior.
+
+Return ONLY valid JSON.`;
+
 // Refinement prompt
 const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent configuration file.
 
@@ -1348,6 +1407,8 @@ module.exports = {
   getAgentExample,
   IMAGE_ANALYSIS_PROMPTS,
   URL_ANALYSIS_PROMPT,
+  CONTENT_URL_ANALYSIS_PROMPT,
+  DOCUMENT_ANALYSIS_PROMPT,
   REFINEMENT_PROMPT,
   validateAgentQuality,
   // Backwards compat aliases

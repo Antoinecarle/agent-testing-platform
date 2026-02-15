@@ -10,7 +10,7 @@ const fs = require('fs').promises;
 const db = require('../db');
 
 // Import analysis and template modules
-const { deepAnalyzeURL, deepAnalyzeImage, synthesizeDesignBrief, callGPT5 } = require('../lib/agent-analysis');
+const { deepAnalyzeURL, deepAnalyzeContentURL, deepAnalyzeImage, analyzeDocument, classifyURL, synthesizeDesignBrief, callGPT5 } = require('../lib/agent-analysis');
 const {
   AGENT_TYPE_CONFIGS,
   getConversationSystemPrompt,
@@ -54,22 +54,39 @@ const upload = multer({
   }
 });
 
+// Document upload config (PDF, MD, TXT, JSON, YAML, CSV)
+const documentUpload = multer({
+  storage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB for documents
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'text/plain', 'text/markdown', 'text/csv',
+      'application/json', 'application/x-yaml', 'text/yaml',
+    ];
+    const allowedExts = ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml', '.csv'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(file.mimetype) || allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Allowed: PDF, MD, TXT, JSON, YAML, CSV'));
+    }
+  }
+});
+
 // ========== HELPER: Build references context for conversation ==========
 
 function buildReferencesContext(references) {
   if (!references || references.length === 0) return '';
 
-  let ctx = '\n\n## Reference Analyses (Structured CSS Data)\n';
+  let ctx = '\n\n## Reference Analyses\n';
   references.forEach((ref, idx) => {
     if (ref.type === 'image') {
       const s = ref.structured_analysis;
       if (s) {
         ctx += `\n### Image ${idx + 1}: ${ref.filename || 'screenshot'}\n`;
-        // Pass the full structured JSON — the conversation prompt knows how to use it
-        // Truncate to avoid exceeding context, but keep the richest data
         const jsonStr = JSON.stringify(s, null, 1);
         if (jsonStr.length > 6000) {
-          // Summarize the key CSS values instead of dumping everything
           ctx += formatStructuredAnalysis(s);
         } else {
           ctx += '```json\n' + jsonStr + '\n```\n';
@@ -80,12 +97,19 @@ function buildReferencesContext(references) {
     } else if (ref.type === 'url') {
       const s = ref.structured_analysis;
       if (s) {
-        ctx += `\n### URL ${idx + 1}: ${ref.url}\n`;
-        const jsonStr = JSON.stringify(s, null, 1);
-        if (jsonStr.length > 4000) {
-          ctx += formatURLAnalysis(s);
+        // Check if this is a content analysis (has gptAnalysis.keyInsights) vs design analysis
+        const isContent = s.extracted?.analysisMode === 'content' || s.gptAnalysis?.keyInsights;
+        if (isContent) {
+          ctx += `\n### Content URL ${idx + 1}: ${ref.url}\n`;
+          ctx += formatContentAnalysis(s);
         } else {
-          ctx += '```json\n' + jsonStr + '\n```\n';
+          ctx += `\n### Design URL ${idx + 1}: ${ref.url}\n`;
+          const jsonStr = JSON.stringify(s, null, 1);
+          if (jsonStr.length > 4000) {
+            ctx += formatURLAnalysis(s);
+          } else {
+            ctx += '```json\n' + jsonStr + '\n```\n';
+          }
         }
       } else if (ref.analysis) {
         try {
@@ -94,6 +118,14 @@ function buildReferencesContext(references) {
         } catch (_) {
           ctx += `\n### URL ${idx + 1}: ${ref.url}\n${ref.analysis}\n`;
         }
+      }
+    } else if (ref.type === 'document') {
+      const s = ref.structured_analysis;
+      if (s) {
+        ctx += `\n### Document ${idx + 1}: ${ref.filename}\n`;
+        ctx += formatDocumentAnalysis(s);
+      } else if (ref.analysis) {
+        ctx += `\n### Document ${idx + 1}: ${ref.filename}\n${ref.analysis}\n`;
       }
     }
   });
@@ -158,6 +190,61 @@ function formatURLAnalysis(s) {
   }
   if (s.gptAnalysis) {
     out += `- **GPT Analysis**: ${JSON.stringify(s.gptAnalysis)}\n`;
+  }
+  return out;
+}
+
+function formatContentAnalysis(s) {
+  let out = '';
+  if (s.extracted) {
+    const e = s.extracted;
+    if (e.title) out += `- **Title**: ${e.title}\n`;
+    if (e.textPreview) out += `- **Preview**: ${e.textPreview.slice(0, 200)}...\n`;
+  }
+  if (s.gptAnalysis) {
+    const g = s.gptAnalysis;
+    if (g.sourceType) out += `- **Type**: ${g.sourceType}\n`;
+    if (g.summary) out += `- **Summary**: ${g.summary}\n`;
+    if (g.keyTopics?.length) out += `- **Topics**: ${g.keyTopics.join(', ')}\n`;
+    if (g.keyInsights?.length) {
+      out += `- **Key Insights**:\n`;
+      g.keyInsights.slice(0, 8).forEach(i => { out += `  - ${i}\n`; });
+    }
+    if (g.technicalDetails) {
+      const td = g.technicalDetails;
+      if (td.technologies?.length) out += `- **Technologies**: ${td.technologies.join(', ')}\n`;
+      if (td.patterns?.length) out += `- **Patterns**: ${td.patterns.join(', ')}\n`;
+    }
+    if (g.recommendations?.length) {
+      out += `- **Recommendations**:\n`;
+      g.recommendations.slice(0, 5).forEach(r => { out += `  - ${r}\n`; });
+    }
+  }
+  return out;
+}
+
+function formatDocumentAnalysis(s) {
+  let out = '';
+  if (s.filename) out += `- **File**: ${s.filename}\n`;
+  if (s.textLength) out += `- **Size**: ${s.textLength} chars\n`;
+  if (s.gptAnalysis) {
+    const g = s.gptAnalysis;
+    if (g.documentType) out += `- **Type**: ${g.documentType}\n`;
+    if (g.summary) out += `- **Summary**: ${g.summary}\n`;
+    if (g.keyTopics?.length) out += `- **Topics**: ${g.keyTopics.join(', ')}\n`;
+    if (g.keyInsights?.length) {
+      out += `- **Key Insights**:\n`;
+      g.keyInsights.slice(0, 8).forEach(i => { out += `  - ${i}\n`; });
+    }
+    if (g.structuredData) {
+      const sd = g.structuredData;
+      if (sd.rules?.length) out += `- **Rules**: ${sd.rules.join('; ')}\n`;
+      if (sd.configurations?.length) out += `- **Configs**: ${sd.configurations.join('; ')}\n`;
+    }
+    if (g.recommendations?.length) {
+      out += `- **Recommendations**:\n`;
+      g.recommendations.slice(0, 5).forEach(r => { out += `  - ${r}\n`; });
+    }
   }
   return out;
 }
@@ -292,13 +379,25 @@ router.post('/conversations/:id/urls', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    // Deep URL analysis: fetch HTML, extract CSS/fonts/colors, GPT analysis
-    console.log(`[agent-creator] Deep analyzing URL: ${url}`);
-    const structuredAnalysis = await deepAnalyzeURL(url);
+    // Smart URL routing: design vs content analysis based on agent type + domain
+    const agentType = conversation.agent_type || 'ux-design';
+    const urlMode = classifyURL(url, agentType);
+    console.log(`[agent-creator] Analyzing URL (${urlMode} mode, agent_type=${agentType}): ${url}`);
 
-    const summary = structuredAnalysis.gptAnalysis
-      ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.designStyle || 'analyzed'}`
-      : JSON.stringify({ title: structuredAnalysis.extracted?.title || 'Unknown', url });
+    const structuredAnalysis = urlMode === 'design'
+      ? await deepAnalyzeURL(url)
+      : await deepAnalyzeContentURL(url);
+
+    let summary;
+    if (urlMode === 'content') {
+      summary = structuredAnalysis.gptAnalysis
+        ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.summary?.slice(0, 80) || 'content analyzed'}`
+        : `${structuredAnalysis.extracted?.title || url} — content extracted`;
+    } else {
+      summary = structuredAnalysis.gptAnalysis
+        ? `${structuredAnalysis.extracted?.title || url} — ${structuredAnalysis.gptAnalysis.designStyle || 'analyzed'}`
+        : JSON.stringify({ title: structuredAnalysis.extracted?.title || 'Unknown', url });
+    }
 
     // If og:image found (LinkedIn, Twitter, etc.), download and upload to Supabase Storage
     let profileImageUrl = null;
@@ -346,6 +445,54 @@ router.post('/conversations/:id/urls', async (req, res) => {
     });
   } catch (err) {
     console.error('[agent-creator] Error adding URL:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========== DOCUMENT UPLOAD + ANALYSIS ==========
+
+router.post('/conversations/:id/documents', documentUpload.single('document'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await db.getAgentConversation(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No document uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const filename = req.file.originalname;
+    const mimeType = req.file.mimetype;
+
+    console.log(`[agent-creator] Analyzing document: ${filename} (${mimeType})`);
+    const structuredAnalysis = await analyzeDocument(filePath, filename, mimeType);
+
+    const summary = structuredAnalysis.gptAnalysis
+      ? `${filename} — ${structuredAnalysis.gptAnalysis.summary?.slice(0, 80) || 'analyzed'}`
+      : `${filename} — ${structuredAnalysis.textLength} chars extracted`;
+
+    const reference = await db.createConversationReference(
+      id,
+      'document',
+      `/uploads/agent-creator/${req.file.filename}`,
+      filename,
+      summary
+    );
+
+    await db.updateReferenceAnalysis(reference.id, structuredAnalysis);
+
+    res.json({
+      reference: {
+        ...reference,
+        structured_analysis: structuredAnalysis,
+      }
+    });
+  } catch (err) {
+    console.error('[agent-creator] Error uploading document:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1088,7 +1235,7 @@ router.delete('/conversations/:id/references/:refId', async (req, res) => {
       return res.status(404).json({ error: 'Reference not found' });
     }
 
-    if (ref.type === 'image' && ref.url) {
+    if ((ref.type === 'image' || ref.type === 'document') && ref.url) {
       const filePath = path.join(UPLOAD_DIR, path.basename(ref.url));
       try {
         await fs.unlink(filePath);

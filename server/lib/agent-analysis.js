@@ -2,7 +2,7 @@
 // Uses GPT-5 Vision for image analysis, GPT-5 for URL/brief synthesis
 
 const fs = require('fs').promises;
-const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, getBriefSynthesisPrompt } = require('./agent-templates');
+const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, CONTENT_URL_ANALYSIS_PROMPT, DOCUMENT_ANALYSIS_PROMPT, getBriefSynthesisPrompt } = require('./agent-templates');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
@@ -358,6 +358,8 @@ async function synthesizeDesignBrief(references, messages, agentType) {
 
     if (ref.type === 'image') {
       return `Image Reference ${idx + 1} (${ref.filename || 'screenshot'}):\n${JSON.stringify(analysis, null, 2)}`;
+    } else if (ref.type === 'document') {
+      return `Document Reference ${idx + 1} (${ref.filename}):\n${JSON.stringify(analysis, null, 2)}`;
     } else {
       return `URL Reference ${idx + 1} (${ref.url}):\n${JSON.stringify(analysis, null, 2)}`;
     }
@@ -391,9 +393,191 @@ async function synthesizeDesignBrief(references, messages, agentType) {
   return JSON.parse(result);
 }
 
+// ==================== URL CLASSIFICATION ====================
+
+// Domains that are always design references
+const DESIGN_URL_DOMAINS = [
+  'dribbble.com', 'behance.net', 'figma.com', 'awwwards.com', 'codepen.io',
+  'themeforest.net', 'ui8.net', 'designspiration.com', 'pinterest.com',
+];
+
+// Domains that are always content references
+const CONTENT_URL_DOMAINS = [
+  'reddit.com', 'stackoverflow.com', 'github.com', 'medium.com', 'dev.to',
+  'news.ycombinator.com', 'notion.so', 'arxiv.org', 'scholar.google.com',
+  'youtube.com', 'twitter.com', 'x.com', 'substack.com', 'hashnode.dev',
+];
+
+// Hostname patterns for content
+const CONTENT_URL_PATTERNS = ['docs.', 'wiki.', 'blog.', 'support.', 'help.', 'learn.', 'guide.'];
+
+/**
+ * Classify a URL as 'design' or 'content' based on domain + agent type
+ */
+function classifyURL(url, agentType) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    if (DESIGN_URL_DOMAINS.some(d => hostname.includes(d))) return 'design';
+    if (CONTENT_URL_DOMAINS.some(d => hostname.includes(d))) return 'content';
+    if (CONTENT_URL_PATTERNS.some(p => hostname.startsWith(p) || hostname.includes('.' + p.replace('.', '')))) return 'content';
+
+    // Agent type fallback
+    if (agentType === 'ux-design') return 'design';
+    return 'content';
+  } catch {
+    return agentType === 'ux-design' ? 'design' : 'content';
+  }
+}
+
+// ==================== CONTENT URL ANALYSIS ====================
+
+/**
+ * Deep analyze a content URL - extracts text content, topics, insights
+ * For non-design URLs like Reddit, docs, blog posts, etc.
+ * @param {string} url
+ * @returns {{ extracted: object, gptAnalysis: object }}
+ */
+async function deepAnalyzeContentURL(url) {
+  let html = '';
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(15000),
+    });
+    html = await res.text();
+  } catch (err) {
+    return {
+      extracted: { error: err.message, url },
+      gptAnalysis: null,
+    };
+  }
+
+  // Extract meta info
+  const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+  const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
+  const ogImageMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["'](.*?)["']/i);
+
+  // Strip HTML to get text content
+  let textHtml = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '');
+
+  let text = textHtml
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Cap at 8000 chars for GPT context
+  if (text.length > 8000) text = text.slice(0, 8000) + '...';
+
+  const extracted = {
+    url,
+    title: titleMatch ? titleMatch[1] : null,
+    description: descMatch ? descMatch[1] : null,
+    ogImage: ogImageMatch ? ogImageMatch[1] : null,
+    textLength: text.length,
+    textPreview: text.slice(0, 300),
+    analysisMode: 'content',
+  };
+
+  // Send to GPT-5 for content analysis
+  let gptAnalysis = null;
+  try {
+    const prompt = CONTENT_URL_ANALYSIS_PROMPT
+      .replace('{url}', url)
+      .replace('{title}', extracted.title || 'Unknown')
+      .replace('{textContent}', text);
+
+    const result = await callGPT5(
+      [
+        { role: 'system', content: 'You are a content analyst. Extract structured knowledge from web content. Respond ONLY with valid JSON.' },
+        { role: 'user', content: prompt }
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+    gptAnalysis = JSON.parse(result);
+  } catch (err) {
+    console.error('[agent-analysis] GPT content URL analysis failed:', err.message);
+  }
+
+  return { extracted, gptAnalysis };
+}
+
+// ==================== DOCUMENT ANALYSIS ====================
+
+/**
+ * Analyze an uploaded document (MD, TXT, PDF)
+ * @param {string} filePath - Path to the document
+ * @param {string} filename - Original filename
+ * @param {string} mimeType - MIME type
+ * @returns {{ filename: string, textLength: number, textPreview: string, gptAnalysis: object }}
+ */
+async function analyzeDocument(filePath, filename, mimeType) {
+  let text = '';
+
+  try {
+    const buffer = await fs.readFile(filePath);
+
+    if (mimeType === 'application/pdf') {
+      // Basic text extraction from PDF — extract readable ASCII content
+      text = buffer.toString('utf8').replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (text.length < 100) {
+        text = `[PDF document: ${filename}, ${buffer.length} bytes. Binary PDF — limited text extraction.]`;
+      }
+    } else {
+      // Text-based: .md, .txt, .json, .yaml, .csv, etc.
+      text = buffer.toString('utf8');
+    }
+  } catch (err) {
+    return { filename, textLength: 0, textPreview: '', gptAnalysis: null, error: err.message };
+  }
+
+  // Cap text
+  if (text.length > 10000) text = text.slice(0, 10000) + '...';
+
+  // Send to GPT-5 for analysis
+  let gptAnalysis = null;
+  try {
+    const prompt = DOCUMENT_ANALYSIS_PROMPT
+      .replace('{filename}', filename)
+      .replace('{textContent}', text);
+
+    const result = await callGPT5(
+      [
+        { role: 'system', content: 'You are a document analyst. Extract structured knowledge from documents. Respond ONLY with valid JSON.' },
+        { role: 'user', content: prompt }
+      ],
+      { max_completion_tokens: 4000, responseFormat: 'json' }
+    );
+    gptAnalysis = JSON.parse(result);
+  } catch (err) {
+    console.error('[agent-analysis] GPT document analysis failed:', err.message);
+  }
+
+  return {
+    filename,
+    textLength: text.length,
+    textPreview: text.slice(0, 500),
+    gptAnalysis,
+  };
+}
+
 module.exports = {
   deepAnalyzeURL,
+  deepAnalyzeContentURL,
   deepAnalyzeImage,
+  analyzeDocument,
+  classifyURL,
   synthesizeDesignBrief,
   callGPT5,
   callGPT5Vision,

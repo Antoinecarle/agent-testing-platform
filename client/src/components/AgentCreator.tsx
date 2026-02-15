@@ -8,7 +8,8 @@ import {
   Trash2, Bot, User, Sparkles, Zap, CheckCircle, AlertTriangle,
   RefreshCw, ChevronDown, ChevronRight, Palette, Type, Layout,
   Layers, Save, MessageSquare, Edit3, Check, Clock, Image, Maximize2,
-  Code, GitBranch, Settings, Megaphone, BarChart3, Wrench, Workflow
+  Code, GitBranch, Settings, Megaphone, BarChart3, Wrench, Workflow,
+  FileText
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -57,11 +58,12 @@ interface Conversation {
 
 interface Reference {
   id: string;
-  type: 'image' | 'url';
+  type: 'image' | 'url' | 'document';
   url?: string;
   filename?: string;
   analysis?: string;
   structured_analysis?: any;
+  profile_image_url?: string;
 }
 
 interface Message {
@@ -379,6 +381,34 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     }
   };
 
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !conversationId) return;
+    setIsUploading(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const formData = new FormData();
+        formData.append('document', files[i]);
+        const res = await fetch(`/api/agent-creator/conversations/${conversationId}/documents`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('atp-token')}` },
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || 'Upload failed');
+        }
+        const result = await res.json();
+        setReferences(prev => [...prev, result.reference]);
+      }
+    } catch (err: any) {
+      console.error('Failed to upload document:', err);
+    } finally {
+      setIsUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   const removeReference = async (id: string) => {
     if (!conversationId) return;
     try {
@@ -688,12 +718,19 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
               <div>
                 <h3 style={{ fontSize: '11px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>References</h3>
 
-                {/* Upload — supports multiple files */}
-                <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '16px 10px', border: `1px dashed ${t.borderS}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: t.bg }}>
-                  <UploadCloud size={18} color={isUploading ? t.violet : t.ts} />
-                  <span style={{ fontSize: '11px', color: t.ts }}>{isUploading ? 'Analyzing...' : 'Upload screenshots'}</span>
-                  <input type="file" hidden onChange={handleImageUpload} accept="image/*" multiple disabled={isUploading} />
-                </label>
+                {/* Upload buttons — images + documents */}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', padding: '12px 6px', border: `1px dashed ${t.borderS}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: t.bg }}>
+                    <UploadCloud size={16} color={isUploading ? t.violet : t.ts} />
+                    <span style={{ fontSize: '10px', color: t.ts }}>{isUploading ? 'Analyzing...' : 'Images'}</span>
+                    <input type="file" hidden onChange={handleImageUpload} accept="image/*" multiple disabled={isUploading} />
+                  </label>
+                  <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', padding: '12px 6px', border: `1px dashed ${t.borderS}`, borderRadius: '8px', cursor: 'pointer', backgroundColor: t.bg }}>
+                    <FileText size={16} color={isUploading ? t.violet : t.ts} />
+                    <span style={{ fontSize: '10px', color: t.ts }}>{isUploading ? 'Analyzing...' : 'Docs'}</span>
+                    <input type="file" hidden onChange={handleDocumentUpload} accept=".pdf,.md,.txt,.json,.yaml,.yml,.csv" multiple disabled={isUploading} />
+                  </label>
+                </div>
 
                 {/* URL */}
                 <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
@@ -725,6 +762,10 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                           {ref.type === 'image' || ref.profile_image_url || ref.structured_analysis?.profile_image_url ? (
                             <div style={{ width: '24px', height: '24px', borderRadius: ref.profile_image_url || ref.structured_analysis?.profile_image_url ? '50%' : '3px', overflow: 'hidden', background: t.bg, flexShrink: 0 }}>
                               <img src={ref.type === 'image' ? ref.url : (ref.profile_image_url || ref.structured_analysis?.profile_image_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                          ) : ref.type === 'document' ? (
+                            <div style={{ width: '24px', height: '24px', borderRadius: '3px', background: 'rgba(139,92,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <FileText size={10} color={t.violet} />
                             </div>
                           ) : (
                             <div style={{ width: '24px', height: '24px', borderRadius: '3px', background: t.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -768,6 +809,36 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                               <span style={{ fontSize: '8px', color: t.tm, padding: '1px 4px', background: t.bg, borderRadius: '2px', marginLeft: '2px' }}>
                                 {ref.structured_analysis.components.overallAesthetic}
                               </span>
+                            )}
+                          </div>
+                        )}
+                        {/* Content URL analysis preview */}
+                        {ref.structured_analysis?.gptAnalysis?.keyInsights && (
+                          <div style={{ marginTop: '4px', fontSize: '9px', color: t.ts, lineHeight: '1.4' }}>
+                            {ref.structured_analysis.gptAnalysis.sourceType && (
+                              <span style={{ fontSize: '8px', color: t.cyan, padding: '1px 4px', background: 'rgba(6,182,212,0.1)', borderRadius: '2px', marginRight: '4px' }}>
+                                {ref.structured_analysis.gptAnalysis.sourceType}
+                              </span>
+                            )}
+                            {ref.structured_analysis.gptAnalysis.keyInsights.slice(0, 2).map((insight: string, i: number) => (
+                              <div key={i} style={{ marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {insight.slice(0, 60)}{insight.length > 60 ? '...' : ''}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Document analysis preview */}
+                        {ref.type === 'document' && ref.structured_analysis?.gptAnalysis && (
+                          <div style={{ marginTop: '4px', fontSize: '9px', color: t.ts, lineHeight: '1.4' }}>
+                            {ref.structured_analysis.gptAnalysis.documentType && (
+                              <span style={{ fontSize: '8px', color: t.violet, padding: '1px 4px', background: 'rgba(139,92,246,0.1)', borderRadius: '2px', marginRight: '4px' }}>
+                                {ref.structured_analysis.gptAnalysis.documentType}
+                              </span>
+                            )}
+                            {ref.structured_analysis.gptAnalysis.summary && (
+                              <div style={{ marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {ref.structured_analysis.gptAnalysis.summary.slice(0, 80)}...
+                              </div>
                             )}
                           </div>
                         )}
@@ -939,7 +1010,10 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       {references.length > 0 && (
                         <span style={{ fontSize: '10px', color: t.tm, display: 'flex', alignItems: 'center', gap: '3px', padding: '4px 8px', background: t.bg, borderRadius: '4px' }}>
-                          <UploadCloud size={10} /> {references.filter(r => r.type === 'image').length} images in vision
+                          <UploadCloud size={10} />
+                          {references.filter(r => r.type === 'image').length > 0 && `${references.filter(r => r.type === 'image').length} img`}
+                          {references.filter(r => r.type === 'url').length > 0 && ` ${references.filter(r => r.type === 'url').length} url`}
+                          {references.filter(r => r.type === 'document').length > 0 && ` ${references.filter(r => r.type === 'document').length} doc`}
                         </span>
                       )}
                       <button onClick={generateAgent} disabled={isGenerating || messages.filter(m => m.id !== 'welcome').length < 2}
