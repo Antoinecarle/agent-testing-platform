@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 
@@ -437,8 +437,7 @@ export default function ProjectView() {
 
   if (projectId === 'new') {
     return (
-      <div style={{ padding: '24px', maxWidth: '500px', width: '100%', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>New Project</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 53px)', background: t.bg, padding: '24px' }}>
         <NewProjectForm onCreated={id => navigate(`/project/${id}`)} />
       </div>
     );
@@ -805,18 +804,32 @@ export default function ProjectView() {
   );
 }
 
+const TYPE_ICONS = { Palette, Code, Settings, Megaphone, BarChart3, Wrench };
+
 function NewProjectForm({ onCreated }) {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [agent, setAgent] = useState('');
   const [agents, setAgents] = useState([]);
+  const [agentTypes, setAgentTypes] = useState([]);
+  const [selectedType, setSelectedType] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api('/api/agents').then(a => setAgents(a || [])).catch(() => {});
+    api('/api/agents/types').then(types => setAgentTypes(types || [])).catch(() => {});
     const params = new URLSearchParams(window.location.search);
-    if (params.get('agent')) setAgent(params.get('agent'));
+    if (params.get('agent')) {
+      setAgent(params.get('agent'));
+      // Skip type selection if agent is pre-selected
+      setSelectedType({ id: 'preselected', label: 'Agent', color: t.violet, icon: 'Wrench', defaults: { category: '' } });
+    }
   }, []);
+
+  // Filter agents by type's category
+  const filteredAgents = selectedType?.defaults?.category
+    ? agents.filter(a => a.category === selectedType.defaults.category || !a.category || a.category === 'uncategorized')
+    : agents;
 
   const handleSubmit = async e => {
     e.preventDefault();
@@ -829,27 +842,151 @@ function NewProjectForm({ onCreated }) {
     finally { setSaving(false); }
   };
 
+  const inputBase = {
+    backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '8px',
+    padding: '11px 14px', color: '#fff', fontSize: '13px', outline: 'none',
+    width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s',
+  };
+
+  // ── Step 1: Type selector ──────────────────────────────────────────
+  if (!selectedType) {
+    return (
+      <div style={{ maxWidth: '700px', width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: t.tp }}>
+            Nouveau projet
+          </h1>
+          <p style={{ fontSize: '14px', color: t.ts, margin: 0, lineHeight: 1.6 }}>
+            Quel type de projet souhaitez-vous demarrer ?
+          </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+          {agentTypes.map(type => {
+            const IconComp = TYPE_ICONS[type.icon] || Wrench;
+            return (
+              <button
+                key={type.id}
+                onClick={() => setSelectedType(type)}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = type.color + '60';
+                  e.currentTarget.style.backgroundColor = type.color + '08';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = t.border;
+                  e.currentTarget.style.backgroundColor = t.surface;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                  gap: '12px', padding: '20px',
+                  backgroundColor: t.surface,
+                  border: `1.5px solid ${t.border}`,
+                  borderRadius: '12px', cursor: 'pointer',
+                  transition: 'all 0.25s ease', textAlign: 'left',
+                  color: t.tp,
+                }}
+              >
+                <div style={{
+                  width: 40, height: 40, borderRadius: '10px',
+                  backgroundColor: type.color + '15',
+                  border: `1px solid ${type.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <IconComp size={20} color={type.color} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                    {type.label}
+                  </div>
+                  <div style={{ fontSize: '11px', color: t.tm, lineHeight: 1.5 }}>
+                    {type.description}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 2: Project form ───────────────────────────────────────────
+  const typeColor = selectedType.color || t.violet;
+  const TypeIcon = TYPE_ICONS[selectedType.icon] || Wrench;
+
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: t.ts, marginBottom: '6px' }}>Project Name</label>
-        <input value={name} onChange={e => setName(e.target.value)} required style={{ width: '100%' }} placeholder="My Landing Page Test" />
+    <div style={{ maxWidth: '480px', width: '100%' }}>
+      {/* Header with back + type badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+        <button
+          onClick={() => { setSelectedType(null); setAgent(''); }}
+          style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '5px',
+          padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+          backgroundColor: typeColor + '18', color: typeColor, border: `1px solid ${typeColor}30`,
+        }}>
+          <TypeIcon size={11} />
+          {selectedType.label}
+        </div>
       </div>
-      <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: t.ts, marginBottom: '6px' }}>Description</label>
-        <input value={desc} onChange={e => setDesc(e.target.value)} style={{ width: '100%' }} placeholder="Optional description" />
-      </div>
-      <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: t.ts, marginBottom: '6px' }}>Agent</label>
-        <select value={agent} onChange={e => setAgent(e.target.value)} style={{ width: '100%' }}>
-          <option value="">Select agent...</option>
-          {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-        </select>
-      </div>
-      <button type="submit" disabled={saving} style={{
-        background: t.tp, color: t.bg, border: 'none', borderRadius: '4px',
-        padding: '10px', fontSize: '13px', fontWeight: '600', opacity: saving ? 0.7 : 1,
-      }}>{saving ? 'Creating...' : 'Create Project'}</button>
-    </form>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
+          <input
+            value={name} onChange={e => setName(e.target.value)} required
+            placeholder="Mon super projet..."
+            style={inputBase}
+            onFocus={e => e.target.style.borderColor = typeColor}
+            onBlur={e => e.target.style.borderColor = t.border}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+          <input
+            value={desc} onChange={e => setDesc(e.target.value)}
+            placeholder="Optionnel..."
+            style={inputBase}
+            onFocus={e => e.target.style.borderColor = typeColor}
+            onBlur={e => e.target.style.borderColor = t.border}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Agent {selectedType.defaults?.category ? `(${selectedType.label})` : ''}
+          </label>
+          <select
+            value={agent} onChange={e => setAgent(e.target.value)}
+            style={{ ...inputBase, cursor: 'pointer' }}
+          >
+            <option value="">Choisir un agent...</option>
+            {/* Show matching agents first, then all others */}
+            {selectedType.defaults?.category && filteredAgents.filter(a => a.category === selectedType.defaults.category).length > 0 && (
+              <optgroup label={`${selectedType.label}`}>
+                {filteredAgents.filter(a => a.category === selectedType.defaults.category).map(a => (
+                  <option key={a.name} value={a.name}>{a.name}</option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="Tous les agents">
+              {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+            </optgroup>
+          </select>
+        </div>
+        <button type="submit" disabled={saving || !name.trim()} style={{
+          background: name.trim() ? typeColor : t.surfaceEl,
+          color: '#fff', border: 'none', borderRadius: '10px',
+          padding: '12px', fontSize: '14px', fontWeight: 600,
+          opacity: saving || !name.trim() ? 0.5 : 1, cursor: name.trim() ? 'pointer' : 'default',
+          transition: 'all 0.2s', marginTop: '4px',
+        }}>{saving ? 'Creation...' : 'Creer le projet'}</button>
+      </form>
+    </div>
   );
 }
