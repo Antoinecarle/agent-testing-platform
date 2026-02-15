@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Check, X, Eye, FileText, Sparkles, Wand2, AlertCircle } from 'lucide-react';
+import {
+  ArrowLeft, Check, X, Eye, FileText, Sparkles, Wand2, AlertCircle,
+  Palette, Code, Settings, Megaphone, BarChart3, Wrench, ChevronRight,
+} from 'lucide-react';
 import { api } from '../api';
 
 const t = {
@@ -11,6 +14,8 @@ const t = {
   success: '#22c55e', warning: '#f59e0b', danger: '#ef4444',
   mono: '"JetBrains Mono","Fira Code",monospace',
 };
+
+const TYPE_ICONS = { Palette, Code, Settings, Megaphone, BarChart3, Wrench };
 
 const TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task'];
 const MODELS = ['sonnet', 'opus', 'haiku'];
@@ -28,6 +33,8 @@ const labelStyle = {
 export default function AgentCreate() {
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
+  const [agentTypes, setAgentTypes] = useState([]);
+  const [selectedType, setSelectedType] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
@@ -82,15 +89,42 @@ export default function AgentCreate() {
 
   useEffect(() => {
     api('/api/categories').then(setCategories).catch(() => {});
+    api('/api/agents/types').then(setAgentTypes).catch(() => {});
   }, []);
+
+  function handleTypeSelect(type) {
+    setSelectedType(type);
+    const d = type.defaults;
+    setForm(f => ({
+      ...f,
+      model: d.model || f.model,
+      category: d.category || f.category,
+      tools: d.tools || f.tools,
+      permission_mode: d.permission_mode || f.permission_mode,
+      prompt: d.prompt ? d.prompt.replace(/\{NAME\}/g, f.name || 'AgentName') : f.prompt,
+    }));
+  }
 
   const nameValid = form.name.length === 0 ? null : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.name);
 
   const toggleTool = (tool) => {
     setForm(f => ({
       ...f,
-      tools: f.tools.includes(tool) ? f.tools.filter(t => t !== tool) : [...f.tools, tool],
+      tools: f.tools.includes(tool) ? f.tools.filter(x => x !== tool) : [...f.tools, tool],
     }));
+  };
+
+  // When name changes and we have a type with template, update {NAME} in prompt
+  const handleNameChange = (value) => {
+    const name = value.toLowerCase().replace(/\s/g, '-');
+    setForm(f => {
+      const displayName = name ? name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'AgentName';
+      let prompt = f.prompt;
+      if (selectedType?.defaults?.prompt) {
+        prompt = selectedType.defaults.prompt.replace(/\{NAME\}/g, displayName);
+      }
+      return { ...f, name, prompt };
+    });
   };
 
   const generatedMd = useMemo(() => {
@@ -134,12 +168,109 @@ export default function AgentCreate() {
 
   const cat = categories.find(c => c.name === form.category);
 
+  // ── TYPE SELECTOR (step 0) ─────────────────────────────────────────────
+  if (!selectedType) {
+    return (
+      <div style={{ height: 'calc(100vh - 53px)', backgroundColor: t.bg, color: t.tp, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ padding: '16px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+          <Link to="/agents" style={{ color: t.tm, display: 'flex', textDecoration: 'none' }}><ArrowLeft size={18} /></Link>
+          <h1 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Create New Agent</h1>
+        </div>
+
+        {/* Type selection */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
+          <div style={{ maxWidth: '680px', width: '100%' }}>
+            <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+              <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em' }}>
+                Quel type d'agent voulez-vous creer ?
+              </h2>
+              <p style={{ fontSize: '14px', color: t.ts, margin: 0, lineHeight: 1.6 }}>
+                Chaque type pre-configure le prompt, les outils et le modele adaptes.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              {agentTypes.map(type => {
+                const IconComp = TYPE_ICONS[type.icon] || Wrench;
+                return (
+                  <button
+                    key={type.id}
+                    onClick={() => handleTypeSelect(type)}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = type.color + '60';
+                      e.currentTarget.style.backgroundColor = type.color + '08';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = t.border;
+                      e.currentTarget.style.backgroundColor = t.surface;
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                      gap: '12px', padding: '20px',
+                      backgroundColor: t.surface,
+                      border: `1.5px solid ${t.border}`,
+                      borderRadius: '12px', cursor: 'pointer',
+                      transition: 'all 0.25s ease', textAlign: 'left',
+                    }}
+                  >
+                    <div style={{
+                      width: 40, height: 40, borderRadius: '10px',
+                      backgroundColor: type.color + '15',
+                      border: `1px solid ${type.color}30`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <IconComp size={20} color={type.color} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: t.tp, marginBottom: '4px' }}>
+                        {type.label}
+                      </div>
+                      <div style={{ fontSize: '11px', color: t.tm, lineHeight: 1.5 }}>
+                        {type.description}
+                      </div>
+                    </div>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
+                      color: type.color, fontWeight: 600, marginTop: 'auto',
+                    }}>
+                      Choisir <ChevronRight size={12} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── FORM (step 1) ─────────────────────────────────────────────────────
+  const typeColor = selectedType.color || t.violet;
+  const TypeIcon = TYPE_ICONS[selectedType.icon] || Wrench;
+
   return (
     <div style={{ height: 'calc(100vh - 53px)', backgroundColor: t.bg, color: t.tp, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{ padding: '16px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
-        <Link to="/agents" style={{ color: t.tm, display: 'flex', textDecoration: 'none' }}><ArrowLeft size={18} /></Link>
+        <button
+          onClick={() => setSelectedType(null)}
+          style={{ color: t.tm, display: 'flex', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          <ArrowLeft size={18} />
+        </button>
         <h1 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Create New Agent</h1>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px',
+          padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+          backgroundColor: typeColor + '18', color: typeColor, border: `1px solid ${typeColor}30`,
+        }}>
+          <TypeIcon size={12} />
+          {selectedType.label}
+        </div>
       </div>
 
       {/* Content */}
@@ -233,7 +364,7 @@ export default function AgentCreate() {
             <label style={labelStyle}>Name</label>
             <div style={{ position: 'relative' }}>
               <input style={{ ...inputStyle, paddingRight: '36px' }} value={form.name} placeholder="my-custom-agent"
-                onChange={e => setForm(f => ({ ...f, name: e.target.value.toLowerCase().replace(/\s/g, '-') }))} />
+                onChange={e => handleNameChange(e.target.value)} />
               {nameValid !== null && (
                 <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
                   {nameValid ? <Check size={14} color={t.success} /> : <X size={14} color={t.danger} />}
@@ -338,11 +469,11 @@ export default function AgentCreate() {
           )}
 
           <div style={{ display: 'flex', gap: '12px', paddingBottom: '24px' }}>
-            <Link to="/agents" style={{
+            <button onClick={() => setSelectedType(null)} style={{
               backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
               padding: '10px 20px', fontSize: '13px', fontWeight: '600', borderRadius: '6px', cursor: 'pointer',
-              textDecoration: 'none', display: 'flex', alignItems: 'center',
-            }}>Cancel</Link>
+              display: 'flex', alignItems: 'center',
+            }}>Back</button>
             <button onClick={handleSubmit} disabled={saving || !nameValid} style={{
               backgroundColor: t.tp, color: t.bg, border: 'none',
               padding: '10px 24px', fontSize: '13px', fontWeight: '600', borderRadius: '6px', cursor: 'pointer',
@@ -370,13 +501,23 @@ export default function AgentCreate() {
                   <h4 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 4px 0', color: t.tp }}>
                     {form.name ? form.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Agent Name'}
                   </h4>
-                  <div style={{
-                    display: 'inline-flex', padding: '2px 8px', borderRadius: '100px', fontSize: '10px', fontWeight: '600',
-                    textTransform: 'uppercase',
-                    backgroundColor: cat?.color ? `${cat.color}15` : t.violetM,
-                    color: cat?.color || t.violet,
-                  }}>
-                    {form.category || 'uncategorized'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{
+                      display: 'inline-flex', padding: '2px 8px', borderRadius: '100px', fontSize: '10px', fontWeight: '600',
+                      textTransform: 'uppercase',
+                      backgroundColor: cat?.color ? `${cat.color}15` : t.violetM,
+                      color: cat?.color || t.violet,
+                    }}>
+                      {form.category || 'uncategorized'}
+                    </div>
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '3px',
+                      padding: '2px 8px', borderRadius: '100px', fontSize: '10px', fontWeight: '600',
+                      backgroundColor: typeColor + '15', color: typeColor,
+                    }}>
+                      <TypeIcon size={9} />
+                      {selectedType.label}
+                    </div>
                   </div>
                 </div>
               </div>
