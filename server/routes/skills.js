@@ -33,8 +33,9 @@ const skillDocUpload = multer({
       'application/pdf', 'text/plain', 'text/markdown', 'text/csv',
       'application/json', 'application/x-yaml', 'text/yaml',
       'text/html', 'application/xml', 'text/xml',
+      'image/png', 'image/jpeg', 'image/webp', 'image/gif',
     ];
-    const allowedExts = ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.html', '.xml'];
+    const allowedExts = ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.html', '.xml', '.png', '.jpg', '.jpeg', '.webp', '.gif'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(file.mimetype) || allowedExts.includes(ext)) {
       cb(null, true);

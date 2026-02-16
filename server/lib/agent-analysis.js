@@ -524,16 +524,29 @@ async function deepAnalyzeContentURL(url) {
  * @returns {{ filename: string, textLength: number, textPreview: string, gptAnalysis: object, extractionMode: string }}
  */
 async function analyzeDocument(filePath, filename, mimeType, extractionMode = 'general') {
+  const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+  const isImage = IMAGE_TYPES.includes(mimeType);
+
+  // For images and image-based PDFs, use GPT Vision
+  if (isImage) {
+    return analyzeDocumentWithVision(filePath, filename, mimeType, extractionMode);
+  }
+
   let text = '';
+  let isImagePdf = false;
 
   try {
     const buffer = await fs.readFile(filePath);
 
     if (mimeType === 'application/pdf') {
-      // Basic text extraction from PDF — extract readable ASCII content
+      // Extract readable text from PDF
       text = buffer.toString('utf8').replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
-      if (text.length < 100) {
-        text = `[PDF document: ${filename}, ${buffer.length} bytes. Binary PDF — limited text extraction.]`;
+      // Filter out PDF structure noise (operators, xref, etc.)
+      const meaningfulText = text.replace(/\b(endobj|obj|stream|endstream|xref|trailer|startxref|BT|ET|Tf|Td|Tm|Tj|TJ|cm|re|f|q|Q|Do)\b/g, '').replace(/\s+/g, ' ').trim();
+      if (meaningfulText.length < 200) {
+        // This is an image-based PDF (screenshot, scan, etc.) — use Vision
+        console.log(`[agent-analysis] PDF "${filename}" has only ${meaningfulText.length} chars of text — using Vision analysis`);
+        isImagePdf = true;
       }
     } else {
       // Text-based: .md, .txt, .json, .yaml, .csv, etc.
@@ -543,10 +556,15 @@ async function analyzeDocument(filePath, filename, mimeType, extractionMode = 'g
     return { filename, textLength: 0, textPreview: '', gptAnalysis: null, extractionMode, error: err.message };
   }
 
+  // For image-based PDFs, use Vision with the PDF sent as-is (base64)
+  if (isImagePdf) {
+    return analyzeDocumentWithVision(filePath, filename, 'image/png', extractionMode);
+  }
+
   // Cap text
   if (text.length > 10000) text = text.slice(0, 10000) + '...';
 
-  // Send to GPT-5 for mode-aware analysis
+  // Send to GPT-5 for mode-aware text analysis
   let gptAnalysis = null;
   try {
     const prompt = getDocumentExtractionPrompt(extractionMode)
@@ -573,6 +591,38 @@ async function analyzeDocument(filePath, filename, mimeType, extractionMode = 'g
     textPreview: text.slice(0, 500),
     gptAnalysis,
     extractionMode,
+  };
+}
+
+/**
+ * Analyze a visual document (image or image-based PDF) using GPT Vision
+ */
+async function analyzeDocumentWithVision(filePath, filename, mimeType, extractionMode = 'general') {
+  console.log(`[agent-analysis] Vision analysis for "${filename}" (${mimeType}, mode=${extractionMode})`);
+
+  const systemPrompt = getDocumentExtractionSystemPrompt(extractionMode);
+  const textPrompt = getDocumentExtractionPrompt(extractionMode)
+    .replace('{filename}', filename)
+    .replace('{textContent}', '[This is a visual document / screenshot / image. Analyze what you SEE in the image directly.]');
+
+  let gptAnalysis = null;
+  try {
+    const result = await callGPT5Vision(filePath, mimeType, `${systemPrompt}\n\n${textPrompt}`, {
+      max_completion_tokens: 4000,
+      responseFormat: 'json',
+    });
+    gptAnalysis = JSON.parse(result);
+  } catch (err) {
+    console.error(`[agent-analysis] GPT Vision document analysis (${extractionMode}) failed:`, err.message);
+  }
+
+  return {
+    filename,
+    textLength: 0,
+    textPreview: '[Visual document — analyzed with GPT Vision]',
+    gptAnalysis,
+    extractionMode,
+    analysisMethod: 'vision',
   };
 }
 

@@ -812,28 +812,25 @@ export default function SkillCreator() {
     } catch (err) { setError('Failed to re-analyze document'); }
   };
 
-  // Poll for analyzing documents
+  // Poll when any document is in "analyzing" status (works across page reloads)
+  const hasAnalyzingDocs = documents.some(d => d.status === 'analyzing');
   useEffect(() => {
-    if (docPollingIds.size === 0) return;
+    if (!hasAnalyzingDocs && docPollingIds.size === 0) return;
     const interval = setInterval(async () => {
       if (!skillId) return;
       const data = await api(`/api/skills/${skillId}/documents`).catch(() => null);
       if (!data) return;
       setDocuments(data.documents || []);
       setDocStats(data.stats || null);
-      // Remove IDs that are no longer "analyzing"
+      // Clear polling IDs for docs that finished
       const stillAnalyzing = new Set();
       for (const doc of (data.documents || [])) {
-        if (doc.status === 'analyzing' && docPollingIds.has(doc.id)) {
-          stillAnalyzing.add(doc.id);
-        }
+        if (doc.status === 'analyzing') stillAnalyzing.add(doc.id);
       }
-      if (stillAnalyzing.size !== docPollingIds.size) {
-        setDocPollingIds(stillAnalyzing);
-      }
+      setDocPollingIds(stillAnalyzing);
     }, 3000);
     return () => clearInterval(interval);
-  }, [docPollingIds, skillId]);
+  }, [hasAnalyzingDocs, docPollingIds.size, skillId]);
 
   // Load extraction types once
   useEffect(() => { loadExtractionTypes(); }, []);
