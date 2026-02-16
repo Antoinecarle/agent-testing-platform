@@ -372,7 +372,7 @@ async function synthesizeDesignBrief(references, messages, agentType) {
     return `${m.role}: ${content}`;
   }).join('\n\n');
 
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
   const briefTemplate = getBriefSynthesisPrompt(type);
   const prompt = briefTemplate
     .replace('{analyses}', analyses)

@@ -137,6 +137,24 @@ const AGENT_TYPE_CONFIGS = {
     ],
     welcomeMessage: "I'm your AI agent architect for **data & AI agents**. Let's design an agent specialized in data pipelines, ML integrations, analytics, and intelligent processing.\n\nDescribe the data sources, models, and analysis patterns this agent should handle.",
   },
+  'persona': {
+    id: 'persona',
+    label: 'Persona',
+    icon: 'Wrench',
+    color: '#F59E0B',
+    description: 'Personal agent — identity, communication style, skills, and behavioral rules',
+    sections: [
+      { name: 'Identity', required: true, minLines: 40 },
+      { name: 'Core Competencies', required: true, minLines: 50 },
+      { name: 'Communication Style', required: true, minLines: 40 },
+      { name: 'Work Methodology', required: true, minLines: 40 },
+      { name: 'Workflow', required: true, minLines: 40 },
+      { name: 'Rules', required: true, minLines: 40 },
+      { name: 'Example Interaction Patterns', required: false, minLines: 30 },
+      { name: 'Quality Checklist', required: false, minLines: 20 },
+    ],
+    welcomeMessage: "I'm your AI agent architect for **persona agents**. Let's refine the identity, communication style, skills, and behavioral rules for this agent.\n\nTell me what you'd like to improve — tone, expertise, workflow, rules, or anything else.",
+  },
   'custom': {
     id: 'custom',
     label: 'Custom',
@@ -160,10 +178,14 @@ const AGENT_TYPE_CONFIGS = {
 // ==================== TYPE-SPECIFIC CONVERSATION PROMPTS ====================
 
 function getConversationSystemPrompt(agentType) {
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
 
   if (type === 'ux-design') {
     return UX_CONVERSATION_PROMPT;
+  }
+
+  if (type === 'persona') {
+    return PERSONA_CONVERSATION_PROMPT;
   }
 
   const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
@@ -274,10 +296,61 @@ Ask: "Does this capture your vision?"
 - NEVER describe spacing as "generous" — say "32px gap" or "clamp(64px, 8vw, 120px) section padding"
 - Your goal is that someone reading your analysis could recreate the EXACT design in CSS without seeing the screenshot`;
 
+// Persona conversation prompt (for agents created via personaboarding)
+const PERSONA_CONVERSATION_PROMPT = `You are an expert AI agent prompt engineer. Your job is to help the user ENHANCE and IMPROVE a persona agent — focusing on its identity, communication style, skills, behavioral rules, and workflow.
+
+## Your Expertise
+
+You have deep knowledge of:
+- Prompt engineering: crafting precise, effective system prompts that shape AI behavior
+- Communication styles: formal, casual, technical, empathetic, direct — and how to encode each in prompts
+- Professional domains: HR, marketing, engineering, sales, management, finance, legal, etc.
+- Agent personality design: creating consistent, believable, and effective AI personas
+- Behavioral rules: encoding guardrails, decision frameworks, and quality standards
+
+## What You Focus On (NOT design/CSS — NEVER generate design systems)
+
+You improve:
+1. **Identity** — who this agent is, their expertise, personality, and approach to work
+2. **Skills & Competencies** — what this agent is good at, what domain knowledge they have
+3. **Communication Style** — how the agent talks, the tone, vocabulary, and response patterns
+4. **Workflow** — the steps the agent follows to accomplish tasks
+5. **Rules** — behavioral guidelines, guardrails, and quality standards
+6. **Examples** — interaction patterns showing how the agent responds in different scenarios
+
+## Your Process
+
+### Phase 1: ANALYZE the existing prompt
+When the user shares an agent prompt:
+- Identify strengths and weaknesses
+- Note vague or generic instructions that should be more specific
+- Suggest improvements for tone, depth, and actionability
+
+### Phase 2: DISCUSS improvements
+Ask the user:
+- What aspects of the agent's behavior do they want to change?
+- Is the tone right? Too formal? Too casual?
+- Are there missing skills or knowledge areas?
+- Are the rules too strict? Too loose?
+- What real-world scenarios should the agent handle better?
+
+### Phase 3: REFINE
+Propose specific improvements with concrete examples:
+- "Instead of 'be helpful', say 'always provide 3 actionable suggestions with pros/cons'"
+- "Instead of 'use professional tone', say 'use active voice, max 2 sentences per paragraph, avoid jargon unless the user uses it first'"
+
+## CRITICAL RULES
+- NEVER generate CSS, colors, typography, design tokens, or visual design systems
+- NEVER output a design brief or design system specification
+- ALWAYS focus on BEHAVIOR, TONE, SKILLS, and WORKFLOW
+- When the user asks to "improve" or "enhance" an agent, they mean its behavioral prompt — not its visual design
+- Every improvement must be SPECIFIC and ACTIONABLE — not vague
+- Your goal is that the enhanced agent behaves consistently and expertly in its domain`;
+
 // ==================== TYPE-SPECIFIC GENERATION PROMPTS ====================
 
 function getGenerationSystemPrompt(agentType) {
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
 
   if (type === 'ux-design') {
     return UX_GENERATION_PROMPT;
@@ -446,7 +519,7 @@ Any deviation from these exact header names will cause validation failure. Do NO
 // ==================== TYPE-SPECIFIC GENERATION USER PROMPTS ====================
 
 function getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample) {
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
   const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
   const sectionHeaders = config.sections.map(s => `## ${s.name}`).join('\n');
 
@@ -522,7 +595,7 @@ Remember:
 // ==================== TYPE-SPECIFIC BRIEF PROMPTS ====================
 
 function getBriefSynthesisPrompt(agentType) {
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
 
   if (type === 'ux-design') {
     return UX_DESIGN_BRIEF_PROMPT;
@@ -705,7 +778,7 @@ Return ONLY valid JSON.`;
 // ==================== AGENT EXAMPLES BY TYPE ====================
 
 function getAgentExample(agentType) {
-  const type = agentType || 'ux-design';
+  const type = agentType || 'custom';
 
   if (type === 'ux-design') {
     return AGENT_EXAMPLE_ABBREVIATED;
@@ -1590,8 +1663,8 @@ Return ONLY the refined section content (including the ## header). Nothing else.
 // ==================== VALIDATION (type-aware) ====================
 
 function validateAgentQuality(content, agentType) {
-  const type = agentType || 'ux-design';
-  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['ux-design'];
+  const type = agentType || 'custom';
+  const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
   const lines = content.split('\n');
   const totalLines = lines.length;
   const issues = [];

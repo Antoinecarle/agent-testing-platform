@@ -372,7 +372,7 @@ router.post('/conversations', async (req, res) => {
   try {
     const { name, agent_type } = req.body;
     const userId = req.user.userId || req.user.id;
-    const conversation = await db.createAgentConversation(userId, name || 'New Agent', agent_type || 'ux-design');
+    const conversation = await db.createAgentConversation(userId, name || 'New Agent', agent_type || 'custom');
     res.json({ conversation });
   } catch (err) {
     console.error('[agent-creator] Error creating conversation:', err);
@@ -471,7 +471,7 @@ router.post('/conversations/:id/urls', async (req, res) => {
     }
 
     // Smart URL routing: design vs content analysis based on agent type + domain
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     const urlMode = classifyURL(url, agentType);
     console.log(`[agent-creator] Analyzing URL (${urlMode} mode, agent_type=${agentType}): ${url}`);
 
@@ -560,7 +560,7 @@ router.post('/conversations/:id/documents', documentUpload.single('document'), a
     const mimeType = req.file.mimetype;
 
     // Resolve extraction mode: from request body, or auto-detect from agent type
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     const requestedMode = req.body.extraction_mode || 'auto';
     const extractionMode = resolveExtractionMode(requestedMode, agentType);
 
@@ -637,7 +637,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     const referencesContext = buildReferencesContext(references);
 
     // Build the upgraded system prompt — cap total size to avoid context overflow
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     let systemPrompt = getConversationSystemPrompt(agentType)
       + (referencesContext.length > 8000 ? referencesContext.slice(0, 8000) + '\n...(truncated)' : referencesContext)
       + `\n\nCurrent conversation: Creating a ${agentType} agent for "${conversation.name}".`;
@@ -817,7 +817,7 @@ router.post('/conversations/:id/analyze', async (req, res) => {
       return res.status(400).json({ error: 'Add at least one reference or chat about the agent before analyzing' });
     }
 
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     console.log(`[agent-creator] Synthesizing ${agentType} brief for conversation ${id} (${references.length} refs, ${messages.length} msgs)`);
 
     // Synthesize brief from all analyses + conversation (type-aware)
@@ -869,7 +869,7 @@ router.post('/conversations/:id/generate', async (req, res) => {
     const references = await db.getConversationReferences(id);
     let brief = conversation.design_brief;
 
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
 
     // Auto-analyze if no brief exists
     if (!brief) {
@@ -976,7 +976,7 @@ router.post('/conversations/:id/refine', async (req, res) => {
     // Store updated agent
     await db.updateConversationGeneratedAgent(id, updatedAgent, 'complete');
 
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     const validation = validateAgentQuality(updatedAgent, agentType);
 
     res.json({ agentFile: updatedAgent, refinedSection: section, validation });
@@ -1493,7 +1493,7 @@ router.post('/conversations/:id/preview-image', async (req, res) => {
 
     const brief = conversation.design_brief || null;
     const agent = conversation.generated_agent || null;
-    const agentType = conversation.agent_type || 'ux-design';
+    const agentType = conversation.agent_type || 'custom';
     const imageStyle = req.body?.image_style || 'auto';
 
     if (!brief && !agent) {
@@ -1619,12 +1619,13 @@ router.post('/conversations/:id/save', async (req, res) => {
     const permissionMode = permissionMatch ? permissionMatch[1].trim() : 'default';
 
     // Detect category from agent_type + content
-    const convAgentType = conversation.agent_type || 'ux-design';
+    const convAgentType = conversation.agent_type || 'custom';
     const lowerContent = (description + ' ' + prompt.slice(0, 500)).toLowerCase();
     let category = 'Custom';
     // Map agent_type to category first
     const TYPE_CATEGORY_MAP = {
       'ux-design': null, // Fall through to content-based detection
+      'persona': 'Persona',
       'development': 'Development',
       'orchestration': 'Orchestration',
       'workflow': 'Workflow',
@@ -1721,7 +1722,7 @@ router.post('/conversations/:id/save', async (req, res) => {
     if (!thumbnailUrl) {
       try {
         const brief = conversation.design_brief || null;
-        const saveAgentType = conversation.agent_type || 'ux-design';
+        const saveAgentType = conversation.agent_type || 'custom';
         const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`, saveAgentType);
         if (result) {
           thumbnailUrl = result.previewUrl;

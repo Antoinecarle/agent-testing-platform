@@ -2052,7 +2052,7 @@ Use this agent to delegate tasks matching its expertise.`;
             // Reload agent data in case it was updated
             api(`/api/agents/${name}`).then(setAgent).catch(console.error);
           }}
-          initialAgent={{ name: agent.name, prompt: agent.full_prompt || '' }}
+          initialAgent={{ name: agent.name, prompt: agent.full_prompt || '', category: agent.category || '' }}
         />
       )}
 

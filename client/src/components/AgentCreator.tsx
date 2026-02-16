@@ -83,8 +83,24 @@ interface Validation {
 
 interface AgentCreatorProps {
   onClose: () => void;
-  initialAgent?: { name: string; prompt: string };
+  initialAgent?: { name: string; prompt: string; category?: string };
 }
+
+// Map agent DB category to agent_type for the creator system
+const CATEGORY_TO_AGENT_TYPE: Record<string, string> = {
+  'persona': 'persona',
+  'landing pages': 'ux-design',
+  'saas': 'ux-design',
+  'creative': 'ux-design',
+  'e-commerce': 'ux-design',
+  'development': 'development',
+  'orchestration': 'orchestration',
+  'workflow': 'workflow',
+  'operational': 'operational',
+  'marketing': 'marketing',
+  'data / ai': 'data-ai',
+  'custom': 'custom',
+};
 
 const getWelcomeMsg = (welcomeText?: string): Message => ({
   id: 'welcome',
@@ -102,7 +118,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   // Agent types
   const [agentTypes, setAgentTypes] = useState<AgentTypeInfo[]>([]);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
-  const [currentAgentType, setCurrentAgentType] = useState<string>('ux-design');
+  const [currentAgentType, setCurrentAgentType] = useState<string>('');
 
   // Conversation list
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -170,9 +186,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       if (initialAgent) {
         try {
           const displayName = initialAgent.name.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
+          // Detect agent_type from category — default to 'custom' for non-UX agents
+          const detectedType = initialAgent.category
+            ? (CATEGORY_TO_AGENT_TYPE[initialAgent.category.toLowerCase()] || 'custom')
+            : 'custom';
           const result = await api('/api/agent-creator/conversations', {
             method: 'POST',
-            body: JSON.stringify({ name: `Enhance: ${displayName}` }),
+            body: JSON.stringify({ name: `Enhance: ${displayName}`, agent_type: detectedType }),
           });
           const conv = result.conversation;
           setConversations(prev => [conv, ...prev]);
@@ -235,10 +255,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
 
   const createConversation = async (name?: string, agentType?: string) => {
     try {
-      const type = agentType || 'ux-design';
+      if (!agentType) {
+        console.warn('[AgentCreator] No agent type specified for new conversation');
+        return;
+      }
       const result = await api('/api/agent-creator/conversations', {
         method: 'POST',
-        body: JSON.stringify({ name: name || 'New Agent', agent_type: type }),
+        body: JSON.stringify({ name: name || 'New Agent', agent_type: agentType }),
       });
       const conv = result.conversation;
       setConversations(prev => [conv, ...prev]);
@@ -252,7 +275,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const selectConversation = async (conv: Conversation) => {
     setConversationId(conv.id);
     setConvName(conv.name);
-    setCurrentAgentType(conv.agent_type || 'ux-design');
+    setCurrentAgentType(conv.agent_type || 'custom');
     localStorage.setItem('atp-agent-creator-conv', conv.id);
     setEditingConvName(false);
     setDesignBrief(null);
@@ -269,7 +292,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     try {
       const result = await api(`/api/agent-creator/conversations/${conv.id}`);
       const c = result.conversation;
-      const convType = c.agent_type || 'ux-design';
+      const convType = c.agent_type || 'custom';
       setCurrentAgentType(convType);
       const msgs: Message[] = (c.messages || []).map((m: any) => ({
         id: m.id, role: m.role, content: m.content,
@@ -691,7 +714,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       <span style={{ fontSize: '10px', color: t.tm, display: 'flex', alignItems: 'center', gap: '3px' }}>
                         <Clock size={9} /> {timeAgo(conv.updated_at || conv.created_at)}
                       </span>
-                      {conv.agent_type && conv.agent_type !== 'ux-design' && (() => {
+                      {conv.agent_type && (() => {
                         const ti = agentTypes.find(at => at.id === conv.agent_type);
                         return ti ? (
                           <span style={{ fontSize: '8px', color: ti.color, padding: '0 4px', background: `${ti.color}15`, borderRadius: '3px' }}>

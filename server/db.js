@@ -797,7 +797,7 @@ async function createAgentConversation(userId, name, agentType) {
   const { data } = await supabase.from('agent_conversations').insert({
     user_id: userId,
     name: name || 'New Agent',
-    agent_type: agentType || 'ux-design',
+    agent_type: agentType || 'custom',
   }).select('*').single();
   return data;
 }
