@@ -4,9 +4,10 @@ import {
   Plus, Search, Edit2, Trash2, X, Check,
   Database, FileText, Globe, Upload, Brain,
   AlertCircle, Users, ArrowLeft, Link2, Unlink,
-  BookOpen, ChevronRight, Sparkles, Type, File
+  BookOpen, ChevronRight, Sparkles, Type, File, Layers
 } from 'lucide-react';
 import { api, getToken, getUser } from '../api';
+import useBulkImport from '../hooks/useBulkImport';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -48,6 +49,9 @@ export default function KnowledgeBase() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isUrlOpen, setIsUrlOpen] = useState(false);
   const [isCsvOpen, setIsCsvOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
+  const [bulkFiles, setBulkFiles] = useState(null);
+  const bulk = useBulkImport(kbId);
 
   // Form state
   const [kbForm, setKbForm] = useState({ name: '', description: '' });
@@ -337,6 +341,9 @@ export default function KnowledgeBase() {
             <File size={13} /> Bulk CSV Import
             <input type="file" accept=".csv" onChange={handleCsvBulkImport} style={{ display: 'none' }} />
           </label>
+          <button onClick={() => { setBulkFiles(null); bulk.reset(); setIsBulkOpen(true); }} style={{ ...btnCyanStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Layers size={13} /> Bulk Import
+          </button>
           <div style={{ flex: 1 }} />
           <button onClick={openLinkAgent} style={{ ...btnOutlineStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Link2 size={13} /> Link Agent
@@ -592,6 +599,180 @@ export default function KnowledgeBase() {
           </div>
         )}
 
+        {/* Bulk Import Modal */}
+        {isBulkOpen && (
+          <div style={modalOverlayStyle} onClick={() => { if (bulk.phase === 'idle' || bulk.phase === 'done' || bulk.phase === 'error') { setIsBulkOpen(false); if (bulk.phase === 'done') { loadKBDetail(kbId); fetchKBs(); } } }}>
+            <div style={{ ...modalContentStyle, width: '640px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+              <div style={modalHeaderStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Layers size={16} style={{ color: t.cyan }} />
+                  <h2 style={{ fontSize: '15px', fontWeight: '600', margin: 0 }}>Bulk File Import</h2>
+                </div>
+                <button onClick={() => { if (bulk.phase === 'idle' || bulk.phase === 'done' || bulk.phase === 'error') { setIsBulkOpen(false); if (bulk.phase === 'done') { loadKBDetail(kbId); fetchKBs(); } } }}
+                  style={closeBtnStyle}><X size={18} /></button>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                {/* Phase: Idle — file picker */}
+                {bulk.phase === 'idle' && (
+                  <div>
+                    <div style={{
+                      border: `2px dashed ${t.borderS}`, borderRadius: '10px', padding: '40px 20px',
+                      textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
+                    }}
+                      onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.cyan; }}
+                      onDragLeave={e => { e.currentTarget.style.borderColor = t.borderS; }}
+                      onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.borderS; setBulkFiles(e.dataTransfer.files); }}
+                      onClick={() => document.getElementById('bulk-file-input').click()}
+                    >
+                      <Upload size={28} style={{ color: t.tm, marginBottom: '10px' }} />
+                      <p style={{ fontSize: '13px', fontWeight: '500', margin: '0 0 4px 0' }}>
+                        {bulkFiles ? `${bulkFiles.length} file${bulkFiles.length > 1 ? 's' : ''} selected` : 'Click or drag files here'}
+                      </p>
+                      <p style={{ fontSize: '11px', color: t.tm, margin: 0 }}>
+                        Supports: .txt, .md, .csv, .json, .pdf, .xlsx (up to 20MB each)
+                      </p>
+                      <input id="bulk-file-input" type="file" multiple
+                        accept=".txt,.md,.csv,.json,.pdf,.xlsx"
+                        onChange={e => setBulkFiles(e.target.files)}
+                        style={{ display: 'none' }} />
+                    </div>
+                    {bulkFiles && bulkFiles.length > 0 && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: t.ts, marginBottom: '8px' }}>
+                          <span>{bulkFiles.length} file{bulkFiles.length > 1 ? 's' : ''}</span>
+                          <span>{(Array.from(bulkFiles).reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total</span>
+                        </div>
+                        <div style={{ maxHeight: '150px', overflowY: 'auto', border: `1px solid ${t.border}`, borderRadius: '6px' }}>
+                          {Array.from(bulkFiles).slice(0, 50).map((f, i) => (
+                            <div key={i} style={{ padding: '6px 10px', fontSize: '11px', color: t.ts, borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                              <span style={{ color: t.tm, marginLeft: '8px', flexShrink: 0 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                            </div>
+                          ))}
+                          {bulkFiles.length > 50 && (
+                            <div style={{ padding: '6px 10px', fontSize: '11px', color: t.tm, textAlign: 'center' }}>
+                              ... and {bulkFiles.length - 50} more
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Phase: Uploading */}
+                {bulk.phase === 'uploading' && (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px' }}>Uploading files...</div>
+                    <div style={{ fontSize: '12px', color: t.ts, marginBottom: '14px' }}>
+                      Batch {bulk.uploadProgress.current} of {bulk.uploadProgress.total}
+                    </div>
+                    <div style={{ height: '6px', backgroundColor: t.bg, borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', backgroundColor: t.cyan, borderRadius: '3px',
+                        width: `${bulk.uploadProgress.total > 0 ? (bulk.uploadProgress.current / bulk.uploadProgress.total * 100) : 0}%`,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Phase: Processing or Done */}
+                {(bulk.phase === 'processing' || bulk.phase === 'done' || bulk.phase === 'error') && (
+                  <div>
+                    {/* Summary bar */}
+                    <div style={{
+                      display: 'flex', gap: '16px', padding: '10px 14px', marginBottom: '14px',
+                      backgroundColor: t.bg, borderRadius: '6px', border: `1px solid ${t.border}`, fontSize: '12px',
+                    }}>
+                      <span style={{ color: t.ts }}>{bulk.stats.completed + bulk.stats.failed} / {bulk.stats.total} processed</span>
+                      {bulk.stats.completed > 0 && <span style={{ color: t.success }}>{bulk.stats.completed} completed</span>}
+                      {bulk.stats.failed > 0 && <span style={{ color: t.danger }}>{bulk.stats.failed} failed</span>}
+                      {bulk.stats.processing > 0 && <span style={{ color: t.cyan }}>{bulk.stats.processing} in progress</span>}
+                    </div>
+
+                    {/* Overall progress bar */}
+                    <div style={{ height: '4px', backgroundColor: t.bg, borderRadius: '2px', overflow: 'hidden', marginBottom: '14px' }}>
+                      <div style={{
+                        height: '100%', borderRadius: '2px',
+                        background: `linear-gradient(90deg, ${t.success} ${bulk.stats.total > 0 ? (bulk.stats.completed / bulk.stats.total * 100) : 0}%, ${t.danger} 0%)`,
+                        width: `${bulk.stats.total > 0 ? ((bulk.stats.completed + bulk.stats.failed) / bulk.stats.total * 100) : 0}%`,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
+
+                    {/* File list */}
+                    <div style={{ maxHeight: '320px', overflowY: 'auto', border: `1px solid ${t.border}`, borderRadius: '6px' }}>
+                      {bulk.files.map((f, i) => {
+                        const statusColors = {
+                          queued: t.tm, extracting: '#3b82f6', chunking: t.cyan,
+                          embedding: t.violet, done: t.success, error: t.danger,
+                        };
+                        const statusColor = statusColors[f.status] || t.tm;
+                        return (
+                          <div key={f.id || i} style={{
+                            padding: '7px 12px', fontSize: '11px', borderBottom: `1px solid ${t.border}`,
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                          }}>
+                            <div style={{
+                              width: '7px', height: '7px', borderRadius: '50%', backgroundColor: statusColor,
+                              flexShrink: 0, boxShadow: f.status === 'extracting' || f.status === 'chunking' || f.status === 'embedding'
+                                ? `0 0 6px ${statusColor}` : 'none',
+                              animation: (f.status === 'extracting' || f.status === 'chunking' || f.status === 'embedding') ? 'pulse 1.5s infinite' : 'none',
+                            }} />
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.ts }}>
+                              {f.name}
+                            </span>
+                            <span style={{
+                              fontSize: '9px', fontWeight: '600', textTransform: 'uppercase',
+                              padding: '2px 6px', borderRadius: '100px', color: statusColor,
+                              backgroundColor: `${statusColor}18`, letterSpacing: '0.03em',
+                            }}>
+                              {f.status}
+                            </span>
+                            {f.error && (
+                              <span style={{ fontSize: '9px', color: t.danger, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={f.error}>
+                                {f.error}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={modalFooterStyle}>
+                {bulk.phase === 'idle' && (
+                  <>
+                    <button onClick={() => setIsBulkOpen(false)} style={btnSecStyle}>Cancel</button>
+                    <button
+                      onClick={() => { if (bulkFiles && bulkFiles.length > 0) bulk.startImport(bulkFiles); }}
+                      disabled={!bulkFiles || bulkFiles.length === 0}
+                      style={{ ...btnPriStyle, opacity: (!bulkFiles || bulkFiles.length === 0) ? 0.4 : 1 }}
+                    >
+                      Start Import ({bulkFiles ? bulkFiles.length : 0} files)
+                    </button>
+                  </>
+                )}
+                {(bulk.phase === 'uploading' || bulk.phase === 'processing') && (
+                  <button onClick={bulk.cancelImport} style={{ ...btnSecStyle, color: t.danger, borderColor: `${t.danger}33` }}>
+                    Cancel Import
+                  </button>
+                )}
+                {(bulk.phase === 'done' || bulk.phase === 'error') && (
+                  <button onClick={() => { setIsBulkOpen(false); loadKBDetail(kbId); fetchKBs(); }} style={btnPriStyle}>
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Create/Edit KB Modal (reused) */}
         {isCreateOpen && renderKBModal()}
 
@@ -600,6 +781,10 @@ export default function KnowledgeBase() {
         <style>{`
           @media (max-width: 768px) {
             .kb-stats-grid { grid-template-columns: 1fr !important; }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
           }
         `}</style>
       </div>

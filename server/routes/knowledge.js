@@ -4,8 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { generateEmbedding, embedDocument, estimateTokens } = require('../lib/embeddings');
+const bulkQueue = require('../lib/bulk-import-queue');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const KNOWLEDGE_UPLOAD_DIR = path.join(DATA_DIR, 'knowledge-uploads');
@@ -88,6 +90,126 @@ router.get('/for-agent/:agentName', async (req, res) => {
     console.error('[Knowledge] Agent KBs error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===================== SOCKET.IO FOR BULK IMPORT =====================
+
+let ioRef = null;
+
+function initKnowledgeSocket(io) {
+  ioRef = io;
+  const knowledgeNs = io.of('/knowledge');
+
+  knowledgeNs.use((socket, next) => {
+    const token = socket.handshake.auth.token || socket.handshake.query.token;
+    if (!token) return next(new Error('Authentication required'));
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      socket.userId = decoded.userId;
+      next();
+    } catch {
+      next(new Error('Invalid token'));
+    }
+  });
+
+  knowledgeNs.on('connection', (socket) => {
+    socket.on('join-import', ({ jobId }) => {
+      if (jobId) socket.join(`import:${jobId}`);
+    });
+    socket.on('leave-import', ({ jobId }) => {
+      if (jobId) socket.leave(`import:${jobId}`);
+    });
+    socket.on('disconnect', () => {});
+  });
+}
+
+function emitProgress(jobId, event, data) {
+  if (!ioRef) return;
+  ioRef.of('/knowledge').to(`import:${jobId}`).emit(event, data);
+}
+
+// ===================== BULK IMPORT ENDPOINTS (before /:id) =====================
+
+// POST /:id/bulk-import/start — create a new bulk import job
+router.post('/:id/bulk-import/start', async (req, res) => {
+  try {
+    const kb = await db.getKnowledgeBase(req.params.id);
+    if (!kb) return res.status(404).json({ error: 'Knowledge base not found' });
+    const job = bulkQueue.createJob(req.params.id, req.user?.userId);
+    res.json({ jobId: job.id });
+  } catch (err) {
+    console.error('[Knowledge] Bulk import start error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/bulk-import/:jobId/upload — upload a batch of files
+router.post('/:id/bulk-import/:jobId/upload', upload.array('files', 20), async (req, res) => {
+  try {
+    const job = bulkQueue.getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Import job not found' });
+    if (job.knowledgeBaseId !== req.params.id) return res.status(400).json({ error: 'Job/KB mismatch' });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+    bulkQueue.addFilesToJob(req.params.jobId, req.files);
+
+    // Return the file IDs for the uploaded batch
+    const addedFiles = job.files.slice(-req.files.length).map(f => ({ id: f.id, name: f.originalName }));
+    res.json({ uploaded: req.files.length, total: job.stats.total, files: addedFiles });
+  } catch (err) {
+    console.error('[Knowledge] Bulk import upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/bulk-import/:jobId/process — start processing (fire-and-forget)
+router.post('/:id/bulk-import/:jobId/process', async (req, res) => {
+  try {
+    const job = bulkQueue.getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Import job not found' });
+    if (job.knowledgeBaseId !== req.params.id) return res.status(400).json({ error: 'Job/KB mismatch' });
+    if (job.status === 'processing') return res.status(409).json({ error: 'Already processing' });
+
+    // Fire-and-forget processing
+    bulkQueue.processJob(
+      job,
+      extractFileContent,
+      embedAndChunkEntry,
+      db,
+      (j, ft) => {
+        if (ft) {
+          emitProgress(j.id, 'file-progress', { fileId: ft.id, status: ft.status, error: ft.error });
+        }
+        emitProgress(j.id, 'job-progress', { stats: j.stats, status: j.status });
+      }
+    ).catch(err => {
+      console.error(`[Knowledge] Bulk import process error for job ${job.id}:`, err.message);
+    });
+
+    res.json({ status: 'processing', total: job.stats.total });
+  } catch (err) {
+    console.error('[Knowledge] Bulk import process error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /:id/bulk-import/:jobId/status — polling fallback
+router.get('/:id/bulk-import/:jobId/status', (req, res) => {
+  const job = bulkQueue.getJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Import job not found' });
+  res.json({
+    status: job.status,
+    stats: job.stats,
+    files: job.files.map(f => ({ id: f.id, name: f.originalName, status: f.status, error: f.error })),
+  });
+});
+
+// POST /:id/bulk-import/:jobId/cancel — cancel a running import
+router.post('/:id/bulk-import/:jobId/cancel', (req, res) => {
+  const job = bulkQueue.getJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Import job not found' });
+  bulkQueue.cancelJob(req.params.jobId);
+  res.json({ status: 'cancelled' });
 });
 
 // ===================== KNOWLEDGE BASES CRUD =====================
@@ -527,4 +649,5 @@ function parseCSVLine(line) {
   return result;
 }
 
+router.initKnowledgeSocket = initKnowledgeSocket;
 module.exports = router;

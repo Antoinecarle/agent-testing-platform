@@ -479,6 +479,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   // Setup terminal WebSocket
   setupTerminal(io);
 
+  // Setup knowledge base bulk import WebSocket
+  knowledgeRoutes.initKnowledgeSocket(io);
+
   // Start file watchers for auto-importing iterations
   if (watcher) {
     watcher.initWatchers(io);
