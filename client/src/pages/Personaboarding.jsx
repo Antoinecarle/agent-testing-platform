@@ -5,7 +5,7 @@ import {
   Cpu, Settings, Sparkles, Check, Loader2, PenTool, ArrowRight,
   Linkedin, X, ExternalLink, Link as LinkIcon, Upload, Camera,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, getToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -290,7 +290,7 @@ export default function Personaboarding() {
   // ── LinkedIn OAuth handler ────────────────────────────────────────────
   async function handleLinkedinOAuth() {
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = getToken() || '';
       const res = await api(`/api/personaboarding/linkedin/auth?token=${encodeURIComponent(token)}`);
       if (res.authUrl) {
         window.location.href = res.authUrl;
@@ -343,7 +343,7 @@ export default function Personaboarding() {
       formData.append('image', file);
       const res = await fetch('/api/personaboarding/upload-profile-pic', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Authorization': `Bearer ${getToken()}` },
         body: formData,
       });
       const data = await res.json();

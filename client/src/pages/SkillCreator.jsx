@@ -10,7 +10,7 @@ import {
   XCircle, Eye, Edit3, Loader, Inbox, Database, Palette,
   PenTool, Briefcase, Settings
 } from 'lucide-react';
-import { api } from '../api';
+import { api, getToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -715,7 +715,7 @@ export default function SkillCreator() {
 
       const res = await fetch(`/api/skills/${skillId}/documents`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        headers: { 'Authorization': `Bearer ${getToken()}` },
         body: formData,
       });
       if (!res.ok) {
