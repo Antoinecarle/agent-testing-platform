@@ -23,6 +23,7 @@ import SkillCreator from './pages/SkillCreator';
 import Personaboarding from './pages/Personaboarding';
 import KnowledgeBase from './pages/KnowledgeBase';
 import KnowledgeExplorer from './pages/KnowledgeExplorer';
+import AgentChat from './pages/AgentChat';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -54,6 +55,8 @@ export default function App() {
           <Route path="knowledge" element={<KnowledgeBase />} />
           <Route path="knowledge/:id" element={<KnowledgeBase />} />
           <Route path="knowledge/:id/explore" element={<KnowledgeExplorer />} />
+          <Route path="chat/:agentName" element={<AgentChat />} />
+          <Route path="chat/:agentName/:chatId" element={<AgentChat />} />
           <Route path="personaboarding" element={<Personaboarding />} />
           <Route path="sessions" element={<Sessions />} />
         </Route>

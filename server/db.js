@@ -1533,6 +1533,46 @@ async function getKnowledgeBaseAgents(knowledgeBaseId) {
   return agents || [];
 }
 
+// ===================== AGENT CHATS =====================
+
+async function createAgentChat(userId, agentName, name) {
+  const { data, error } = await supabase.from('agent_chats').insert({
+    user_id: userId, agent_name: agentName, name: name || 'New Chat',
+  }).select('*').single();
+  if (error) throw new Error(`createAgentChat: ${error.message}`);
+  return data;
+}
+
+async function getAgentChat(chatId) {
+  const { data } = await supabase.from('agent_chats').select('*').eq('id', chatId).single();
+  return data || null;
+}
+
+async function getUserAgentChats(userId) {
+  const { data } = await supabase.from('agent_chats').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+  return data || [];
+}
+
+async function deleteAgentChat(chatId) {
+  // Messages cascade-deleted via FK
+  await supabase.from('agent_chats').delete().eq('id', chatId);
+}
+
+async function createAgentChatMessage(chatId, role, content, sources) {
+  const { data, error } = await supabase.from('agent_chat_messages').insert({
+    chat_id: chatId, role, content, sources: sources || null,
+  }).select('*').single();
+  if (error) throw new Error(`createAgentChatMessage: ${error.message}`);
+  // Update chat's updated_at
+  await supabase.from('agent_chats').update({ updated_at: new Date().toISOString() }).eq('id', chatId);
+  return data;
+}
+
+async function getAgentChatMessages(chatId, limit = 50) {
+  const { data } = await supabase.from('agent_chat_messages').select('*').eq('chat_id', chatId).order('created_at', { ascending: true }).limit(limit);
+  return data || [];
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -1614,4 +1654,7 @@ module.exports = {
   // Agent-Knowledge Base Links
   assignKnowledgeBaseToAgent, unassignKnowledgeBaseFromAgent,
   getAgentKnowledgeBases, getKnowledgeBaseAgents,
+  // Agent Chats
+  createAgentChat, getAgentChat, getUserAgentChats, deleteAgentChat,
+  createAgentChatMessage, getAgentChatMessages,
 };

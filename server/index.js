@@ -226,6 +226,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const knowledgeRoutes = require('./routes/knowledge');
   app.use('/api/knowledge', verifyToken, knowledgeRoutes);
 
+  const agentChatRoutes = require('./routes/agent-chat');
+  app.use('/api/agent-chat', verifyToken, agentChatRoutes);
+
   const personaboardingRoutes = require('./routes/personaboarding');
   // LinkedIn OAuth routes must be accessible without auth (callback comes from LinkedIn, not the user)
   const personaboardingAuth = (req, res, next) => {

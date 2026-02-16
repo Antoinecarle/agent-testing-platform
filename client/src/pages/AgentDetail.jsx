@@ -664,6 +664,13 @@ export default function AgentDetail() {
           }}>
             <ExternalLink size={13} />Test
           </button>
+          <button onClick={() => navigate(`/chat/${encodeURIComponent(name)}`)} style={{
+            backgroundColor: t.violet, color: '#fff', border: 'none',
+            padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }}>
+            <MessageCircle size={13} />Chat
+          </button>
           <button onClick={handleDuplicate} style={{
             backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
             padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
