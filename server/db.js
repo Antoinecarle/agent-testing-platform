@@ -134,6 +134,40 @@ async function searchAgents(query) {
   return (agents || []).map(a => ({ ...a, project_count: countMap[a.name] || 0 }));
 }
 
+async function getAllAgentsForUser(userId) {
+  const { data: agents } = await supabase.from('agents').select('*').eq('created_by', userId).order('name', { ascending: true });
+  const { data: counts } = await supabase.from('projects').select('agent_name');
+  const countMap = {};
+  (counts || []).forEach(p => {
+    countMap[p.agent_name] = (countMap[p.agent_name] || 0) + 1;
+  });
+  return (agents || []).map(a => ({ ...a, project_count: countMap[a.name] || 0 }));
+}
+
+async function searchAgentsForUser(query, userId) {
+  const q = `%${query}%`;
+  const { data: agents } = await supabase.from('agents').select('*')
+    .eq('created_by', userId)
+    .or(`name.ilike.${q},description.ilike.${q},category.ilike.${q}`)
+    .order('name', { ascending: true });
+  const { data: counts } = await supabase.from('projects').select('agent_name');
+  const countMap = {};
+  (counts || []).forEach(p => {
+    countMap[p.agent_name] = (countMap[p.agent_name] || 0) + 1;
+  });
+  return (agents || []).map(a => ({ ...a, project_count: countMap[a.name] || 0 }));
+}
+
+async function getAgentsByCategoryForUser(category, userId) {
+  const { data: agents } = await supabase.from('agents').select('*').eq('category', category).eq('created_by', userId).order('name', { ascending: true });
+  const { data: counts } = await supabase.from('projects').select('agent_name');
+  const countMap = {};
+  (counts || []).forEach(p => {
+    countMap[p.agent_name] = (countMap[p.agent_name] || 0) + 1;
+  });
+  return (agents || []).map(a => ({ ...a, project_count: countMap[a.name] || 0 }));
+}
+
 async function getAgentProjectCount(name) {
   const { count } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('agent_name', name);
   return count || 0;
@@ -236,16 +270,26 @@ async function reorderCategories(orderedIds) {
 
 // ===================== PROJECTS =====================
 
-async function createProject(id, name, description, agentName, mode, teamId) {
+async function createProject(id, name, description, agentName, mode, teamId, userId) {
   await supabase.from('projects').insert({
     id, name, description: description || '', agent_name: agentName || '', status: 'active',
-    mode: mode || 'solo', team_id: teamId || null,
+    mode: mode || 'solo', team_id: teamId || null, user_id: userId || null,
   });
 }
 
 async function getAllProjects() {
   const { data: projects } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
   // Get latest iteration ids
+  const { data: iterations } = await supabase.from('iterations').select('id, project_id, created_at').order('created_at', { ascending: false });
+  const latestMap = {};
+  (iterations || []).forEach(i => {
+    if (!latestMap[i.project_id]) latestMap[i.project_id] = i.id;
+  });
+  return (projects || []).map(p => ({ ...p, latest_iteration_id: latestMap[p.id] || null }));
+}
+
+async function getProjectsByUser(userId) {
+  const { data: projects } = await supabase.from('projects').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   const { data: iterations } = await supabase.from('iterations').select('id, project_id, created_at').order('created_at', { ascending: false });
   const latestMap = {};
   (iterations || []).forEach(i => {
@@ -476,12 +520,27 @@ async function seedAdmin() {
 
 // ===================== AGENT TEAMS =====================
 
-async function createTeam(id, name, description) {
-  await supabase.from('agent_teams').insert({ id, name, description: description || '' });
+async function createTeam(id, name, description, userId) {
+  await supabase.from('agent_teams').insert({ id, name, description: description || '', user_id: userId || null });
 }
 
 async function getAllTeams() {
   const { data: teams } = await supabase.from('agent_teams').select('*').order('created_at', { ascending: false });
+  const { data: members } = await supabase.from('agent_team_members').select('team_id, agent_name');
+  const memberMap = {};
+  (members || []).forEach(m => {
+    if (!memberMap[m.team_id]) memberMap[m.team_id] = [];
+    memberMap[m.team_id].push(m.agent_name);
+  });
+  return (teams || []).map(t => ({
+    ...t,
+    member_count: (memberMap[t.id] || []).length,
+    member_names: (memberMap[t.id] || []).join(',') || null,
+  }));
+}
+
+async function getTeamsByUser(userId) {
+  const { data: teams } = await supabase.from('agent_teams').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   const { data: members } = await supabase.from('agent_team_members').select('team_id, agent_name');
   const memberMap = {};
   (members || []).forEach(m => {
@@ -921,6 +980,34 @@ async function getSkillsByCategory(category) {
   return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
 }
 
+async function getAllSkillsForUser(userId) {
+  const { data: skills } = await supabase.from('skills').select('*').eq('created_by', userId).order('name', { ascending: true });
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
+async function searchSkillsForUser(query, userId) {
+  const q = `%${query}%`;
+  const { data: skills } = await supabase.from('skills').select('*')
+    .eq('created_by', userId)
+    .or(`name.ilike.${q},description.ilike.${q},category.ilike.${q}`)
+    .order('name', { ascending: true });
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
+async function getSkillsByCategoryForUser(category, userId) {
+  const { data: skills } = await supabase.from('skills').select('*').eq('category', category).eq('created_by', userId).order('name', { ascending: true });
+  const { data: links } = await supabase.from('agent_skills').select('skill_id');
+  const countMap = {};
+  (links || []).forEach(l => { countMap[l.skill_id] = (countMap[l.skill_id] || 0) + 1; });
+  return (skills || []).map(s => ({ ...s, agent_count: countMap[s.id] || 0 }));
+}
+
 // Agent-Skill associations
 async function assignSkillToAgent(agentName, skillId) {
   const { data } = await supabase.from('agent_skills').insert({
@@ -1145,6 +1232,11 @@ async function getAllDeployments() {
   return data || [];
 }
 
+async function getDeploymentsByUser(userId) {
+  const { data } = await supabase.from('agent_deployments').select('*').eq('deployed_by', userId).order('deployed_at', { ascending: false });
+  return data || [];
+}
+
 async function updateDeployment(id, fields) {
   const update = {};
   if (fields.status !== undefined) update.status = fields.status;
@@ -1298,15 +1390,15 @@ module.exports = {
   seedAdmin,
   uploadProfilePic,
   // Agents
-  upsertAgent, createAgentManual, getAllAgents, getAgent, getAgentsByCategory,
+  upsertAgent, createAgentManual, getAllAgents, getAllAgentsForUser, getAgent, getAgentsByCategory, getAgentsByCategoryForUser,
   updateAgentRating, updateAgentLastUsed, updateAgentScreenshot,
-  deleteAgent, searchAgents, updateAgent, getAgentProjectCount, getProjectsByAgent,
+  deleteAgent, searchAgents, searchAgentsForUser, updateAgent, getAgentProjectCount, getProjectsByAgent,
   bulkDeleteAgents, bulkUpdateCategory, getAgentStats,
   // Categories
   getAllCategories, getCategory, getCategoryByName,
   createCategory, updateCategory, deleteCategory, reorderCategories,
   // Projects
-  createProject, getAllProjects, getProject, getProjectWithTeam, updateProject,
+  createProject, getAllProjects, getProjectsByUser, getProject, getProjectWithTeam, updateProject,
   updateProjectIterationCount, deleteProject,
   // Iterations
   createIteration, getAllIterations, getIteration,
@@ -1323,7 +1415,7 @@ module.exports = {
   // Users
   getUserByEmail, getUserById, getAllUsers, createUser, updateUserClaudeStatus,
   // Agent Teams
-  createTeam, getAllTeams, getTeam, updateTeam, deleteTeam,
+  createTeam, getAllTeams, getTeamsByUser, getTeam, updateTeam, deleteTeam,
   addTeamMember, removeTeamMember, getTeamMembers, reorderTeamMembers, updateTeamMemberRole,
   // Agent Versions
   createAgentVersion, getAgentVersions, getAgentVersion, getNextAgentVersionNumber, getLatestAgentVersion,
@@ -1341,8 +1433,8 @@ module.exports = {
   createConversationReference, getConversationReferences, deleteConversationReference,
   updateReferenceAnalysis, updateConversationBrief, updateConversationGeneratedAgent,
   // Skills
-  createSkill, getAllSkills, getSkill, getSkillBySlug, updateSkill, deleteSkill,
-  searchSkills, getSkillsByCategory,
+  createSkill, getAllSkills, getAllSkillsForUser, getSkill, getSkillBySlug, updateSkill, deleteSkill,
+  searchSkills, searchSkillsForUser, getSkillsByCategory, getSkillsByCategoryForUser,
   assignSkillToAgent, unassignSkillFromAgent, getAgentSkills, getSkillAgents,
   bulkAssignSkill, bulkAssignSkillsToAgent, getSkillStats,
   // Skill File Tree
@@ -1357,7 +1449,7 @@ module.exports = {
   updateSkillDocument, deleteSkillDocument, getSkillDocumentCount, getSkillDocumentStats,
   // Agent Deployments
   createDeployment, getDeployment, getDeploymentBySlug, getDeploymentByAgent,
-  getAllDeployments, updateDeployment, deleteDeployment, incrementDeploymentStats,
+  getAllDeployments, getDeploymentsByUser, updateDeployment, deleteDeployment, incrementDeploymentStats,
   // Token Usage
   logTokenUsage, getTokenUsage, getTokenUsageStats, getMonthlyTokenUsage,
   // Deployment API Keys

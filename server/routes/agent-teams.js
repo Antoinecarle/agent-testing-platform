@@ -4,10 +4,10 @@ const db = require('../db');
 
 const router = express.Router();
 
-// GET /api/agent-teams — list all teams (includes member_count)
+// GET /api/agent-teams — list teams (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
   try {
-    const teams = await db.getAllTeams();
+    const teams = await db.getTeamsByUser(req.user.userId);
     res.json(teams);
   } catch (err) {
     console.error('[AgentTeams] List error:', err.message);
@@ -22,7 +22,7 @@ router.post('/', async (req, res) => {
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 
     const id = crypto.randomUUID();
-    await db.createTeam(id, name.trim(), description);
+    await db.createTeam(id, name.trim(), description, req.user.userId);
     const created = await db.getTeam(id);
     res.status(201).json(created);
   } catch (err) {
@@ -36,6 +36,9 @@ router.get('/:id', async (req, res) => {
   try {
     const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+    if (team.user_id && team.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const members = await db.getTeamMembers(req.params.id);
     res.json({ ...team, members });
@@ -50,6 +53,9 @@ router.put('/:id', async (req, res) => {
   try {
     const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+    if (team.user_id && team.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const { name, description } = req.body;
     await db.updateTeam(
@@ -69,6 +75,9 @@ router.delete('/:id', async (req, res) => {
   try {
     const team = await db.getTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+    if (team.user_id && team.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     await db.deleteTeam(req.params.id);
     res.json({ ok: true });

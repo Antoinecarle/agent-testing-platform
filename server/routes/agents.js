@@ -134,18 +134,18 @@ async function syncAgents() {
   return synced;
 }
 
-// GET /api/agents — list all agents
+// GET /api/agents — list agents (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
   try {
     const { category, search } = req.query;
     let agents;
 
     if (search) {
-      agents = await db.searchAgents(search);
+      agents = await db.searchAgentsForUser(search, req.user.userId);
     } else if (category) {
-      agents = await db.getAgentsByCategory(category);
+      agents = await db.getAgentsByCategoryForUser(category, req.user.userId);
     } else {
-      agents = await db.getAllAgents();
+      agents = await db.getAllAgentsForUser(req.user.userId);
     }
 
     res.json(agents);
@@ -815,7 +815,7 @@ router.put('/:name', async (req, res) => {
 
     // Ownership checks
     if (agent.source === 'filesystem') return res.status(403).json({ error: 'Platform agents are read-only' });
-    if (agent.created_by && agent.created_by !== req.user.userId && req.user.role !== 'admin')
+    if (agent.created_by && agent.created_by !== req.user.userId)
       return res.status(403).json({ error: 'Only the creator can edit this agent' });
 
     // Auto-version: snapshot current state before applying update
@@ -929,7 +929,7 @@ router.delete('/:name', async (req, res) => {
 
     // Ownership checks
     if (agent.source === 'filesystem') return res.status(403).json({ error: 'Platform agents cannot be deleted' });
-    if (agent.created_by && agent.created_by !== req.user.userId && req.user.role !== 'admin')
+    if (agent.created_by && agent.created_by !== req.user.userId)
       return res.status(403).json({ error: 'Only the creator can delete this agent' });
 
     await db.deleteAgent(req.params.name);

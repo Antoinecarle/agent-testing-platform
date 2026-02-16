@@ -51,17 +51,17 @@ function slugify(name) {
 
 // ==================== STATIC ROUTES (must be before :id) ====================
 
-// GET /api/skills — list all skills (with optional search/category filter)
+// GET /api/skills — list skills (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
   try {
     const { search, category } = req.query;
     let skills;
     if (search) {
-      skills = await db.searchSkills(search);
+      skills = await db.searchSkillsForUser(search, req.user.userId);
     } else if (category) {
-      skills = await db.getSkillsByCategory(category);
+      skills = await db.getSkillsByCategoryForUser(category, req.user.userId);
     } else {
-      skills = await db.getAllSkills();
+      skills = await db.getAllSkillsForUser(req.user.userId);
     }
     res.json(skills);
   } catch (err) {
@@ -81,10 +81,10 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/skills/categories — list unique skill categories
+// GET /api/skills/categories — list unique skill categories (filtered by user)
 router.get('/categories', async (req, res) => {
   try {
-    const skills = await db.getAllSkills();
+    const skills = await db.getAllSkillsForUser(req.user.userId);
     const cats = [...new Set(skills.map(s => s.category).filter(Boolean))].sort();
     res.json(cats);
   } catch (err) {
@@ -417,7 +417,7 @@ router.put('/:id', async (req, res) => {
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     // Ownership check
-    if (skill.created_by && skill.created_by !== req.user.userId && req.user.role !== 'admin')
+    if (skill.created_by && skill.created_by !== req.user.userId)
       return res.status(403).json({ error: 'Only the creator can edit this skill' });
 
     const { name, description, prompt, category, icon, color } = req.body;
@@ -450,7 +450,7 @@ router.delete('/:id', async (req, res) => {
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     // Ownership check
-    if (skill.created_by && skill.created_by !== req.user.userId && req.user.role !== 'admin')
+    if (skill.created_by && skill.created_by !== req.user.userId)
       return res.status(403).json({ error: 'Only the creator can delete this skill' });
 
     await db.deleteSkill(req.params.id);

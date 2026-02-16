@@ -174,10 +174,10 @@ router.get('/:name/deployment/usage', async (req, res) => {
   }
 });
 
-// GET /api/deployments — List all deployments (admin overview)
+// GET /api/deployments — List deployments (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
   try {
-    const deployments = await db.getAllDeployments();
+    const deployments = await db.getDeploymentsByUser(req.user.userId);
     // Enrich with agent info
     const enriched = [];
     for (const d of deployments) {

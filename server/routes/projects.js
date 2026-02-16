@@ -4,10 +4,10 @@ const db = require('../db');
 
 const router = express.Router();
 
-// GET /api/projects — list all projects
+// GET /api/projects — list projects (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
   try {
-    const projects = await db.getAllProjects();
+    const projects = await db.getProjectsByUser(req.user.userId);
     res.json(projects);
   } catch (err) {
     console.error('[Projects] List error:', err.message);
@@ -27,7 +27,7 @@ router.post('/', async (req, res) => {
     // Orchestra mode: create team with orchestrator + workers
     if (mode === 'orchestra' && team_config) {
       teamId = crypto.randomUUID();
-      await db.createTeam(teamId, team_config.name || `${name} Team`, team_config.description || '');
+      await db.createTeam(teamId, team_config.name || `${name} Team`, team_config.description || '', req.user.userId);
 
       if (team_config.orchestrator) {
         await db.addTeamMember(crypto.randomUUID(), teamId, team_config.orchestrator, 'leader', 0);
@@ -43,7 +43,7 @@ router.post('/', async (req, res) => {
       ? team_config.orchestrator
       : (agent_name || '');
 
-    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId);
+    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId, req.user.userId);
     const project = await db.getProject(projectId);
     res.status(201).json(project);
   } catch (err) {
@@ -65,7 +65,7 @@ router.post('/fork', async (req, res) => {
     // Create the new project
     const projectId = crypto.randomUUID();
     const agentName = agent_name || sourceIteration.agent_name || '';
-    await db.createProject(projectId, name, description || '', agentName);
+    await db.createProject(projectId, name, description || '', agentName, 'solo', null, req.user.userId);
 
     // Create v1 iteration in the new project
     const iterationId = crypto.randomUUID();
@@ -103,6 +103,9 @@ router.get('/:id', async (req, res) => {
   try {
     const { project, team, members } = await db.getProjectWithTeam(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.user_id && project.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     res.json({ ...project, team: team || null, team_members: members || [] });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -115,6 +118,9 @@ router.put('/:id', async (req, res) => {
     const { name, description, agent_name, status } = req.body;
     const existing = await db.getProject(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Project not found' });
+    if (existing.user_id && existing.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     await db.updateProject(
       req.params.id,
@@ -133,6 +139,11 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/projects/:id — delete project
 router.delete('/:id', async (req, res) => {
   try {
+    const existing = await db.getProject(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Project not found' });
+    if (existing.user_id && existing.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     await db.deleteProject(req.params.id);
     res.json({ ok: true });
   } catch (err) {
