@@ -97,6 +97,50 @@ function writeBranchContext(projectId, parentId) {
 }
 
 /**
+ * Get knowledge context for an agent — retrieves linked knowledge base summaries
+ * Returns a text section listing available knowledge bases and sample entries
+ */
+async function getKnowledgeContext(agentName) {
+  try {
+    const kbs = await db.getAgentKnowledgeBases(agentName);
+    if (!kbs || kbs.length === 0) return '';
+
+    let section = '\n## Knowledge Bases\n\n';
+    section += 'The following knowledge bases are available for this agent. ';
+    section += 'Use them as factual reference for answering questions about contacts, data, procedures, etc.\n\n';
+
+    for (const kb of kbs) {
+      section += `### ${kb.name}\n`;
+      if (kb.description) section += `${kb.description}\n`;
+      section += `_${kb.entry_count || 0} entries_\n\n`;
+
+      // Load a few representative entries for inline context (first 10, truncated)
+      const { data: entries } = await db.supabase.from('knowledge_entries')
+        .select('title, content, source_type')
+        .eq('knowledge_base_id', kb.id)
+        .is('parent_entry_id', null) // Only top-level entries, not chunks
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+      if (entries && entries.length > 0) {
+        for (const entry of entries) {
+          const preview = entry.content.length > 500
+            ? entry.content.slice(0, 500) + '...'
+            : entry.content;
+          section += `**${entry.title}** _(${entry.source_type})_\n${preview}\n\n`;
+        }
+      }
+      section += '---\n\n';
+    }
+
+    return section;
+  } catch (err) {
+    console.warn(`[Workspace] Failed to load knowledge for ${agentName}:`, err.message);
+    return '';
+  }
+}
+
+/**
  * Get skill context for an agent — reads SKILL.md and key reference files
  */
 async function getSkillContext(agentName) {
@@ -378,6 +422,8 @@ ${workers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Availabl
 
 ${agentName ? await getSkillContext(agentName) : ''}
 
+${agentName ? await getKnowledgeContext(agentName) : ''}
+
 ${iterations.length > 0 ? `## Previous Iterations Reference
 
 The HTML files for previous iterations are stored in:
@@ -621,4 +667,4 @@ async function syncSkillsToHome(agentName, userHomePath) {
   }
 }
 
-module.exports = { generateWorkspaceContext, getAgentPrompt, getSkillContext, syncSkillsToHome, readBranchContext, writeBranchContext };
+module.exports = { generateWorkspaceContext, getAgentPrompt, getSkillContext, getKnowledgeContext, syncSkillsToHome, readBranchContext, writeBranchContext };

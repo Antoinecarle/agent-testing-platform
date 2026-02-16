@@ -21,6 +21,7 @@ import MarketplaceDetail from './pages/MarketplaceDetail';
 import Skills from './pages/Skills';
 import SkillCreator from './pages/SkillCreator';
 import Personaboarding from './pages/Personaboarding';
+import KnowledgeBase from './pages/KnowledgeBase';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -49,6 +50,8 @@ export default function App() {
           <Route path="agents/:name" element={<AgentDetail />} />
           <Route path="project/:id" element={<ProjectView />} />
           <Route path="compare/:id" element={<Comparison />} />
+          <Route path="knowledge" element={<KnowledgeBase />} />
+          <Route path="knowledge/:id" element={<KnowledgeBase />} />
           <Route path="personaboarding" element={<Personaboarding />} />
           <Route path="sessions" element={<Sessions />} />
         </Route>

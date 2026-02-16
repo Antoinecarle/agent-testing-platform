@@ -223,6 +223,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const skillCreatorRoutes = require('./routes/skill-creator');
   app.use('/api/skill-creator', verifyToken, skillCreatorRoutes);
 
+  const knowledgeRoutes = require('./routes/knowledge');
+  app.use('/api/knowledge', verifyToken, knowledgeRoutes);
+
   const personaboardingRoutes = require('./routes/personaboarding');
   // LinkedIn OAuth routes must be accessible without auth (callback comes from LinkedIn, not the user)
   const personaboardingAuth = (req, res, next) => {

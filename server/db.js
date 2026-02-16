@@ -1383,6 +1383,147 @@ async function uploadProfilePic(fileBuffer, filename, contentType) {
   return urlData.publicUrl;
 }
 
+// ===================== KNOWLEDGE BASES =====================
+
+async function createKnowledgeBase(name, description, userId) {
+  const { data, error } = await supabase.from('knowledge_bases').insert({
+    name, description: description || '', user_id: userId || null,
+  }).select('*').single();
+  if (error) throw new Error(`createKnowledgeBase: ${error.message}`);
+  return data;
+}
+
+async function getAllKnowledgeBases() {
+  const { data } = await supabase.from('knowledge_bases').select('*').order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function getKnowledgeBasesByUser(userId) {
+  const { data } = await supabase.from('knowledge_bases').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function getKnowledgeBase(id) {
+  const { data } = await supabase.from('knowledge_bases').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function updateKnowledgeBase(id, fields) {
+  const update = {};
+  if (fields.name !== undefined) update.name = fields.name;
+  if (fields.description !== undefined) update.description = fields.description;
+  if (Object.keys(update).length === 0) return;
+  update.updated_at = new Date().toISOString();
+  await supabase.from('knowledge_bases').update(update).eq('id', id);
+}
+
+async function deleteKnowledgeBase(id) {
+  await supabase.from('knowledge_bases').delete().eq('id', id);
+}
+
+async function updateKnowledgeBaseEntryCount(id) {
+  const { count } = await supabase.from('knowledge_entries').select('*', { count: 'exact', head: true }).eq('knowledge_base_id', id);
+  await supabase.from('knowledge_bases').update({ entry_count: count || 0, updated_at: new Date().toISOString() }).eq('id', id);
+}
+
+// ===================== KNOWLEDGE ENTRIES =====================
+
+async function createKnowledgeEntry(knowledgeBaseId, title, content, sourceType, sourceUrl, sourceFilename, metadata, embedding, tokenCount, chunkIndex, parentEntryId) {
+  const row = {
+    knowledge_base_id: knowledgeBaseId,
+    title, content,
+    source_type: sourceType || 'manual',
+    source_url: sourceUrl || '',
+    source_filename: sourceFilename || '',
+    metadata: metadata || {},
+    token_count: tokenCount || 0,
+    chunk_index: chunkIndex || 0,
+    parent_entry_id: parentEntryId || null,
+  };
+  // pgvector: pass embedding as string format [x,y,z,...]
+  if (embedding) row.embedding = JSON.stringify(embedding);
+  const { data, error } = await supabase.from('knowledge_entries').insert(row).select('id, knowledge_base_id, title, content, source_type, source_url, source_filename, metadata, token_count, chunk_index, parent_entry_id, created_at, updated_at').single();
+  if (error) throw new Error(`createKnowledgeEntry: ${error.message}`);
+  return data;
+}
+
+async function getKnowledgeEntries(knowledgeBaseId, { limit, offset } = {}) {
+  let query = supabase.from('knowledge_entries')
+    .select('id, knowledge_base_id, title, content, source_type, source_url, source_filename, metadata, token_count, chunk_index, parent_entry_id, created_at, updated_at')
+    .eq('knowledge_base_id', knowledgeBaseId)
+    .order('created_at', { ascending: false });
+  if (limit) query = query.limit(limit);
+  if (offset) query = query.range(offset, offset + (limit || 50) - 1);
+  const { data } = await query;
+  return data || [];
+}
+
+async function getKnowledgeEntry(id) {
+  const { data } = await supabase.from('knowledge_entries')
+    .select('id, knowledge_base_id, title, content, source_type, source_url, source_filename, metadata, token_count, chunk_index, parent_entry_id, created_at, updated_at')
+    .eq('id', id).single();
+  return data || null;
+}
+
+async function updateKnowledgeEntry(id, fields) {
+  const update = {};
+  if (fields.title !== undefined) update.title = fields.title;
+  if (fields.content !== undefined) update.content = fields.content;
+  if (fields.metadata !== undefined) update.metadata = fields.metadata;
+  if (fields.embedding !== undefined) update.embedding = JSON.stringify(fields.embedding);
+  if (fields.token_count !== undefined) update.token_count = fields.token_count;
+  if (Object.keys(update).length === 0) return;
+  update.updated_at = new Date().toISOString();
+  await supabase.from('knowledge_entries').update(update).eq('id', id);
+}
+
+async function deleteKnowledgeEntry(id) {
+  // Also delete child chunks
+  await supabase.from('knowledge_entries').delete().eq('parent_entry_id', id);
+  await supabase.from('knowledge_entries').delete().eq('id', id);
+}
+
+async function searchKnowledge(queryEmbedding, { threshold = 0.7, limit = 5, knowledgeBaseIds = null } = {}) {
+  const { data, error } = await supabase.rpc('search_knowledge', {
+    query_embedding: JSON.stringify(queryEmbedding),
+    match_threshold: threshold,
+    match_count: limit,
+    filter_kb_ids: knowledgeBaseIds,
+  });
+  if (error) throw new Error(`searchKnowledge: ${error.message}`);
+  return data || [];
+}
+
+// ===================== AGENT-KNOWLEDGE BASE LINKS =====================
+
+async function assignKnowledgeBaseToAgent(agentName, knowledgeBaseId) {
+  const { data, error } = await supabase.from('agent_knowledge_bases').insert({
+    agent_name: agentName, knowledge_base_id: knowledgeBaseId,
+  }).select('*').single();
+  if (error) throw new Error(`assignKnowledgeBaseToAgent: ${error.message}`);
+  return data;
+}
+
+async function unassignKnowledgeBaseFromAgent(agentName, knowledgeBaseId) {
+  await supabase.from('agent_knowledge_bases').delete().eq('agent_name', agentName).eq('knowledge_base_id', knowledgeBaseId);
+}
+
+async function getAgentKnowledgeBases(agentName) {
+  const { data: links } = await supabase.from('agent_knowledge_bases').select('knowledge_base_id').eq('agent_name', agentName);
+  if (!links || links.length === 0) return [];
+  const kbIds = links.map(l => l.knowledge_base_id);
+  const { data: kbs } = await supabase.from('knowledge_bases').select('*').in('id', kbIds);
+  return kbs || [];
+}
+
+async function getKnowledgeBaseAgents(knowledgeBaseId) {
+  const { data: links } = await supabase.from('agent_knowledge_bases').select('agent_name').eq('knowledge_base_id', knowledgeBaseId);
+  if (!links || links.length === 0) return [];
+  const agentNames = links.map(l => l.agent_name);
+  const { data: agents } = await supabase.from('agents').select('name, description, model, category').in('name', agentNames);
+  return agents || [];
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -1455,4 +1596,13 @@ module.exports = {
   // Deployment API Keys
   createDeploymentApiKey, getDeploymentApiKeys, getApiKeyByHash,
   deactivateApiKey, updateApiKeyLastUsed,
+  // Knowledge Bases
+  createKnowledgeBase, getAllKnowledgeBases, getKnowledgeBasesByUser, getKnowledgeBase,
+  updateKnowledgeBase, deleteKnowledgeBase, updateKnowledgeBaseEntryCount,
+  // Knowledge Entries
+  createKnowledgeEntry, getKnowledgeEntries, getKnowledgeEntry,
+  updateKnowledgeEntry, deleteKnowledgeEntry, searchKnowledge,
+  // Agent-Knowledge Base Links
+  assignKnowledgeBaseToAgent, unassignKnowledgeBaseFromAgent,
+  getAgentKnowledgeBases, getKnowledgeBaseAgents,
 };
