@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const { generateEmbedding } = require('../lib/embeddings');
 
 const router = express.Router();
 
@@ -101,6 +102,40 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
       }
     } catch (err) {
       console.warn('[MCP] Failed to load skills for', deployment.agent_name, err.message);
+    }
+
+    // Inject relevant knowledge via RAG (semantic search on last user message)
+    try {
+      const agentKBs = await db.getAgentKnowledgeBases(deployment.agent_name);
+      if (agentKBs && agentKBs.length > 0) {
+        // Get the last user message for semantic search
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMsg && lastUserMsg.content) {
+          const queryText = typeof lastUserMsg.content === 'string'
+            ? lastUserMsg.content
+            : JSON.stringify(lastUserMsg.content);
+
+          const queryEmbedding = await generateEmbedding(queryText);
+          const kbIds = agentKBs.map(kb => kb.id);
+          const results = await db.searchKnowledge(queryEmbedding, {
+            threshold: 0.25,
+            limit: 8,
+            knowledgeBaseIds: kbIds,
+          });
+
+          if (results && results.length > 0) {
+            systemPrompt += '\n\n## Relevant Knowledge\n\n';
+            systemPrompt += 'The following information was retrieved from your knowledge bases. Use it to answer accurately:\n\n';
+            for (const entry of results) {
+              const pct = Math.round((entry.similarity || 0) * 100);
+              systemPrompt += `**${entry.title || 'Entry'}** (${pct}% relevance)\n`;
+              systemPrompt += `${entry.content}\n\n`;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[MCP] Failed to load knowledge for', deployment.agent_name, err.message);
     }
 
     // Prepare messages with system prompt
