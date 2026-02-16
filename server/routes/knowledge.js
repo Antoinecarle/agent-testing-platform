@@ -81,6 +81,41 @@ router.post('/search-for-agent', async (req, res) => {
   }
 });
 
+// ===================== VISUALIZATION ENDPOINTS =====================
+const viz = require('../lib/visualization');
+
+// GET /:id/visualization — build 2D projection of entries
+router.get('/:id/visualization', async (req, res) => {
+  try {
+    const kb = await db.getKnowledgeBase(req.params.id);
+    if (!kb) return res.status(404).json({ error: 'Knowledge base not found' });
+    const data = await viz.buildVisualization(req.params.id, db);
+    res.json(data);
+  } catch (err) {
+    console.error('[Knowledge] Visualization error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/visualization/search — search with similarity scores per point
+router.post('/:id/visualization/search', async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: 'Query is required' });
+    const data = await viz.searchVisualization(req.params.id, query, db, generateEmbedding);
+    res.json(data);
+  } catch (err) {
+    console.error('[Knowledge] Visualization search error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/visualization/invalidate — clear cache
+router.post('/:id/visualization/invalidate', async (req, res) => {
+  viz.invalidateCache(req.params.id);
+  res.json({ ok: true });
+});
+
 // GET /for-agent/:agentName — get all knowledge bases for an agent
 router.get('/for-agent/:agentName', async (req, res) => {
   try {

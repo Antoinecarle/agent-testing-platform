@@ -297,6 +297,9 @@ export default function KnowledgeBase() {
             <p style={{ color: t.ts, fontSize: '12px', margin: 0 }}>{activeKB.description || 'No description'}</p>
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={() => navigate(`/knowledge/${kbId}/explore`)} style={{ ...btnVioletStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={13} /> Vector Explorer
+            </button>
             <button onClick={() => { setIsSearchOpen(true); setSearchQuery(''); setSearchResults([]); }} style={{ ...btnCyanStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Brain size={13} /> Semantic Search
             </button>

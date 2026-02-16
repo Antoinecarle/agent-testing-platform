@@ -1458,6 +1458,15 @@ async function getKnowledgeEntries(knowledgeBaseId, { limit, offset } = {}) {
   return data || [];
 }
 
+async function getKnowledgeEntriesWithEmbeddings(knowledgeBaseId) {
+  const { data } = await supabase.from('knowledge_entries')
+    .select('id, knowledge_base_id, title, content, source_type, token_count, embedding, created_at')
+    .eq('knowledge_base_id', knowledgeBaseId)
+    .is('parent_entry_id', null)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
 async function getKnowledgeEntry(id) {
   const { data } = await supabase.from('knowledge_entries')
     .select('id, knowledge_base_id, title, content, source_type, source_url, source_filename, metadata, token_count, chunk_index, parent_entry_id, created_at, updated_at')
@@ -1600,7 +1609,7 @@ module.exports = {
   createKnowledgeBase, getAllKnowledgeBases, getKnowledgeBasesByUser, getKnowledgeBase,
   updateKnowledgeBase, deleteKnowledgeBase, updateKnowledgeBaseEntryCount,
   // Knowledge Entries
-  createKnowledgeEntry, getKnowledgeEntries, getKnowledgeEntry,
+  createKnowledgeEntry, getKnowledgeEntries, getKnowledgeEntriesWithEmbeddings, getKnowledgeEntry,
   updateKnowledgeEntry, deleteKnowledgeEntry, searchKnowledge,
   // Agent-Knowledge Base Links
   assignKnowledgeBaseToAgent, unassignKnowledgeBaseFromAgent,

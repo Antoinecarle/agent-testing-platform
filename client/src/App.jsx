@@ -22,6 +22,7 @@ import Skills from './pages/Skills';
 import SkillCreator from './pages/SkillCreator';
 import Personaboarding from './pages/Personaboarding';
 import KnowledgeBase from './pages/KnowledgeBase';
+import KnowledgeExplorer from './pages/KnowledgeExplorer';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="compare/:id" element={<Comparison />} />
           <Route path="knowledge" element={<KnowledgeBase />} />
           <Route path="knowledge/:id" element={<KnowledgeBase />} />
+          <Route path="knowledge/:id/explore" element={<KnowledgeExplorer />} />
           <Route path="personaboarding" element={<Personaboarding />} />
           <Route path="sessions" element={<Sessions />} />
         </Route>
