@@ -138,6 +138,9 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [imageStyle, setImageStyle] = useState<string>('auto');
+  const [imageStyles, setImageStyles] = useState<{id:string, label:string, description:string, recommended:boolean}[]>([]);
+  const [showImageStylePicker, setShowImageStylePicker] = useState(false);
 
   // Agent name editing (for save)
   const [agentNameOverride, setAgentNameOverride] = useState('');
@@ -151,6 +154,14 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       if (res.types) setAgentTypes(res.types);
     }).catch(() => {});
   }, []);
+
+  // Load image styles when agent type changes
+  useEffect(() => {
+    api(`/api/agent-creator/image-styles?agent_type=${currentAgentType}`).then(res => {
+      if (res.styles) setImageStyles(res.styles);
+    }).catch(() => {});
+    setImageStyle('auto'); // Reset to auto when type changes
+  }, [currentAgentType]);
 
   // Load conversations on mount + auto-select last active (or init enhance mode)
   useEffect(() => {
@@ -524,7 +535,10 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     if (!conversationId || isGeneratingPreview) return;
     setIsGeneratingPreview(true);
     try {
-      const result = await api(`/api/agent-creator/conversations/${conversationId}/preview-image`, { method: 'POST' });
+      const result = await api(`/api/agent-creator/conversations/${conversationId}/preview-image`, {
+        method: 'POST',
+        body: JSON.stringify({ image_style: imageStyle }),
+      });
       setPreviewImageUrl(result.previewUrl + '?t=' + Date.now());
     } catch (err: any) {
       console.error('Failed to generate preview:', err);
@@ -1140,18 +1154,65 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       placeholder="agent-name"
                       style={{ flex: 1, background: t.bg, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', color: t.tp, fontSize: '12px', fontWeight: 600, fontFamily: t.mono, outline: 'none' }}
                     />
-                    <button onClick={generatePreviewImage} disabled={isGeneratingPreview}
-                      title={previewImageUrl ? 'Regenerate Preview' : 'Generate Preview'}
-                      style={{
-                        padding: '4px 10px', borderRadius: '5px', fontSize: '10px', fontWeight: 600, cursor: isGeneratingPreview ? 'not-allowed' : 'pointer',
-                        background: isGeneratingPreview ? t.surfaceEl : 'rgba(6,182,212,0.12)',
-                        color: isGeneratingPreview ? t.tm : t.cyan,
-                        border: `1px solid ${isGeneratingPreview ? t.border : 'rgba(6,182,212,0.25)'}`,
-                        display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0,
-                      }}>
-                      {isGeneratingPreview ? <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <Image size={10} />}
-                      {isGeneratingPreview ? 'Generating...' : previewImageUrl ? 'Regen' : 'Preview'}
-                    </button>
+                    {/* Image style picker + preview button */}
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+                        <button
+                          onClick={() => setShowImageStylePicker(!showImageStylePicker)}
+                          style={{
+                            padding: '4px 6px', borderRadius: '5px 0 0 5px', fontSize: '9px', fontWeight: 500,
+                            background: 'rgba(6,182,212,0.08)', color: t.cyan,
+                            border: `1px solid rgba(6,182,212,0.2)`, borderRight: 'none',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap',
+                          }}
+                          title="Choose image style"
+                        >
+                          {imageStyle === 'auto' ? 'Auto' : imageStyles.find(s => s.id === imageStyle)?.label || imageStyle}
+                          <ChevronDown size={8} style={{ transform: showImageStylePicker ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                        </button>
+                        <button onClick={generatePreviewImage} disabled={isGeneratingPreview}
+                          title={previewImageUrl ? 'Regenerate Preview' : 'Generate Preview'}
+                          style={{
+                            padding: '4px 10px', borderRadius: '0 5px 5px 0', fontSize: '10px', fontWeight: 600,
+                            cursor: isGeneratingPreview ? 'not-allowed' : 'pointer',
+                            background: isGeneratingPreview ? t.surfaceEl : 'rgba(6,182,212,0.12)',
+                            color: isGeneratingPreview ? t.tm : t.cyan,
+                            border: `1px solid ${isGeneratingPreview ? t.border : 'rgba(6,182,212,0.25)'}`,
+                            display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap',
+                          }}>
+                          {isGeneratingPreview ? <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <Image size={10} />}
+                          {isGeneratingPreview ? '...' : previewImageUrl ? 'Regen' : 'Preview'}
+                        </button>
+                      </div>
+                      {showImageStylePicker && (
+                        <div style={{
+                          position: 'absolute', top: '100%', right: 0, zIndex: 60, marginTop: '2px',
+                          background: t.surfaceEl, border: `1px solid ${t.border}`, borderRadius: '8px',
+                          overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', minWidth: '180px', maxHeight: '250px', overflowY: 'auto',
+                        }}>
+                          {imageStyles.map(s => {
+                            const isActive = imageStyle === s.id;
+                            return (
+                              <button key={s.id}
+                                onClick={() => { setImageStyle(s.id); setShowImageStylePicker(false); }}
+                                style={{
+                                  width: '100%', display: 'flex', alignItems: 'center', gap: '6px',
+                                  padding: '6px 10px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                                  background: isActive ? 'rgba(6,182,212,0.1)' : 'transparent',
+                                  borderLeft: isActive ? `2px solid ${t.cyan}` : '2px solid transparent',
+                                }}>
+                                <div>
+                                  <div style={{ fontSize: '10px', color: isActive ? t.tp : t.ts, fontWeight: isActive ? 600 : 400 }}>
+                                    {s.label} {s.recommended && s.id !== 'auto' ? <span style={{ fontSize: '7px', color: t.cyan, marginLeft: '3px' }}>REC</span> : ''}
+                                  </div>
+                                  <div style={{ fontSize: '8px', color: t.tm }}>{s.description}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

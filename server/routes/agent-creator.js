@@ -1012,7 +1012,202 @@ function extractRgbaColors(text) {
   return [...new Set((text.match(/rgba?\s*\([^)]+\)/g) || []))];
 }
 
-function buildPreviewPrompt(designBrief, generatedAgent) {
+// ===== IMAGE STYLE CONFIGS (for non-UX agent types) =====
+const IMAGE_STYLE_OPTIONS = {
+  // Persona / avatar styles
+  'cartoon': { label: 'Cartoon', description: 'Fun cartoon character style' },
+  '3d-render': { label: '3D Render', description: 'Pixar/3D rendered character' },
+  'flat-vector': { label: 'Flat Vector', description: 'Clean flat illustration style' },
+  'anime': { label: 'Anime', description: 'Japanese anime art style' },
+  'realistic': { label: 'Realistic', description: 'Photorealistic portrait' },
+  'pixel-art': { label: 'Pixel Art', description: 'Retro pixel art style' },
+  'watercolor': { label: 'Watercolor', description: 'Soft watercolor painting' },
+  'minimalist': { label: 'Minimalist', description: 'Clean, minimal line art' },
+  // Data / technical styles
+  'infographic': { label: 'Infographic', description: 'Data visualization poster' },
+  'dashboard': { label: 'Dashboard', description: 'Analytics dashboard screenshot' },
+  'schema-diagram': { label: 'Schema', description: 'Technical schema/diagram' },
+  'terminal': { label: 'Terminal', description: 'Terminal/CLI dark theme' },
+  'blueprint': { label: 'Blueprint', description: 'Technical blueprint style' },
+  // Abstract styles
+  'abstract-gradient': { label: 'Gradient', description: 'Abstract gradient art' },
+  'geometric': { label: 'Geometric', description: 'Geometric pattern composition' },
+  'neon': { label: 'Neon', description: 'Neon glow cyberpunk style' },
+};
+
+// Recommended styles per agent type
+const AGENT_TYPE_IMAGE_STYLES = {
+  'ux-design': ['screenshot'],   // UX keeps the old behavior
+  'development': ['terminal', 'dashboard', 'schema-diagram', 'blueprint', '3d-render', 'geometric'],
+  'orchestration': ['infographic', 'schema-diagram', 'geometric', '3d-render', 'neon', 'blueprint'],
+  'workflow': ['infographic', 'dashboard', 'schema-diagram', 'blueprint', 'geometric', 'flat-vector'],
+  'operational': ['terminal', 'dashboard', 'blueprint', 'schema-diagram', '3d-render', 'neon'],
+  'persona': ['cartoon', '3d-render', 'flat-vector', 'anime', 'realistic', 'pixel-art', 'watercolor', 'minimalist'],
+  'content': ['watercolor', 'flat-vector', 'minimalist', 'abstract-gradient', 'cartoon', '3d-render'],
+  'data': ['infographic', 'dashboard', 'schema-diagram', 'terminal', 'blueprint', 'geometric'],
+};
+
+function buildPreviewPrompt(designBrief, generatedAgent, agentType, imageStyle) {
+  // For UX design type with no override, use the original detailed prompt
+  if ((agentType === 'ux-design' || !agentType) && (!imageStyle || imageStyle === 'screenshot')) {
+    return buildUxDesignPreviewPrompt(designBrief, generatedAgent);
+  }
+  // For other types, build a type-specific prompt
+  return buildTypeAwarePreviewPrompt(designBrief, generatedAgent, agentType, imageStyle);
+}
+
+// Extract agent metadata from .md content
+function extractAgentMeta(agentContent) {
+  if (!agentContent) return {};
+  const nameMatch = agentContent.match(/^name:\s*(.+)$/m);
+  const descMatch = agentContent.match(/^description:\s*["']?(.+?)["']?$/m);
+  const identity = extractAgentSection(agentContent, '(?:identity|design dna|core identity|your design|orchestration identity|operations identity|workflow identity)');
+  return {
+    name: nameMatch ? nameMatch[1].trim() : null,
+    description: descMatch ? descMatch[1].trim() : null,
+    identity: identity ? identity.slice(0, 600) : null,
+  };
+}
+
+// Build prompt for non-UX agent types
+function buildTypeAwarePreviewPrompt(designBrief, generatedAgent, agentType, imageStyle) {
+  const parts = [];
+  const meta = extractAgentMeta(generatedAgent);
+  const style = imageStyle || 'auto';
+
+  // Common agent context
+  const agentName = meta.name || 'AI Agent';
+  const agentDesc = meta.description || '';
+
+  switch (agentType) {
+    case 'development':
+    case 'operational': {
+      const effectiveStyle = (style === 'auto') ? 'terminal' : style;
+      if (effectiveStyle === 'terminal') {
+        parts.push(`Generate a visually striking image of a developer workspace / terminal environment.`);
+        parts.push(`Theme: Dark terminal/IDE aesthetic with syntax-highlighted code.`);
+        parts.push(`Show: A sleek dark terminal or code editor with code snippets, command output, and status indicators.`);
+        parts.push(`The code/commands should relate to: "${agentDesc || agentName}"`);
+        parts.push(`Colors: Dark background (#0d1117), green/cyan/amber terminal text, subtle line numbers.`);
+        parts.push(`Feel: Hacker aesthetic, productive, powerful. Like a senior dev's setup.`);
+      } else if (effectiveStyle === 'dashboard') {
+        parts.push(`Generate a photorealistic screenshot of a modern developer dashboard/monitoring interface.`);
+        parts.push(`Show: Charts, metrics, status indicators, deployment logs relevant to "${agentName}".`);
+        parts.push(`Theme: Dark mode, clean typography, data-rich. Think GitHub Actions + Vercel dashboard.`);
+      } else if (effectiveStyle === 'schema-diagram') {
+        parts.push(`Generate a clean, professional technical architecture diagram.`);
+        parts.push(`Show: System components, data flows, APIs, and connections for "${agentName}".`);
+        parts.push(`Style: Clean white/dark background, rounded boxes, colored connection lines, modern look.`);
+      } else {
+        parts.push(`Generate a ${effectiveStyle} style illustration representing a ${agentType} AI agent.`);
+        parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+      }
+      break;
+    }
+
+    case 'orchestration': {
+      const effectiveStyle = (style === 'auto') ? 'infographic' : style;
+      if (effectiveStyle === 'infographic' || effectiveStyle === 'schema-diagram') {
+        parts.push(`Generate a visually stunning orchestration/workflow diagram.`);
+        parts.push(`Show: A central orchestrator node connected to multiple agent nodes in a beautiful graph layout.`);
+        parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+        parts.push(`Style: Dark background, glowing nodes with colored borders, animated-looking connection lines, modern SaaS aesthetic.`);
+        parts.push(`Think: A premium node graph editor like Langflow, n8n, or Zapier but more futuristic.`);
+      } else {
+        parts.push(`Generate a ${effectiveStyle} style illustration of an AI orchestration system.`);
+        parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+      }
+      break;
+    }
+
+    case 'workflow': {
+      const effectiveStyle = (style === 'auto') ? 'infographic' : style;
+      if (effectiveStyle === 'infographic' || effectiveStyle === 'dashboard') {
+        parts.push(`Generate a professional workflow/process visualization.`);
+        parts.push(`Show: A clear process flow with steps, decision points, and status indicators.`);
+        parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+        parts.push(`Style: Clean, modern Kanban/flowchart aesthetic. Think Linear, Notion, or Monday.com.`);
+        parts.push(`Colors: Subtle color coding per status, dark or light theme, clean grid.`);
+      } else {
+        parts.push(`Generate a ${effectiveStyle} style illustration of a workflow automation agent.`);
+        parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+      }
+      break;
+    }
+
+    case 'content': {
+      const effectiveStyle = (style === 'auto') ? 'flat-vector' : style;
+      parts.push(`Generate a ${effectiveStyle} style illustration representing a content/writing AI agent.`);
+      parts.push(`Agent: "${agentName}" — ${agentDesc}`);
+      parts.push(`Show: Visual elements related to writing, editing, content strategy. Could include: a stylized pen, text blocks, editorial layout, word clouds.`);
+      parts.push(`Mood: Creative, editorial, premium. Think Notion AI or Jasper branding.`);
+      break;
+    }
+
+    default: {
+      // Persona / generic — character-based
+      const effectiveStyle = (style === 'auto') ? '3d-render' : style;
+
+      if (['cartoon', '3d-render', 'flat-vector', 'anime', 'realistic', 'pixel-art', 'watercolor', 'minimalist'].includes(effectiveStyle)) {
+        parts.push(`Generate a ${effectiveStyle} style CHARACTER PORTRAIT / AVATAR for an AI agent persona.`);
+        parts.push(`Character name: "${agentName}"`);
+        parts.push(`Character description: ${agentDesc || 'A friendly, intelligent AI assistant'}`);
+
+        if (meta.identity) {
+          parts.push(`\nPersonality & traits:\n${meta.identity.slice(0, 400)}`);
+        }
+
+        // Style-specific instructions
+        if (effectiveStyle === 'cartoon') {
+          parts.push(`Style: Vibrant cartoon character, expressive face, bold outlines, bright colors. Think Pixar concept art or Slack/Notion mascot.`);
+        } else if (effectiveStyle === '3d-render') {
+          parts.push(`Style: High-quality 3D rendered character, soft lighting, subsurface scattering, Pixar/Disney quality. Friendly and approachable.`);
+        } else if (effectiveStyle === 'flat-vector') {
+          parts.push(`Style: Clean flat vector illustration, geometric shapes, limited color palette, modern tech company mascot.`);
+        } else if (effectiveStyle === 'anime') {
+          parts.push(`Style: Japanese anime character, clean lines, vibrant colors, expressive eyes, dynamic pose.`);
+        } else if (effectiveStyle === 'realistic') {
+          parts.push(`Style: Photorealistic portrait, professional headshot quality, studio lighting, neutral background.`);
+        } else if (effectiveStyle === 'pixel-art') {
+          parts.push(`Style: Detailed pixel art character, retro game aesthetic, 32-bit era quality, on a clean background.`);
+        } else if (effectiveStyle === 'watercolor') {
+          parts.push(`Style: Soft watercolor painting, flowing edges, dreamy colors, artistic and elegant.`);
+        } else if (effectiveStyle === 'minimalist') {
+          parts.push(`Style: Clean single-line or minimal stroke illustration, lots of white space, elegant simplicity.`);
+        }
+
+        parts.push(`\nBackground: Simple, non-distracting. Subtle gradient or solid color that complements the character.`);
+        parts.push(`Resolution: Square format, centered character, suitable for a profile picture / avatar.`);
+      } else {
+        // Non-character styles for persona (infographic, terminal, etc.)
+        parts.push(`Generate a ${effectiveStyle} style illustration representing the AI agent "${agentName}".`);
+        parts.push(`Description: ${agentDesc || 'An intelligent AI assistant'}`);
+        if (meta.identity) parts.push(`Context:\n${meta.identity.slice(0, 400)}`);
+      }
+      break;
+    }
+  }
+
+  // Add brief context if available (for all types)
+  if (designBrief) {
+    const identity = designBrief.agentIdentity;
+    if (identity) {
+      if (identity.aesthetic) parts.push(`\nAesthetic direction: ${identity.aesthetic}`);
+      if (identity.mood) parts.push(`Mood: ${identity.mood}`);
+    }
+    const colors = designBrief.colorSystem;
+    if (colors?.cssVariables) {
+      const mainColors = Object.entries(colors.cssVariables).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join(', ');
+      parts.push(`Brand colors: ${mainColors}`);
+    }
+  }
+
+  parts.push(`\nIMPORTANT: Make it visually stunning, professional, and polished. High resolution. No text artifacts or spelling errors.`);
+  return parts.join('\n');
+}
+
+// Original UX design prompt (landing page screenshot)
+function buildUxDesignPreviewPrompt(designBrief, generatedAgent) {
   const parts = [];
 
   parts.push(`You are a UI mockup generator. Create a STUNNING, pixel-perfect, photorealistic screenshot of a complete landing page as it would appear in a web browser. Desktop view, 1440x900 resolution. This must look like a real website screenshot — not a wireframe, not a sketch. Every detail matters.`);
@@ -1035,10 +1230,8 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
       if (cssVars.length > 0) parts.push(`CSS Variables:\n${cssVars.join('\n')}`);
       if (hexCols.length > 0) parts.push(`Hex palette: ${hexCols.join(', ')}`);
       if (rgbaCols.length > 0) parts.push(`RGBA values: ${rgbaCols.join(', ')}`);
-      // Include gradients and special effects mentioned
       const gradients = colorSection.match(/(?:linear-gradient|radial-gradient|conic-gradient)\s*\([^)]+\)/g);
       if (gradients) parts.push(`Gradients: ${[...new Set(gradients)].join(' | ')}`);
-      // Include raw section for context (shadows, overlays, etc.)
       const colorExtra = colorSection.replace(/```[\s\S]*?```/g, '').slice(0, 600);
       if (colorExtra.length > 50) parts.push(`Color details:\n${colorExtra}`);
     }
@@ -1047,21 +1240,16 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
     const typoSection = extractAgentSection(generatedAgent, 'typo');
     if (typoSection) {
       parts.push(`\n## TYPOGRAPHY (use these EXACT fonts and sizes)`);
-      // Extract font families
       const fontFamilies = typoSection.match(/font-family\s*:\s*([^;\n]+)/gi);
       if (fontFamilies) parts.push(`Font families: ${[...new Set(fontFamilies)].join(' | ')}`);
-      // Extract font sizes
       const fontSizes = typoSection.match(/font-size\s*:\s*([^;\n]+)/gi);
       if (fontSizes) parts.push(`Font sizes: ${[...new Set(fontSizes)].join(', ')}`);
-      // Extract font weights
       const fontWeights = typoSection.match(/font-weight\s*:\s*([^;\n]+)/gi);
       if (fontWeights) parts.push(`Font weights: ${[...new Set(fontWeights)].join(', ')}`);
-      // Extract line heights, letter spacing
       const lineHeights = typoSection.match(/line-height\s*:\s*([^;\n]+)/gi);
       if (lineHeights) parts.push(`Line heights: ${[...new Set(lineHeights)].join(', ')}`);
       const letterSpacing = typoSection.match(/letter-spacing\s*:\s*([^;\n]+)/gi);
       if (letterSpacing) parts.push(`Letter spacing: ${[...new Set(letterSpacing)].join(', ')}`);
-      // Include full typography rules
       parts.push(`Typography specs:\n${typoSection.slice(0, 800)}`);
     }
 
@@ -1069,17 +1257,14 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
     const layoutSection = extractAgentSection(generatedAgent, 'layout');
     if (layoutSection) {
       parts.push(`\n## LAYOUT ARCHITECTURE`);
-      // Extract spacing/padding values
       const spacingVals = extractAllCssVars(layoutSection);
       if (spacingVals.length > 0) parts.push(`Layout variables:\n${spacingVals.join('\n')}`);
-      // Extract max-width, grid, gap values
       const maxWidths = layoutSection.match(/max-width\s*:\s*([^;\n]+)/gi);
       if (maxWidths) parts.push(`Max widths: ${[...new Set(maxWidths)].join(', ')}`);
       const gaps = layoutSection.match(/gap\s*:\s*([^;\n]+)/gi);
       if (gaps) parts.push(`Gaps: ${[...new Set(gaps)].join(', ')}`);
       const borderRadius = layoutSection.match(/border-radius\s*:\s*([^;\n]+)/gi);
       if (borderRadius) parts.push(`Border radius: ${[...new Set(borderRadius)].join(', ')}`);
-      // Include ASCII wireframes if present (visual layout)
       const asciiBlocks = layoutSection.match(/```[\s\S]*?```/g);
       if (asciiBlocks) {
         parts.push(`Layout wireframes:\n${asciiBlocks.slice(0, 3).join('\n')}`);
@@ -1091,10 +1276,8 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
     const compSection = extractAgentSection(generatedAgent, '(?:component|ui component|core ui)');
     if (compSection) {
       parts.push(`\n## UI COMPONENTS (render ALL of these)`);
-      // Extract individual component subsections (### headers)
       const componentNames = compSection.match(/^###\s+(.+)$/gm);
       if (componentNames) parts.push(`Components to show: ${componentNames.map(h => h.replace('### ', '')).join(', ')}`);
-      // Include component details (CSS, structure)
       parts.push(`Component specifications:\n${compSection.slice(0, 1500)}`);
     }
 
@@ -1102,7 +1285,6 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
     const animSection = extractAgentSection(generatedAgent, 'animat');
     if (animSection) {
       parts.push(`\n## VISUAL EFFECTS & ANIMATIONS`);
-      // Extract transitions, transforms, effects
       const transitions = animSection.match(/transition\s*:\s*([^;\n]+)/gi);
       if (transitions) parts.push(`Transitions: ${[...new Set(transitions)].join(', ')}`);
       const transforms = animSection.match(/transform\s*:\s*([^;\n]+)/gi);
@@ -1115,7 +1297,6 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
     // 7. Style Injection — global CSS patterns
     const styleSection = extractAgentSection(generatedAgent, '(?:style inject|injection)');
     if (styleSection) {
-      // Extract code blocks (actual CSS)
       const codeBlocks = styleSection.match(/```(?:css)?\s*([\s\S]*?)```/g);
       if (codeBlocks) {
         parts.push(`\n## GLOBAL CSS STYLES\n${codeBlocks.slice(0, 3).join('\n').slice(0, 800)}`);
@@ -1128,11 +1309,10 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
       parts.push(`\n## PAGE SECTIONS TO RENDER`);
       const sectionNames = templateSection.match(/^###\s+(.+)$/gm);
       if (sectionNames) parts.push(`Sections: ${sectionNames.map(h => h.replace('### ', '')).join(', ')}`);
-      // Include section structure details
       parts.push(`Section details:\n${templateSection.slice(0, 1000)}`);
     }
 
-    // 9. Extract ALL remaining CSS vars and colors from the entire .md
+    // 9. Extract ALL remaining CSS vars and colors
     const allCssVars = extractAllCssVars(generatedAgent);
     const allHex = extractHexColors(generatedAgent);
     const allRgba = extractRgbaColors(generatedAgent);
@@ -1230,13 +1410,13 @@ function buildPreviewPrompt(designBrief, generatedAgent) {
 
 // Reusable: generate preview image via Gemini and save to disk
 // Returns { previewUrl, filename } or null on failure
-async function generatePreviewImageFile(brief, agentContent, filenameBase) {
+async function generatePreviewImageFile(brief, agentContent, filenameBase, agentType, imageStyle) {
   if (!GOOGLE_AI_API_KEY) {
     console.warn('[agent-creator] GOOGLE_AI_API_KEY not configured, skipping preview');
     return null;
   }
-  const prompt = buildPreviewPrompt(brief, agentContent);
-  console.log(`[agent-creator] Generating preview image for ${filenameBase} (prompt ${prompt.length} chars)`);
+  const prompt = buildPreviewPrompt(brief, agentContent, agentType, imageStyle);
+  console.log(`[agent-creator] Generating preview image for ${filenameBase} (type=${agentType}, style=${imageStyle || 'auto'}, prompt ${prompt.length} chars)`);
 
   const geminiRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GOOGLE_AI_API_KEY}`,
@@ -1277,6 +1457,27 @@ async function generatePreviewImageFile(brief, agentContent, filenameBase) {
   return { previewUrl, filename };
 }
 
+// Get available image styles for a given agent type
+router.get('/image-styles', (req, res) => {
+  const { agent_type } = req.query;
+  const recommended = AGENT_TYPE_IMAGE_STYLES[agent_type] || AGENT_TYPE_IMAGE_STYLES['persona'] || [];
+  const allStyles = Object.entries(IMAGE_STYLE_OPTIONS).map(([id, s]) => ({
+    id,
+    label: s.label,
+    description: s.description,
+    recommended: recommended.includes(id),
+  }));
+  // Sort: recommended first, then alphabetical
+  allStyles.sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0) || a.label.localeCompare(b.label));
+  res.json({
+    styles: [
+      { id: 'auto', label: 'Auto', description: 'Best style for this agent type', recommended: true },
+      ...(agent_type === 'ux-design' ? [{ id: 'screenshot', label: 'Screenshot', description: 'Landing page screenshot', recommended: true }] : []),
+      ...allStyles,
+    ],
+  });
+});
+
 router.post('/conversations/:id/preview-image', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1292,12 +1493,14 @@ router.post('/conversations/:id/preview-image', async (req, res) => {
 
     const brief = conversation.design_brief || null;
     const agent = conversation.generated_agent || null;
+    const agentType = conversation.agent_type || 'ux-design';
+    const imageStyle = req.body?.image_style || 'auto';
 
     if (!brief && !agent) {
       return res.status(400).json({ error: 'Generate a design brief or agent first before previewing' });
     }
 
-    const result = await generatePreviewImageFile(brief, agent, `preview-${id}`);
+    const result = await generatePreviewImageFile(brief, agent, `preview-${id}`, agentType, imageStyle);
     if (!result) {
       return res.status(502).json({ error: 'Failed to generate preview image' });
     }
@@ -1518,7 +1721,8 @@ router.post('/conversations/:id/save', async (req, res) => {
     if (!thumbnailUrl) {
       try {
         const brief = conversation.design_brief || null;
-        const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`);
+        const saveAgentType = conversation.agent_type || 'ux-design';
+        const result = await generatePreviewImageFile(brief, agentContent, `agent-${agentName}`, saveAgentType);
         if (result) {
           thumbnailUrl = result.previewUrl;
           console.log(`[agent-creator] Gemini thumbnail saved for agent ${agentName}: ${thumbnailUrl}`);
