@@ -34,8 +34,10 @@ async function generateEmbedding(text) {
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`OpenAI Embedding API error: ${err.error?.message || res.statusText}`);
+    const body = await res.text().catch(() => '');
+    let errMsg = '';
+    try { const parsed = JSON.parse(body); errMsg = parsed.error?.message || ''; } catch (_) {}
+    throw new Error(`OpenAI Embedding API error (HTTP ${res.status}): ${errMsg || body.slice(0, 200) || 'Unknown error'}`);
   }
 
   const data = await res.json();
@@ -75,8 +77,10 @@ async function generateEmbeddingsBatch(texts) {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`OpenAI Embedding API error: ${err.error?.message || res.statusText}`);
+      const body = await res.text().catch(() => '');
+      let errMsg = '';
+      try { const parsed = JSON.parse(body); errMsg = parsed.error?.message || ''; } catch (_) {}
+      throw new Error(`OpenAI Embedding API error (HTTP ${res.status}): ${errMsg || body.slice(0, 200) || 'Unknown error'}`);
     }
 
     const data = await res.json();
