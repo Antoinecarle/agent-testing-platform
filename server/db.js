@@ -794,13 +794,14 @@ async function getConversationMessages(conversationId) {
 // Conversation References
 
 async function createConversationReference(conversationId, type, url, filename, analysis) {
-  const { data } = await supabase.from('agent_conversation_references').insert({
+  const { data, error } = await supabase.from('agent_conversation_references').insert({
     conversation_id: conversationId,
     type,
     url,
     filename,
     analysis,
   }).select('*').single();
+  if (error) throw new Error(`createConversationReference: ${error.message}`);
 
   // Update conversation updated_at
   await updateAgentConversation(conversationId, {});
@@ -1045,7 +1046,7 @@ async function getSkillConversationMessages(conversationId) {
 // ===================== SKILL DOCUMENTS =====================
 
 async function createSkillDocument(skillId, filename, originalName, mimeType, fileSize, extractionType, createdBy) {
-  const { data } = await supabase.from('skill_documents').insert({
+  const { data, error } = await supabase.from('skill_documents').insert({
     skill_id: skillId,
     filename,
     original_name: originalName,
@@ -1055,6 +1056,7 @@ async function createSkillDocument(skillId, filename, originalName, mimeType, fi
     status: 'pending',
     created_by: createdBy || null,
   }).select('*').single();
+  if (error) throw new Error(`createSkillDocument: ${error.message}`);
   return data;
 }
 
