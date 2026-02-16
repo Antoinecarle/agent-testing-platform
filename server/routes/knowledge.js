@@ -585,14 +585,17 @@ function extractTitleFromUrl(url) {
 async function extractFileContent(filePath, mimeType) {
   if (mimeType === 'application/pdf') {
     try {
-      const pdfParse = require('pdf-parse');
+      const { PDFParse } = require('pdf-parse');
       const buffer = fs.readFileSync(filePath);
-      const data = await pdfParse(buffer);
-      return (data.text || '').trim().slice(0, 500000); // Cap at 500K chars
+      const parser = new PDFParse({ data: buffer });
+      await parser.load();
+      const result = await parser.getText();
+      const text = (result.text || '').replace(/\n-- \d+ of \d+ --\n/g, '\n').trim();
+      if (!text) throw new Error('PDF parsed but no text extracted');
+      return text.slice(0, 500000); // Cap at 500K chars
     } catch (err) {
-      console.error('[Knowledge] PDF parse failed, falling back to basic extraction:', err.message);
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      return raw.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+      console.error('[Knowledge] PDF parse failed:', err.message);
+      throw new Error(`PDF text extraction failed: ${err.message}`);
     }
   }
 
