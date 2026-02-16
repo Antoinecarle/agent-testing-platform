@@ -7,7 +7,7 @@ const { callGPT5 } = require('../lib/agent-analysis');
 // GET / — list user's agent chats
 router.get('/', async (req, res) => {
   try {
-    const chats = await db.getUserAgentChats(req.user.id);
+    const chats = await db.getUserAgentChats(req.user.userId);
     res.json(chats);
   } catch (err) {
     console.error('[agent-chat] list error:', err);
@@ -20,7 +20,7 @@ router.post('/', async (req, res) => {
   try {
     const { agentName, name } = req.body;
     if (!agentName) return res.status(400).json({ error: 'agentName required' });
-    const chat = await db.createAgentChat(req.user.id, agentName, name);
+    const chat = await db.createAgentChat(req.user.userId, agentName, name);
     res.json(chat);
   } catch (err) {
     console.error('[agent-chat] create error:', err);
