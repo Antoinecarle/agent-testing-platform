@@ -6,7 +6,8 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 1536;
-const MAX_TOKENS_PER_CHUNK = 8000; // ~32K chars, well under the 8191 token limit
+const MAX_TOKENS_PER_CHUNK = 6000; // conservative limit (model max is 8191)
+const CHARS_PER_TOKEN = 2; // safe ratio — PDF/garbled text can be as low as 1.5
 const CHUNK_OVERLAP_CHARS = 200;
 
 /**
@@ -18,7 +19,10 @@ async function generateEmbedding(text) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
   if (!text || !text.trim()) throw new Error('Empty text cannot be embedded');
 
-  const cleanText = text.trim().replace(/\n{3,}/g, '\n\n');
+  let cleanText = text.trim().replace(/\n{3,}/g, '\n\n');
+  // Hard cap to stay under 8191 token limit
+  const MAX_CHARS = 8000 * CHARS_PER_TOKEN;
+  if (cleanText.length > MAX_CHARS) cleanText = cleanText.slice(0, MAX_CHARS);
 
   const res = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
@@ -54,7 +58,12 @@ async function generateEmbeddingsBatch(texts) {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
   if (!texts || texts.length === 0) return [];
 
-  const cleanTexts = texts.map(t => t.trim().replace(/\n{3,}/g, '\n\n'));
+  // Hard cap each text to ~8000 tokens (safe under 8191 limit)
+  const MAX_CHARS = 8000 * CHARS_PER_TOKEN;
+  const cleanTexts = texts.map(t => {
+    const clean = t.trim().replace(/\n{3,}/g, '\n\n');
+    return clean.length > MAX_CHARS ? clean.slice(0, MAX_CHARS) : clean;
+  });
 
   // Process in batches of 100 to avoid rate limits
   const BATCH_SIZE = 100;
@@ -108,7 +117,7 @@ function estimateTokens(text) {
  * @param {number} maxCharsPerChunk - ~32000 by default (8K tokens)
  * @returns {{ content: string, tokenCount: number }[]}
  */
-function chunkText(text, maxCharsPerChunk = MAX_TOKENS_PER_CHUNK * 4) {
+function chunkText(text, maxCharsPerChunk = MAX_TOKENS_PER_CHUNK * CHARS_PER_TOKEN) {
   if (!text || !text.trim()) return [];
 
   const cleanText = text.trim();

@@ -583,6 +583,19 @@ function extractTitleFromUrl(url) {
 }
 
 async function extractFileContent(filePath, mimeType) {
+  if (mimeType === 'application/pdf') {
+    try {
+      const pdfParse = require('pdf-parse');
+      const buffer = fs.readFileSync(filePath);
+      const data = await pdfParse(buffer);
+      return (data.text || '').trim().slice(0, 500000); // Cap at 500K chars
+    } catch (err) {
+      console.error('[Knowledge] PDF parse failed, falling back to basic extraction:', err.message);
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return raw.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+
   const raw = fs.readFileSync(filePath, 'utf-8');
 
   if (mimeType === 'application/json') {
@@ -592,12 +605,6 @@ async function extractFileContent(filePath, mimeType) {
     } catch {
       return raw;
     }
-  }
-
-  if (mimeType === 'application/pdf') {
-    // For PDF, try basic text extraction (plain text fallback)
-    // Full PDF parsing would need pdf-parse library
-    return raw.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   return raw;
