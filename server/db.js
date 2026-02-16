@@ -1042,6 +1042,74 @@ async function getSkillConversationMessages(conversationId) {
   return data || [];
 }
 
+// ===================== SKILL DOCUMENTS =====================
+
+async function createSkillDocument(skillId, filename, originalName, mimeType, fileSize, extractionType, createdBy) {
+  const { data } = await supabase.from('skill_documents').insert({
+    skill_id: skillId,
+    filename,
+    original_name: originalName,
+    mime_type: mimeType,
+    file_size: fileSize || 0,
+    extraction_type: extractionType || 'general',
+    status: 'pending',
+    created_by: createdBy || null,
+  }).select('*').single();
+  return data;
+}
+
+async function getSkillDocuments(skillId) {
+  const { data } = await supabase.from('skill_documents')
+    .select('*')
+    .eq('skill_id', skillId)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function getSkillDocument(id) {
+  const { data } = await supabase.from('skill_documents').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function updateSkillDocument(id, fields) {
+  const update = {};
+  if (fields.status !== undefined) update.status = fields.status;
+  if (fields.raw_text !== undefined) update.raw_text = fields.raw_text;
+  if (fields.extracted_data !== undefined) update.extracted_data = fields.extracted_data;
+  if (fields.notes !== undefined) update.notes = fields.notes;
+  if (fields.injected_to_file !== undefined) update.injected_to_file = fields.injected_to_file;
+  if (Object.keys(update).length === 0) return null;
+  update.updated_at = new Date().toISOString();
+  const { data } = await supabase.from('skill_documents').update(update).eq('id', id).select('*').single();
+  return data;
+}
+
+async function deleteSkillDocument(id) {
+  await supabase.from('skill_documents').delete().eq('id', id);
+}
+
+async function getSkillDocumentCount(skillId) {
+  const { data } = await supabase.from('skill_documents')
+    .select('id', { count: 'exact', head: true })
+    .eq('skill_id', skillId);
+  return data?.length || 0;
+}
+
+async function getSkillDocumentStats(skillId) {
+  const { data } = await supabase.from('skill_documents')
+    .select('status')
+    .eq('skill_id', skillId);
+  const docs = data || [];
+  return {
+    total: docs.length,
+    pending: docs.filter(d => d.status === 'pending').length,
+    analyzed: docs.filter(d => d.status === 'analyzed').length,
+    validated: docs.filter(d => d.status === 'validated').length,
+    injected: docs.filter(d => d.status === 'injected').length,
+    rejected: docs.filter(d => d.status === 'rejected').length,
+  };
+}
+
 // ===================== AGENT DEPLOYMENTS =====================
 
 async function createDeployment(agentName, slug, apiKey, tier, description, tagline, primaryColor, deployedBy) {
@@ -1282,6 +1350,9 @@ module.exports = {
   updateSkillConversation, deleteSkillConversation,
   // Skill Conversation Messages
   createSkillConversationMessage, getSkillConversationMessages,
+  // Skill Documents
+  createSkillDocument, getSkillDocuments, getSkillDocument,
+  updateSkillDocument, deleteSkillDocument, getSkillDocumentCount, getSkillDocumentStats,
   // Agent Deployments
   createDeployment, getDeployment, getDeploymentBySlug, getDeploymentByAgent,
   getAllDeployments, updateDeployment, deleteDeployment, incrementDeploymentStats,

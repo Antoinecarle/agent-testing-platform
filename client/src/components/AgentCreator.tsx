@@ -9,7 +9,7 @@ import {
   RefreshCw, ChevronDown, ChevronRight, Palette, Type, Layout,
   Layers, Save, MessageSquare, Edit3, Check, Clock, Image, Maximize2,
   Code, GitBranch, Settings, Megaphone, BarChart3, Wrench, Workflow,
-  FileText
+  FileText, Database, PenTool, Briefcase, Wand2
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -129,6 +129,10 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const [refineSection, setRefineSection] = useState<string | null>(null);
   const [refineFeedback, setRefineFeedback] = useState('');
   const [isRefining, setIsRefining] = useState(false);
+
+  // Document extraction mode
+  const [extractionMode, setExtractionMode] = useState<string>('auto');
+  const [showExtractionPicker, setShowExtractionPicker] = useState(false);
 
   // Preview image
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -389,6 +393,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       for (let i = 0; i < files.length; i++) {
         const formData = new FormData();
         formData.append('document', files[i]);
+        formData.append('extraction_mode', extractionMode);
         const res = await fetch(`/api/agent-creator/conversations/${conversationId}/documents`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${localStorage.getItem('atp-token')}` },
@@ -732,6 +737,67 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                   </label>
                 </div>
 
+                {/* Extraction mode picker */}
+                <div style={{ marginTop: '6px', position: 'relative' }}>
+                  <button
+                    onClick={() => setShowExtractionPicker(!showExtractionPicker)}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '5px 8px', background: t.bg, border: `1px solid ${t.border}`, borderRadius: '6px',
+                      color: t.ts, fontSize: '10px', cursor: 'pointer',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {extractionMode === 'auto' && <><Wand2 size={10} /> Auto</>}
+                      {extractionMode === 'general' && <><FileText size={10} /> General</>}
+                      {extractionMode === 'ux-design' && <><Palette size={10} /> UX / Design</>}
+                      {extractionMode === 'data' && <><Database size={10} /> Data / API</>}
+                      {extractionMode === 'content' && <><PenTool size={10} /> Content / SEO</>}
+                      {extractionMode === 'technical' && <><Code size={10} /> Technical</>}
+                      {extractionMode === 'business' && <><Briefcase size={10} /> Business</>}
+                    </span>
+                    <ChevronDown size={10} style={{ transform: showExtractionPicker ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                  </button>
+                  {showExtractionPicker && (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                      marginTop: '2px', background: t.surfaceEl, border: `1px solid ${t.border}`,
+                      borderRadius: '8px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    }}>
+                      {[
+                        { id: 'auto', label: 'Auto', icon: Wand2, desc: 'Detect from agent type', color: t.violet },
+                        { id: 'ux-design', label: 'UX / Design', icon: Palette, desc: 'Colors, typo, layout, components', color: '#EC4899' },
+                        { id: 'data', label: 'Data / API', icon: Database, desc: 'Models, schemas, endpoints', color: '#3B82F6' },
+                        { id: 'content', label: 'Content / SEO', icon: PenTool, desc: 'Tone, voice, editorial rules', color: '#F59E0B' },
+                        { id: 'technical', label: 'Technical', icon: Code, desc: 'Architecture, stack, patterns', color: '#10B981' },
+                        { id: 'business', label: 'Business', icon: Briefcase, desc: 'Rules, processes, KPIs', color: '#8B5CF6' },
+                        { id: 'general', label: 'General', icon: FileText, desc: 'Generic extraction', color: t.ts },
+                      ].map(mode => {
+                        const Icon = mode.icon;
+                        const isActive = extractionMode === mode.id;
+                        return (
+                          <button
+                            key={mode.id}
+                            onClick={() => { setExtractionMode(mode.id); setShowExtractionPicker(false); }}
+                            style={{
+                              width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                              padding: '7px 10px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                              background: isActive ? 'rgba(139,92,246,0.1)' : 'transparent',
+                              borderLeft: isActive ? `2px solid ${t.violet}` : '2px solid transparent',
+                            }}
+                          >
+                            <Icon size={12} color={mode.color} />
+                            <div>
+                              <div style={{ fontSize: '10px', color: isActive ? t.tp : t.ts, fontWeight: isActive ? 600 : 400 }}>{mode.label}</div>
+                              <div style={{ fontSize: '8px', color: t.tm }}>{mode.desc}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* URL */}
                 <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
                   <div style={{ flex: 1, position: 'relative' }}>
@@ -830,6 +896,11 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                         {/* Document analysis preview */}
                         {ref.type === 'document' && ref.structured_analysis?.gptAnalysis && (
                           <div style={{ marginTop: '4px', fontSize: '9px', color: t.ts, lineHeight: '1.4' }}>
+                            {ref.structured_analysis.extractionMode && (
+                              <span style={{ fontSize: '8px', color: '#10B981', padding: '1px 4px', background: 'rgba(16,185,129,0.1)', borderRadius: '2px', marginRight: '4px' }}>
+                                {ref.structured_analysis.extractionMode}
+                              </span>
+                            )}
                             {ref.structured_analysis.gptAnalysis.documentType && (
                               <span style={{ fontSize: '8px', color: t.violet, padding: '1px 4px', background: 'rgba(139,92,246,0.1)', borderRadius: '2px', marginRight: '4px' }}>
                                 {ref.structured_analysis.gptAnalysis.documentType}

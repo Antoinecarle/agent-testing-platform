@@ -1212,9 +1212,16 @@ Focus on extracting ACTIONABLE knowledge — things that would help build a bett
 
 Return ONLY valid JSON.`;
 
-// ==================== DOCUMENT ANALYSIS PROMPT ====================
+// ==================== DOCUMENT ANALYSIS PROMPTS (MODE-AWARE) ====================
 
-const DOCUMENT_ANALYSIS_PROMPT = `Analyze the following document and extract structured knowledge relevant for creating an AI agent.
+const DOCUMENT_EXTRACTION_MODES = {
+  'general': {
+    id: 'general',
+    label: 'General',
+    icon: 'FileText',
+    description: 'Generic extraction — rules, patterns, configurations',
+    systemPrompt: 'You are a document analyst. Extract structured knowledge from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract structured knowledge relevant for creating an AI agent.
 
 Document: {filename}
 
@@ -1239,7 +1246,322 @@ Document: {filename}
 
 Focus on extracting ACTIONABLE knowledge — rules, patterns, configurations that shape agent behavior.
 
-Return ONLY valid JSON.`;
+Return ONLY valid JSON.`,
+  },
+
+  'ux-design': {
+    id: 'ux-design',
+    label: 'UX / Design',
+    icon: 'Palette',
+    description: 'Colors, typography, layout, components, design tokens',
+    systemPrompt: 'You are a senior UX/UI design analyst. Extract visual design systems, patterns, and specifications from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract all UX/UI DESIGN information for creating a design-focused AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "design-system | styleguide | wireframe-spec | brand-guide | component-library | mockup-notes | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary focused on design aspects",
+  "colorSystem": {
+    "primary": ["primary colors with hex values if found"],
+    "secondary": ["secondary/accent colors"],
+    "neutral": ["neutral/gray palette"],
+    "semantic": ["success/error/warning colors"],
+    "gradients": ["any gradient definitions"],
+    "notes": "color usage rules or constraints"
+  },
+  "typography": {
+    "fontFamilies": ["font families mentioned"],
+    "headingStyles": ["heading size/weight patterns"],
+    "bodyStyles": ["body text specifications"],
+    "scale": "type scale or sizing system",
+    "notes": "typography rules"
+  },
+  "layout": {
+    "gridSystem": "grid or layout system described",
+    "spacing": ["spacing values or scale"],
+    "breakpoints": ["responsive breakpoints"],
+    "containerWidths": ["max-widths or container sizes"],
+    "patterns": ["layout patterns like card grids, hero sections, etc."]
+  },
+  "components": {
+    "buttons": ["button styles/variants described"],
+    "cards": ["card patterns"],
+    "forms": ["form/input patterns"],
+    "navigation": ["nav patterns"],
+    "modals": ["modal/dialog patterns"],
+    "other": ["other UI components mentioned"]
+  },
+  "animations": {
+    "transitions": ["transition patterns"],
+    "effects": ["hover, scroll, or interaction effects"],
+    "timing": "animation timing/easing preferences"
+  },
+  "designPrinciples": ["5-10 design principles, rules, or aesthetic guidelines extracted"],
+  "recommendations": ["specific design instructions an agent should follow"]
+}
+
+Focus on extracting VISUAL and DESIGN knowledge — colors, typography, spacing, components, patterns. Ignore non-design content.
+
+Return ONLY valid JSON.`,
+  },
+
+  'data': {
+    id: 'data',
+    label: 'Data / API',
+    icon: 'Database',
+    description: 'Data models, schemas, APIs, database structures',
+    systemPrompt: 'You are a data architecture analyst. Extract data models, schemas, API specifications, and database structures from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract all DATA and API related information for creating a data-focused AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "api-spec | database-schema | data-model | migration | csv-data | json-schema | erd | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary focused on data aspects",
+  "dataModels": [
+    {
+      "name": "model/table name",
+      "fields": ["field: type — description"],
+      "relationships": ["relationship descriptions"],
+      "constraints": ["unique, required, etc."]
+    }
+  ],
+  "apiEndpoints": [
+    {
+      "method": "GET/POST/PUT/DELETE",
+      "path": "/api/...",
+      "description": "what it does",
+      "params": ["parameters"],
+      "responseShape": "response structure description"
+    }
+  ],
+  "schemas": {
+    "inputSchemas": ["validation schemas or input formats"],
+    "outputSchemas": ["output/response formats"],
+    "enums": ["enum values or constants defined"]
+  },
+  "dataFlows": ["how data moves through the system"],
+  "storagePatterns": {
+    "database": "database type and patterns",
+    "caching": "caching strategy if mentioned",
+    "fileStorage": "file/blob storage if mentioned"
+  },
+  "businessRules": ["data validation rules, business constraints, data integrity rules"],
+  "recommendations": ["specific data-handling instructions an agent should follow"]
+}
+
+Focus on extracting DATA STRUCTURES, APIs, schemas, models, and data flow patterns. Ignore non-data content.
+
+Return ONLY valid JSON.`,
+  },
+
+  'content': {
+    id: 'content',
+    label: 'Content / SEO',
+    icon: 'PenTool',
+    description: 'Tone, voice, writing guidelines, editorial rules',
+    systemPrompt: 'You are a content strategy analyst. Extract editorial guidelines, tone of voice, writing rules, and content patterns from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract all CONTENT and EDITORIAL information for creating a content-focused AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "brand-voice | style-guide | content-brief | editorial-calendar | seo-guide | copy-doc | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary focused on content/editorial aspects",
+  "toneOfVoice": {
+    "personality": ["personality traits — e.g. professional, friendly, bold"],
+    "doUse": ["words, phrases, or styles to USE"],
+    "dontUse": ["words, phrases, or styles to AVOID"],
+    "examples": ["example sentences showing the right tone"]
+  },
+  "writingRules": {
+    "grammar": ["grammar/syntax rules — active voice, sentence length, etc."],
+    "formatting": ["formatting rules — heading hierarchy, lists, paragraphs"],
+    "vocabulary": ["domain-specific terminology to use"],
+    "prohibited": ["prohibited terms, clichés, or patterns"]
+  },
+  "contentStructure": {
+    "templates": ["content templates or structures described"],
+    "sections": ["required sections or content blocks"],
+    "lengthGuidelines": "word count or length rules"
+  },
+  "seoGuidelines": {
+    "keywords": ["target keywords or topics"],
+    "metaRules": ["meta title/description rules"],
+    "linkingRules": ["internal/external linking guidelines"],
+    "structuredData": ["schema markup requirements"]
+  },
+  "audience": {
+    "primaryAudience": "who the content is for",
+    "painPoints": ["audience pain points or needs"],
+    "goals": ["what the audience wants to achieve"]
+  },
+  "contentPrinciples": ["5-10 editorial principles or content rules extracted"],
+  "recommendations": ["specific content instructions an agent should follow"]
+}
+
+Focus on extracting EDITORIAL knowledge — tone, voice, writing rules, content structure, SEO guidelines. Ignore non-content information.
+
+Return ONLY valid JSON.`,
+  },
+
+  'technical': {
+    id: 'technical',
+    label: 'Technical',
+    icon: 'Code',
+    description: 'Architecture, code patterns, stack, configs',
+    systemPrompt: 'You are a software architecture analyst. Extract technical specifications, code patterns, architecture decisions, and configurations from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract all TECHNICAL and ARCHITECTURE information for creating a development-focused AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "architecture-doc | tech-spec | readme | config | deployment-guide | code-review | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary focused on technical aspects",
+  "techStack": {
+    "languages": ["programming languages mentioned"],
+    "frameworks": ["frameworks and libraries"],
+    "databases": ["database technologies"],
+    "infrastructure": ["hosting, CI/CD, cloud services"],
+    "tools": ["dev tools, linters, build tools"]
+  },
+  "architecture": {
+    "pattern": "architecture pattern (monolith, microservices, serverless, etc.)",
+    "layers": ["application layers or modules"],
+    "dataFlow": "how data flows through the system",
+    "keyDecisions": ["important architecture decisions and their rationale"]
+  },
+  "codePatterns": {
+    "conventions": ["naming conventions, file structure rules"],
+    "patterns": ["design patterns used (factory, observer, etc.)"],
+    "antiPatterns": ["things to avoid"],
+    "codeExamples": ["important code snippets or patterns (short)"]
+  },
+  "configuration": {
+    "envVars": ["environment variables mentioned"],
+    "configFiles": ["configuration files and their purpose"],
+    "featureFlags": ["feature flags or toggles"]
+  },
+  "security": ["security practices, auth patterns, validation rules"],
+  "performance": ["performance requirements, optimization patterns"],
+  "technicalRules": ["5-10 technical rules or constraints from the document"],
+  "recommendations": ["specific technical instructions an agent should follow"]
+}
+
+Focus on extracting TECHNICAL knowledge — stack, architecture, code patterns, configurations. Ignore non-technical content.
+
+Return ONLY valid JSON.`,
+  },
+
+  'business': {
+    id: 'business',
+    label: 'Business',
+    icon: 'Briefcase',
+    description: 'Business rules, processes, KPIs, requirements',
+    systemPrompt: 'You are a business analyst. Extract business rules, processes, requirements, KPIs, and domain knowledge from documents. Respond ONLY with valid JSON.',
+    prompt: `Analyze the following document and extract all BUSINESS and DOMAIN information for creating a business-aware AI agent.
+
+Document: {filename}
+
+## Content:
+{textContent}
+
+## Provide a JSON analysis:
+{
+  "documentType": "requirements | business-rules | process-doc | strategy | user-stories | meeting-notes | other",
+  "title": "document title or purpose",
+  "summary": "2-3 sentence summary focused on business aspects",
+  "businessRules": [
+    {
+      "rule": "description of the business rule",
+      "priority": "critical | high | medium | low",
+      "conditions": "when this rule applies"
+    }
+  ],
+  "processes": [
+    {
+      "name": "process name",
+      "steps": ["ordered steps"],
+      "actors": ["who is involved"],
+      "triggers": "what starts the process"
+    }
+  ],
+  "requirements": {
+    "functional": ["functional requirements"],
+    "nonFunctional": ["non-functional requirements (performance, security, etc.)"],
+    "constraints": ["business constraints or limitations"]
+  },
+  "domain": {
+    "terminology": ["domain-specific terms with definitions"],
+    "entities": ["key business entities"],
+    "relationships": ["how entities relate to each other"]
+  },
+  "metrics": {
+    "kpis": ["key performance indicators"],
+    "goals": ["business objectives"],
+    "successCriteria": ["how to measure success"]
+  },
+  "stakeholders": ["key stakeholders and their concerns"],
+  "businessPrinciples": ["5-10 business rules or domain principles extracted"],
+  "recommendations": ["specific business instructions an agent should follow"]
+}
+
+Focus on extracting BUSINESS knowledge — rules, processes, requirements, domain expertise. Ignore non-business content.
+
+Return ONLY valid JSON.`,
+  },
+};
+
+// Map agent types to default extraction modes
+const AGENT_TYPE_TO_EXTRACTION_MODE = {
+  'ux-design': 'ux-design',
+  'development': 'technical',
+  'orchestration': 'technical',
+  'workflow': 'business',
+  'operational': 'technical',
+};
+
+function getDocumentExtractionPrompt(mode) {
+  const config = DOCUMENT_EXTRACTION_MODES[mode] || DOCUMENT_EXTRACTION_MODES['general'];
+  return config.prompt;
+}
+
+function getDocumentExtractionSystemPrompt(mode) {
+  const config = DOCUMENT_EXTRACTION_MODES[mode] || DOCUMENT_EXTRACTION_MODES['general'];
+  return config.systemPrompt;
+}
+
+function resolveExtractionMode(requestedMode, agentType) {
+  if (requestedMode && requestedMode !== 'auto' && DOCUMENT_EXTRACTION_MODES[requestedMode]) {
+    return requestedMode;
+  }
+  // Auto: resolve from agent type
+  return AGENT_TYPE_TO_EXTRACTION_MODE[agentType] || 'general';
+}
+
+// Keep backwards compat alias
+const DOCUMENT_ANALYSIS_PROMPT = DOCUMENT_EXTRACTION_MODES['general'].prompt;
 
 // Refinement prompt
 const REFINEMENT_PROMPT = `You are refining a SPECIFIC section of an AI agent configuration file.
@@ -1409,6 +1731,11 @@ module.exports = {
   URL_ANALYSIS_PROMPT,
   CONTENT_URL_ANALYSIS_PROMPT,
   DOCUMENT_ANALYSIS_PROMPT,
+  DOCUMENT_EXTRACTION_MODES,
+  getDocumentExtractionPrompt,
+  getDocumentExtractionSystemPrompt,
+  resolveExtractionMode,
+  AGENT_TYPE_TO_EXTRACTION_MODE,
   REFINEMENT_PROMPT,
   validateAgentQuality,
   // Backwards compat aliases

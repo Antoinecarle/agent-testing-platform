@@ -1,9 +1,48 @@
 const express = require('express');
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db');
 const skillStorage = require('../skill-storage');
-const { callGPT5 } = require('../lib/agent-analysis');
+const { callGPT5, analyzeDocument } = require('../lib/agent-analysis');
+const { DOCUMENT_EXTRACTION_MODES } = require('../lib/agent-templates');
 
 const router = express.Router();
+
+// Multer setup for skill document uploads
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const SKILL_UPLOAD_DIR = path.join(DATA_DIR, 'skill-document-uploads');
+
+const skillDocStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(SKILL_UPLOAD_DIR)) fs.mkdirSync(SKILL_UPLOAD_DIR, { recursive: true });
+    cb(null, SKILL_UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  }
+});
+
+const skillDocUpload = multer({
+  storage: skillDocStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf', 'text/plain', 'text/markdown', 'text/csv',
+      'application/json', 'application/x-yaml', 'text/yaml',
+      'text/html', 'application/xml', 'text/xml',
+    ];
+    const allowedExts = ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.html', '.xml'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(file.mimetype) || allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype} (${ext})`));
+    }
+  }
+});
 
 // Helper: generate slug from name
 function slugify(name) {
@@ -103,6 +142,17 @@ router.post('/', async (req, res) => {
     console.error('[Skills] Create error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// GET /api/skills/extraction-types — list available document extraction types
+router.get('/extraction-types', (req, res) => {
+  const types = Object.entries(DOCUMENT_EXTRACTION_MODES).map(([id, config]) => ({
+    id,
+    label: config.label,
+    icon: config.icon,
+    description: config.description,
+  }));
+  res.json(types);
 });
 
 // POST /api/skills/bulk — create multiple skills at once
@@ -460,5 +510,317 @@ router.post('/:id/bulk-assign', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// ==================== DOCUMENT INGESTION ====================
+
+// GET /api/skills/:id/documents — list documents for a skill
+router.get('/:id/documents', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const documents = await db.getSkillDocuments(req.params.id);
+    const stats = await db.getSkillDocumentStats(req.params.id);
+    res.json({ documents, stats });
+  } catch (err) {
+    console.error('[Skills] List documents error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/skills/:id/documents — upload + analyze a document
+router.post('/:id/documents', skillDocUpload.single('document'), async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    if (!req.file) return res.status(400).json({ error: 'No document uploaded' });
+
+    const { extraction_type, notes } = req.body;
+    const { filename, originalname, mimetype, size, path: filePath } = req.file;
+
+    // Create document record
+    const doc = await db.createSkillDocument(
+      req.params.id, filename, originalname, mimetype, size,
+      extraction_type || 'general',
+      req.user?.userId
+    );
+
+    // Update status to analyzing
+    await db.updateSkillDocument(doc.id, { status: 'analyzing', notes: notes || null });
+
+    // Run AI analysis in background but return immediately with doc ID
+    analyzeDocumentForSkill(doc.id, filePath, originalname, mimetype, extraction_type || 'general', skill)
+      .catch(err => console.error('[Skills] Background analysis error:', err.message));
+
+    res.status(201).json({ document: { ...doc, status: 'analyzing' } });
+  } catch (err) {
+    console.error('[Skills] Upload document error:', err.message);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// GET /api/skills/:id/documents/:docId — get single document with extracted data
+router.get('/:id/documents/:docId', async (req, res) => {
+  try {
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    res.json(doc);
+  } catch (err) {
+    console.error('[Skills] Get document error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/skills/:id/documents/:docId — update document (edit extracted data, validate, reject)
+router.put('/:id/documents/:docId', async (req, res) => {
+  try {
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const { status, extracted_data, notes } = req.body;
+    const updates = {};
+    if (status) updates.status = status;
+    if (extracted_data !== undefined) updates.extracted_data = extracted_data;
+    if (notes !== undefined) updates.notes = notes;
+
+    const updated = await db.updateSkillDocument(req.params.docId, updates);
+    res.json(updated);
+  } catch (err) {
+    console.error('[Skills] Update document error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/skills/:id/documents/:docId — delete a document
+router.delete('/:id/documents/:docId', async (req, res) => {
+  try {
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Delete file from disk
+    const filePath = path.join(SKILL_UPLOAD_DIR, doc.filename);
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
+
+    await db.deleteSkillDocument(req.params.docId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Skills] Delete document error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/skills/:id/documents/:docId/inject — inject validated document into skill files
+router.post('/:id/documents/:docId/inject', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    if (!doc.extracted_data) {
+      return res.status(400).json({ error: 'Document has no extracted data to inject' });
+    }
+
+    const { target_file } = req.body;
+    const targetFile = target_file || `references/doc-${doc.original_name.replace(/\.[^.]+$/, '')}.md`;
+
+    // Build markdown content from extracted data
+    const content = buildMarkdownFromExtraction(doc);
+
+    // Write to skill files
+    const tree = skillStorage.writeSkillFile(skill.slug, targetFile, content);
+    const totalFiles = skillStorage.countFiles(tree);
+    await db.updateSkillFileTree(skill.id, tree, totalFiles);
+
+    // Update document status
+    await db.updateSkillDocument(doc.id, { status: 'injected', injected_to_file: targetFile });
+
+    res.json({ ok: true, file: targetFile, tree, totalFiles });
+  } catch (err) {
+    console.error('[Skills] Inject document error:', err.message);
+    res.status(500).json({ error: err.message || 'Injection failed' });
+  }
+});
+
+// POST /api/skills/:id/documents/:docId/reanalyze — re-run analysis with different extraction type
+router.post('/:id/documents/:docId/reanalyze', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const { extraction_type } = req.body;
+    const newType = extraction_type || doc.extraction_type;
+
+    const filePath = path.join(SKILL_UPLOAD_DIR, doc.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Original file no longer exists on disk' });
+    }
+
+    await db.updateSkillDocument(doc.id, { status: 'analyzing' });
+
+    analyzeDocumentForSkill(doc.id, filePath, doc.original_name, doc.mime_type, newType, skill)
+      .catch(err => console.error('[Skills] Re-analysis error:', err.message));
+
+    res.json({ ok: true, status: 'analyzing' });
+  } catch (err) {
+    console.error('[Skills] Reanalyze document error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// --- Helper: background document analysis ---
+async function analyzeDocumentForSkill(docId, filePath, filename, mimeType, extractionType, skill) {
+  try {
+    const result = await analyzeDocument(filePath, filename, mimeType, extractionType);
+
+    const updates = {
+      status: 'analyzed',
+      raw_text: result.textPreview || '',
+      extracted_data: result.gptAnalysis || { error: 'No analysis returned' },
+    };
+
+    // If analysis failed, mark as pending for retry
+    if (!result.gptAnalysis) {
+      updates.status = 'pending';
+      updates.notes = 'Analysis failed — no AI response. Try re-analyzing.';
+    }
+
+    await db.updateSkillDocument(docId, updates);
+    console.log(`[Skills] Document ${docId} analyzed (${extractionType}): ${result.textLength} chars`);
+  } catch (err) {
+    console.error(`[Skills] Document analysis failed for ${docId}:`, err.message);
+    await db.updateSkillDocument(docId, {
+      status: 'pending',
+      notes: `Analysis error: ${err.message}`,
+    });
+  }
+}
+
+// --- Helper: build markdown from extracted data ---
+function buildMarkdownFromExtraction(doc) {
+  const data = doc.extracted_data;
+  const lines = [];
+
+  lines.push(`# ${doc.original_name}`);
+  lines.push(`> Extracted from document (${doc.extraction_type} analysis)`);
+  lines.push('');
+
+  if (data.summary) {
+    lines.push('## Summary');
+    lines.push(data.summary);
+    lines.push('');
+  }
+
+  // Handle different extraction type structures
+  if (data.keyInsights || data.key_insights) {
+    lines.push('## Key Insights');
+    for (const insight of (data.keyInsights || data.key_insights || [])) {
+      lines.push(`- ${typeof insight === 'string' ? insight : JSON.stringify(insight)}`);
+    }
+    lines.push('');
+  }
+
+  if (data.patterns) {
+    lines.push('## Patterns');
+    for (const p of (Array.isArray(data.patterns) ? data.patterns : [data.patterns])) {
+      lines.push(`- ${typeof p === 'string' ? p : JSON.stringify(p)}`);
+    }
+    lines.push('');
+  }
+
+  if (data.rules || data.guidelines) {
+    lines.push('## Rules & Guidelines');
+    for (const r of (data.rules || data.guidelines || [])) {
+      lines.push(`- ${typeof r === 'string' ? r : JSON.stringify(r)}`);
+    }
+    lines.push('');
+  }
+
+  if (data.designTokens || data.design_tokens) {
+    lines.push('## Design Tokens');
+    const tokens = data.designTokens || data.design_tokens;
+    if (typeof tokens === 'object') {
+      for (const [key, val] of Object.entries(tokens)) {
+        lines.push(`### ${key}`);
+        if (typeof val === 'object') {
+          for (const [k, v] of Object.entries(val)) {
+            lines.push(`- **${k}**: ${v}`);
+          }
+        } else {
+          lines.push(String(val));
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  if (data.technicalDetails || data.technical_details) {
+    lines.push('## Technical Details');
+    const tech = data.technicalDetails || data.technical_details;
+    if (tech.technologies) {
+      lines.push('### Technologies');
+      for (const t of tech.technologies) lines.push(`- ${t}`);
+    }
+    if (tech.patterns) {
+      lines.push('### Patterns');
+      for (const p of tech.patterns) lines.push(`- ${p}`);
+    }
+    if (tech.codeSnippets || tech.code_snippets) {
+      lines.push('### Code Snippets');
+      for (const s of (tech.codeSnippets || tech.code_snippets || [])) {
+        lines.push('```');
+        lines.push(s);
+        lines.push('```');
+      }
+    }
+    lines.push('');
+  }
+
+  if (data.recommendations) {
+    lines.push('## Recommendations');
+    for (const r of data.recommendations) {
+      lines.push(`- ${typeof r === 'string' ? r : JSON.stringify(r)}`);
+    }
+    lines.push('');
+  }
+
+  // Catch-all: if there are other top-level keys not already handled
+  const handledKeys = new Set(['summary', 'keyInsights', 'key_insights', 'patterns', 'rules', 'guidelines', 'designTokens', 'design_tokens', 'technicalDetails', 'technical_details', 'recommendations', 'relevanceForAgent', 'relevance_for_agent']);
+  for (const [key, val] of Object.entries(data)) {
+    if (handledKeys.has(key)) continue;
+    if (val === null || val === undefined) continue;
+    const title = key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+    lines.push(`## ${title}`);
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        lines.push(`- ${typeof item === 'string' ? item : JSON.stringify(item)}`);
+      }
+    } else if (typeof val === 'object') {
+      lines.push('```json');
+      lines.push(JSON.stringify(val, null, 2));
+      lines.push('```');
+    } else {
+      lines.push(String(val));
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
 
 module.exports = router;

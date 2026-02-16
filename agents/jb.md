@@ -1,8 +1,8 @@
 ---
 name: jb
+category: persona
 description: "Personal marketing agent with 1 skills"
 model: opus
-category: persona
 tools: Read, Write, Edit, NotebookEdit, Bash, Glob, Grep, WebSearch, WebFetch, Task
 maxTurns: 15
 permissionMode: plan

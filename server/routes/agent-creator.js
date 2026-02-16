@@ -20,6 +20,8 @@ const {
   getAgentExample,
   REFINEMENT_PROMPT,
   validateAgentQuality,
+  DOCUMENT_EXTRACTION_MODES,
+  resolveExtractionMode,
 } = require('../lib/agent-templates');
 
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
@@ -227,15 +229,90 @@ function formatDocumentAnalysis(s) {
   let out = '';
   if (s.filename) out += `- **File**: ${s.filename}\n`;
   if (s.textLength) out += `- **Size**: ${s.textLength} chars\n`;
+  if (s.extractionMode) out += `- **Extraction Mode**: ${s.extractionMode}\n`;
   if (s.gptAnalysis) {
     const g = s.gptAnalysis;
     if (g.documentType) out += `- **Type**: ${g.documentType}\n`;
     if (g.summary) out += `- **Summary**: ${g.summary}\n`;
+
+    // Generic fields (all modes)
     if (g.keyTopics?.length) out += `- **Topics**: ${g.keyTopics.join(', ')}\n`;
     if (g.keyInsights?.length) {
       out += `- **Key Insights**:\n`;
       g.keyInsights.slice(0, 8).forEach(i => { out += `  - ${i}\n`; });
     }
+
+    // UX Design mode fields
+    if (g.colorSystem) {
+      const c = g.colorSystem;
+      if (c.primary?.length) out += `- **Colors (Primary)**: ${c.primary.join(', ')}\n`;
+      if (c.secondary?.length) out += `- **Colors (Secondary)**: ${c.secondary.join(', ')}\n`;
+      if (c.notes) out += `- **Color Notes**: ${c.notes}\n`;
+    }
+    if (g.typography) {
+      const t = g.typography;
+      if (t.fontFamilies?.length) out += `- **Fonts**: ${t.fontFamilies.join(', ')}\n`;
+      if (t.notes) out += `- **Typography Notes**: ${t.notes}\n`;
+    }
+    if (g.components) {
+      const comp = g.components;
+      const allComps = [...(comp.buttons || []), ...(comp.cards || []), ...(comp.forms || []), ...(comp.navigation || []), ...(comp.other || [])];
+      if (allComps.length) out += `- **Components**: ${allComps.slice(0, 6).join('; ')}\n`;
+    }
+    if (g.designPrinciples?.length) {
+      out += `- **Design Principles**:\n`;
+      g.designPrinciples.slice(0, 5).forEach(p => { out += `  - ${p}\n`; });
+    }
+
+    // Data mode fields
+    if (g.dataModels?.length) {
+      out += `- **Data Models**: ${g.dataModels.map(m => m.name).join(', ')}\n`;
+    }
+    if (g.apiEndpoints?.length) {
+      out += `- **API Endpoints**: ${g.apiEndpoints.length} endpoints\n`;
+      g.apiEndpoints.slice(0, 4).forEach(ep => { out += `  - ${ep.method} ${ep.path}: ${ep.description}\n`; });
+    }
+
+    // Content mode fields
+    if (g.toneOfVoice) {
+      const tv = g.toneOfVoice;
+      if (tv.personality?.length) out += `- **Tone**: ${tv.personality.join(', ')}\n`;
+      if (tv.doUse?.length) out += `- **Do Use**: ${tv.doUse.slice(0, 4).join('; ')}\n`;
+      if (tv.dontUse?.length) out += `- **Don't Use**: ${tv.dontUse.slice(0, 4).join('; ')}\n`;
+    }
+    if (g.contentPrinciples?.length) {
+      out += `- **Content Principles**:\n`;
+      g.contentPrinciples.slice(0, 5).forEach(p => { out += `  - ${p}\n`; });
+    }
+
+    // Technical mode fields
+    if (g.techStack) {
+      const ts = g.techStack;
+      if (ts.languages?.length) out += `- **Languages**: ${ts.languages.join(', ')}\n`;
+      if (ts.frameworks?.length) out += `- **Frameworks**: ${ts.frameworks.join(', ')}\n`;
+    }
+    if (g.codePatterns?.conventions?.length) {
+      out += `- **Code Conventions**: ${g.codePatterns.conventions.slice(0, 4).join('; ')}\n`;
+    }
+    if (g.technicalRules?.length) {
+      out += `- **Technical Rules**:\n`;
+      g.technicalRules.slice(0, 5).forEach(r => { out += `  - ${r}\n`; });
+    }
+
+    // Business mode fields
+    if (g.businessRules?.length) {
+      out += `- **Business Rules**: ${g.businessRules.length} rules\n`;
+      g.businessRules.slice(0, 4).forEach(r => { out += `  - [${r.priority}] ${r.rule}\n`; });
+    }
+    if (g.processes?.length) {
+      out += `- **Processes**: ${g.processes.map(p => p.name).join(', ')}\n`;
+    }
+    if (g.businessPrinciples?.length) {
+      out += `- **Business Principles**:\n`;
+      g.businessPrinciples.slice(0, 5).forEach(p => { out += `  - ${p}\n`; });
+    }
+
+    // Generic fallbacks
     if (g.structuredData) {
       const sd = g.structuredData;
       if (sd.rules?.length) out += `- **Rules**: ${sd.rules.join('; ')}\n`;
@@ -274,6 +351,20 @@ router.get('/types', (req, res) => {
     welcomeMessage: t.welcomeMessage,
   }));
   res.json({ types });
+});
+
+// Get available document extraction modes
+router.get('/extraction-modes', (req, res) => {
+  const modes = [
+    { id: 'auto', label: 'Auto', icon: 'Wand2', description: 'Auto-detect from agent type' },
+    ...Object.values(DOCUMENT_EXTRACTION_MODES).map(m => ({
+      id: m.id,
+      label: m.label,
+      icon: m.icon,
+      description: m.description,
+    })),
+  ];
+  res.json({ modes });
 });
 
 // Create a new conversation
@@ -468,8 +559,13 @@ router.post('/conversations/:id/documents', documentUpload.single('document'), a
     const filename = req.file.originalname;
     const mimeType = req.file.mimetype;
 
-    console.log(`[agent-creator] Analyzing document: ${filename} (${mimeType})`);
-    const structuredAnalysis = await analyzeDocument(filePath, filename, mimeType);
+    // Resolve extraction mode: from request body, or auto-detect from agent type
+    const agentType = conversation.agent_type || 'ux-design';
+    const requestedMode = req.body.extraction_mode || 'auto';
+    const extractionMode = resolveExtractionMode(requestedMode, agentType);
+
+    console.log(`[agent-creator] Analyzing document: ${filename} (${mimeType}) mode=${extractionMode} (requested=${requestedMode}, agentType=${agentType})`);
+    const structuredAnalysis = await analyzeDocument(filePath, filename, mimeType, extractionMode);
 
     const summary = structuredAnalysis.gptAnalysis
       ? `${filename} — ${structuredAnalysis.gptAnalysis.summary?.slice(0, 80) || 'analyzed'}`

@@ -2,7 +2,7 @@
 // Uses GPT-5 Vision for image analysis, GPT-5 for URL/brief synthesis
 
 const fs = require('fs').promises;
-const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, CONTENT_URL_ANALYSIS_PROMPT, DOCUMENT_ANALYSIS_PROMPT, getBriefSynthesisPrompt } = require('./agent-templates');
+const { IMAGE_ANALYSIS_PROMPTS, URL_ANALYSIS_PROMPT, CONTENT_URL_ANALYSIS_PROMPT, DOCUMENT_ANALYSIS_PROMPT, getBriefSynthesisPrompt, getDocumentExtractionPrompt, getDocumentExtractionSystemPrompt, resolveExtractionMode } = require('./agent-templates');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
@@ -516,13 +516,14 @@ async function deepAnalyzeContentURL(url) {
 // ==================== DOCUMENT ANALYSIS ====================
 
 /**
- * Analyze an uploaded document (MD, TXT, PDF)
+ * Analyze an uploaded document (MD, TXT, PDF) with mode-aware extraction
  * @param {string} filePath - Path to the document
  * @param {string} filename - Original filename
  * @param {string} mimeType - MIME type
- * @returns {{ filename: string, textLength: number, textPreview: string, gptAnalysis: object }}
+ * @param {string} [extractionMode='general'] - Extraction mode (ux-design, data, content, technical, business, general)
+ * @returns {{ filename: string, textLength: number, textPreview: string, gptAnalysis: object, extractionMode: string }}
  */
-async function analyzeDocument(filePath, filename, mimeType) {
+async function analyzeDocument(filePath, filename, mimeType, extractionMode = 'general') {
   let text = '';
 
   try {
@@ -539,29 +540,31 @@ async function analyzeDocument(filePath, filename, mimeType) {
       text = buffer.toString('utf8');
     }
   } catch (err) {
-    return { filename, textLength: 0, textPreview: '', gptAnalysis: null, error: err.message };
+    return { filename, textLength: 0, textPreview: '', gptAnalysis: null, extractionMode, error: err.message };
   }
 
   // Cap text
   if (text.length > 10000) text = text.slice(0, 10000) + '...';
 
-  // Send to GPT-5 for analysis
+  // Send to GPT-5 for mode-aware analysis
   let gptAnalysis = null;
   try {
-    const prompt = DOCUMENT_ANALYSIS_PROMPT
+    const prompt = getDocumentExtractionPrompt(extractionMode)
       .replace('{filename}', filename)
       .replace('{textContent}', text);
 
+    const systemPrompt = getDocumentExtractionSystemPrompt(extractionMode);
+
     const result = await callGPT5(
       [
-        { role: 'system', content: 'You are a document analyst. Extract structured knowledge from documents. Respond ONLY with valid JSON.' },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ],
       { max_completion_tokens: 4000, responseFormat: 'json' }
     );
     gptAnalysis = JSON.parse(result);
   } catch (err) {
-    console.error('[agent-analysis] GPT document analysis failed:', err.message);
+    console.error(`[agent-analysis] GPT document analysis (${extractionMode}) failed:`, err.message);
   }
 
   return {
@@ -569,6 +572,7 @@ async function analyzeDocument(filePath, filename, mimeType) {
     textLength: text.length,
     textPreview: text.slice(0, 500),
     gptAnalysis,
+    extractionMode,
   };
 }
 

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search, Filter, Edit2, Trash2,
   UserPlus, X, Check, Layers, Users, Zap, Hash,
-  AlertCircle, FileText, Sparkles
+  AlertCircle, FileText, Sparkles, FileSearch, Inbox,
+  CheckCircle, XCircle, ArrowRight, Upload, Eye
 } from 'lucide-react';
 import { api, getUser } from '../api';
 
@@ -51,6 +52,9 @@ export default function Skills() {
   });
   const [assignSearch, setAssignSearch] = useState('');
   const [selectedAgents, setSelectedAgents] = useState([]);
+  // Document state for drawer
+  const [drawerDocs, setDrawerDocs] = useState([]);
+  const [drawerDocStats, setDrawerDocStats] = useState(null);
 
   // Auto-dismiss error
   useEffect(() => {
@@ -131,8 +135,13 @@ export default function Skills() {
 
   const handleOpenDrawer = async (skill) => {
     try {
-      const detailed = await api(`/api/skills/${skill.id}`);
+      const [detailed, docsData] = await Promise.all([
+        api(`/api/skills/${skill.id}`),
+        api(`/api/skills/${skill.id}/documents`).catch(() => ({ documents: [], stats: null })),
+      ]);
       setActiveSkill(detailed);
+      setDrawerDocs(docsData.documents || []);
+      setDrawerDocStats(docsData.stats || null);
       setIsDrawerOpen(true);
     } catch (err) {
       setError('Could not load skill details');
@@ -702,6 +711,57 @@ export default function Skills() {
                         </button>
                       </div>
                     ))
+                  )}
+                </div>
+              </div>
+
+              {/* Ingested Documents */}
+              <div style={{ marginTop: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 style={{ ...sectionHeaderStyle, margin: 0 }}>
+                    Ingested Documents ({drawerDocs.length})
+                  </h3>
+                  {drawerDocStats && drawerDocStats.total > 0 && (
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {drawerDocStats.validated > 0 && <span style={{ fontSize: '8px', fontWeight: 600, color: t.success, backgroundColor: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: '100px' }}>{drawerDocStats.validated} valid</span>}
+                      {drawerDocStats.injected > 0 && <span style={{ fontSize: '8px', fontWeight: 600, color: t.violet, backgroundColor: 'rgba(139,92,246,0.1)', padding: '1px 5px', borderRadius: '100px' }}>{drawerDocStats.injected} injected</span>}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {drawerDocs.length === 0 ? (
+                    <div style={{
+                      padding: '20px', textAlign: 'center', color: t.tm, fontSize: '12px',
+                      border: `1px dashed ${t.border}`, borderRadius: '6px',
+                    }}>
+                      <Inbox size={18} style={{ marginBottom: '6px', opacity: 0.3 }} />
+                      <div>No documents ingested</div>
+                      <div style={{ fontSize: '10px', marginTop: '2px' }}>Upload docs in the editor to extract knowledge</div>
+                    </div>
+                  ) : (
+                    drawerDocs.map(doc => {
+                      const sc = {
+                        pending: { color: '#f59e0b' }, analyzing: { color: '#3B82F6' },
+                        analyzed: { color: '#3B82F6' }, validated: { color: '#22c55e' },
+                        injected: { color: '#8B5CF6' }, rejected: { color: '#ef4444' },
+                      }[doc.status] || { color: t.tm };
+                      return (
+                        <div key={doc.id} style={{
+                          display: 'flex', alignItems: 'center', gap: '8px',
+                          padding: '8px 10px', backgroundColor: t.surfaceEl, borderRadius: '6px',
+                          border: `1px solid ${t.border}`,
+                        }}>
+                          <FileText size={12} style={{ color: t.tm, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '11px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.original_name}</div>
+                            <div style={{ fontSize: '9px', color: t.tm }}>{doc.extraction_type} | {(doc.file_size / 1024).toFixed(1)}KB</div>
+                          </div>
+                          <span style={{ fontSize: '8px', fontWeight: 600, textTransform: 'uppercase', color: sc.color, flexShrink: 0 }}>
+                            {doc.status}
+                          </span>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

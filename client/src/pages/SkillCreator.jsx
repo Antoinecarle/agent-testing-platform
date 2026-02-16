@@ -6,7 +6,9 @@ import {
   Type, Code, List, Table, AlertCircle, Minus, Save,
   Check, Trash2, PanelRight, Download, ArrowLeft, Wand2,
   FileText, Layout, Pencil, Lightbulb, RefreshCw, Zap,
-  ArrowRight, FolderTree
+  ArrowRight, FolderTree, Upload, FileSearch, CheckCircle,
+  XCircle, Eye, Edit3, Loader, Inbox, Database, Palette,
+  PenTool, Briefcase, Settings
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -242,6 +244,17 @@ export default function SkillCreator() {
   // AI Suggestions state
   const [suggestions, setSuggestions] = useState(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  // Document Ingestion state
+  const [documents, setDocuments] = useState([]);
+  const [docStats, setDocStats] = useState(null);
+  const [extractionTypes, setExtractionTypes] = useState([]);
+  const [docUploading, setDocUploading] = useState(false);
+  const [selectedExtractionType, setSelectedExtractionType] = useState('general');
+  const [docUploadNotes, setDocUploadNotes] = useState('');
+  const [reviewingDoc, setReviewingDoc] = useState(null);
+  const [editingExtractedData, setEditingExtractedData] = useState(null);
+  const [docPollingIds, setDocPollingIds] = useState(new Set());
+  const docFileRef = useRef(null);
 
   const ghostTimer = useRef(null);
   const chatEndRef = useRef(null);
@@ -673,6 +686,161 @@ export default function SkillCreator() {
     }
   };
 
+  // --- Document Ingestion ---
+
+  const loadExtractionTypes = async () => {
+    try {
+      const data = await api('/api/skills/extraction-types');
+      setExtractionTypes(data);
+    } catch (err) { console.error('Failed to load extraction types:', err); }
+  };
+
+  const loadDocuments = async () => {
+    if (!skillId) return;
+    try {
+      const data = await api(`/api/skills/${skillId}/documents`);
+      setDocuments(data.documents || []);
+      setDocStats(data.stats || null);
+    } catch (err) { console.error('Failed to load documents:', err); }
+  };
+
+  const handleDocUpload = async (file) => {
+    if (!skillId || !file) return;
+    setDocUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('document', file);
+      formData.append('extraction_type', selectedExtractionType);
+      if (docUploadNotes.trim()) formData.append('notes', docUploadNotes.trim());
+
+      const res = await fetch(`/api/skills/${skillId}/documents`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Upload failed');
+      }
+      const data = await res.json();
+      setDocUploadNotes('');
+      // Start polling for analysis completion
+      if (data.document) {
+        setDocPollingIds(prev => new Set([...prev, data.document.id]));
+      }
+      await loadDocuments();
+    } catch (err) {
+      setError(err.message || 'Document upload failed');
+    } finally {
+      setDocUploading(false);
+      if (docFileRef.current) docFileRef.current.value = '';
+    }
+  };
+
+  const handleValidateDoc = async (docId) => {
+    try {
+      await api(`/api/skills/${skillId}/documents/${docId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'validated' }),
+      });
+      await loadDocuments();
+      if (reviewingDoc?.id === docId) {
+        setReviewingDoc(prev => ({ ...prev, status: 'validated' }));
+      }
+    } catch (err) { setError('Failed to validate document'); }
+  };
+
+  const handleRejectDoc = async (docId) => {
+    try {
+      await api(`/api/skills/${skillId}/documents/${docId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'rejected' }),
+      });
+      await loadDocuments();
+      if (reviewingDoc?.id === docId) {
+        setReviewingDoc(prev => ({ ...prev, status: 'rejected' }));
+      }
+    } catch (err) { setError('Failed to reject document'); }
+  };
+
+  const handleInjectDoc = async (docId) => {
+    try {
+      const res = await api(`/api/skills/${skillId}/documents/${docId}/inject`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setFileTree(res.tree || fileTree);
+      await loadDocuments();
+      if (reviewingDoc?.id === docId) {
+        setReviewingDoc(prev => ({ ...prev, status: 'injected', injected_to_file: res.file }));
+      }
+    } catch (err) { setError(err.message || 'Failed to inject document'); }
+  };
+
+  const handleDeleteDoc = async (docId) => {
+    try {
+      await api(`/api/skills/${skillId}/documents/${docId}`, { method: 'DELETE' });
+      await loadDocuments();
+      if (reviewingDoc?.id === docId) setReviewingDoc(null);
+    } catch (err) { setError('Failed to delete document'); }
+  };
+
+  const handleSaveExtractedData = async (docId) => {
+    if (!editingExtractedData) return;
+    try {
+      const parsed = JSON.parse(editingExtractedData);
+      await api(`/api/skills/${skillId}/documents/${docId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ extracted_data: parsed }),
+      });
+      setReviewingDoc(prev => ({ ...prev, extracted_data: parsed }));
+      setEditingExtractedData(null);
+      await loadDocuments();
+    } catch (err) {
+      setError('Invalid JSON — check your edits');
+    }
+  };
+
+  const handleReanalyze = async (docId, newType) => {
+    try {
+      await api(`/api/skills/${skillId}/documents/${docId}/reanalyze`, {
+        method: 'POST',
+        body: JSON.stringify({ extraction_type: newType }),
+      });
+      setDocPollingIds(prev => new Set([...prev, docId]));
+      await loadDocuments();
+    } catch (err) { setError('Failed to re-analyze document'); }
+  };
+
+  // Poll for analyzing documents
+  useEffect(() => {
+    if (docPollingIds.size === 0) return;
+    const interval = setInterval(async () => {
+      if (!skillId) return;
+      const data = await api(`/api/skills/${skillId}/documents`).catch(() => null);
+      if (!data) return;
+      setDocuments(data.documents || []);
+      setDocStats(data.stats || null);
+      // Remove IDs that are no longer "analyzing"
+      const stillAnalyzing = new Set();
+      for (const doc of (data.documents || [])) {
+        if (doc.status === 'analyzing' && docPollingIds.has(doc.id)) {
+          stillAnalyzing.add(doc.id);
+        }
+      }
+      if (stillAnalyzing.size !== docPollingIds.size) {
+        setDocPollingIds(stillAnalyzing);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [docPollingIds, skillId]);
+
+  // Load extraction types once
+  useEffect(() => { loadExtractionTypes(); }, []);
+
+  // Load documents when skill loads
+  useEffect(() => { if (skillId) loadDocuments(); }, [skillId]);
+
   // Helpers
   function flattenFileNames(tree) {
     const names = [];
@@ -931,11 +1099,14 @@ export default function SkillCreator() {
       {isAIPanelOpen && (
         <div style={{ width: '320px', borderLeft: `1px solid ${t.border}`, backgroundColor: t.surface, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           {/* Tabs */}
-          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', gap: '12px' }}>
-            {['chat', 'suggest', 'complete'].map(tab => (
-              <button key={tab} onClick={() => { setAiTab(tab); if (tab === 'suggest' && !suggestions && !suggestionsLoading) loadSuggestions(); }}
-                style={{ background: 'none', border: 'none', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: aiTab === tab ? t.tp : t.tm, cursor: 'pointer', paddingBottom: '4px', borderBottom: aiTab === tab ? `2px solid ${t.violet}` : '2px solid transparent' }}>
-                {tab === 'chat' ? 'AI Chat' : tab === 'suggest' ? 'Suggestions' : 'Autocomplete'}
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', gap: '8px', overflowX: 'auto' }}>
+            {['chat', 'suggest', 'docs', 'complete'].map(tab => (
+              <button key={tab} onClick={() => { setAiTab(tab); if (tab === 'suggest' && !suggestions && !suggestionsLoading) loadSuggestions(); if (tab === 'docs') loadDocuments(); }}
+                style={{ background: 'none', border: 'none', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: aiTab === tab ? t.tp : t.tm, cursor: 'pointer', paddingBottom: '4px', borderBottom: aiTab === tab ? `2px solid ${t.violet}` : '2px solid transparent', whiteSpace: 'nowrap', position: 'relative' }}>
+                {tab === 'chat' ? 'Chat' : tab === 'suggest' ? 'Suggest' : tab === 'docs' ? 'Docs' : 'Complete'}
+                {tab === 'docs' && docStats && docStats.total > 0 && (
+                  <span style={{ position: 'absolute', top: '-4px', right: '-8px', fontSize: '8px', fontWeight: 700, backgroundColor: t.violet, color: '#fff', borderRadius: '100px', padding: '0 4px', lineHeight: '14px', minWidth: '14px', textAlign: 'center' }}>{docStats.total}</span>
+                )}
               </button>
             ))}
           </div>
@@ -1077,6 +1248,161 @@ export default function SkillCreator() {
                 </div>
               </div>
             </>
+          ) : aiTab === 'docs' ? (
+            <>
+              {/* Document Ingestion Panel */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                {/* Upload Section */}
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={10} /> Upload Document
+                  </div>
+
+                  {/* Extraction Type Selector */}
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ fontSize: '10px', color: t.tm, marginBottom: '4px' }}>Analysis Type</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+                      {extractionTypes.map(et => {
+                        const isSelected = selectedExtractionType === et.id;
+                        const IconMap = { FileText, Database, Palette, PenTool, Code, Briefcase, Settings };
+                        const Icon = IconMap[et.icon] || FileText;
+                        return (
+                          <button key={et.id} onClick={() => setSelectedExtractionType(et.id)}
+                            style={{
+                              padding: '6px 8px', borderRadius: '6px', fontSize: '10px', cursor: 'pointer',
+                              backgroundColor: isSelected ? t.violetG : t.surfaceEl,
+                              border: `1px solid ${isSelected ? t.violet : t.border}`,
+                              color: isSelected ? t.violet : t.ts,
+                              display: 'flex', alignItems: 'center', gap: '5px', textAlign: 'left',
+                              transition: 'all 0.15s',
+                            }}
+                            title={et.description}
+                          >
+                            <Icon size={10} style={{ flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{et.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedExtractionType && (
+                      <div style={{ fontSize: '9px', color: t.tm, marginTop: '4px', fontStyle: 'italic' }}>
+                        {extractionTypes.find(e => e.id === selectedExtractionType)?.description || ''}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  <input
+                    value={docUploadNotes}
+                    onChange={e => setDocUploadNotes(e.target.value)}
+                    placeholder="Optional notes about this document..."
+                    style={{ ...inputStyle, fontSize: '11px', padding: '7px 10px', marginBottom: '8px' }}
+                  />
+
+                  {/* Upload Button */}
+                  <input ref={docFileRef} type="file" style={{ display: 'none' }}
+                    accept=".pdf,.md,.txt,.json,.yaml,.yml,.csv,.html,.xml"
+                    onChange={e => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
+                  />
+                  <button
+                    onClick={() => docFileRef.current?.click()}
+                    disabled={docUploading || !skillId}
+                    style={{
+                      width: '100%', padding: '8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                      backgroundColor: t.violet, color: '#fff', border: 'none', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                      opacity: (docUploading || !skillId) ? 0.5 : 1,
+                    }}
+                  >
+                    {docUploading ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Uploading &amp; Analyzing...</> : <><Upload size={12} /> Upload &amp; Analyze</>}
+                  </button>
+                </div>
+
+                {/* Document Stats */}
+                {docStats && docStats.total > 0 && (
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Total', val: docStats.total, color: t.ts },
+                      { label: 'Analyzed', val: docStats.analyzed, color: '#3B82F6' },
+                      { label: 'Validated', val: docStats.validated, color: t.success },
+                      { label: 'Injected', val: docStats.injected, color: t.violet },
+                    ].filter(s => s.val > 0).map(s => (
+                      <span key={s.label} style={{ fontSize: '9px', fontWeight: 600, color: s.color, backgroundColor: `${s.color}15`, padding: '2px 6px', borderRadius: '100px' }}>
+                        {s.val} {s.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Divider */}
+                <div style={{ borderTop: `1px solid ${t.border}`, marginBottom: '12px' }} />
+
+                {/* Document List */}
+                <div style={{ fontSize: '10px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Inbox size={10} /> Ingested Documents ({documents.length})
+                </div>
+
+                {documents.length === 0 ? (
+                  <div style={{ padding: '30px 12px', textAlign: 'center' }}>
+                    <FileSearch size={24} style={{ color: t.tm, marginBottom: '8px', opacity: 0.2 }} />
+                    <div style={{ fontSize: '11px', color: t.tm }}>No documents yet</div>
+                    <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px' }}>Upload a document to extract knowledge</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {documents.map(doc => {
+                      const statusColors = {
+                        pending: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' },
+                        analyzing: { bg: 'rgba(59,130,246,0.12)', color: '#3B82F6' },
+                        analyzed: { bg: 'rgba(59,130,246,0.12)', color: '#3B82F6' },
+                        validated: { bg: 'rgba(34,197,94,0.12)', color: '#22c55e' },
+                        injected: { bg: 'rgba(139,92,246,0.12)', color: '#8B5CF6' },
+                        rejected: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444' },
+                      };
+                      const sc = statusColors[doc.status] || statusColors.pending;
+                      return (
+                        <div key={doc.id}
+                          style={{
+                            padding: '8px 10px', borderRadius: '6px', backgroundColor: t.surfaceEl,
+                            border: `1px solid ${reviewingDoc?.id === doc.id ? t.violet : t.border}`,
+                            cursor: 'pointer', transition: 'border-color 0.15s',
+                          }}
+                          onClick={async () => {
+                            setEditingExtractedData(null);
+                            // Fetch latest data for this doc (analysis may have completed)
+                            try {
+                              const latest = await api(`/api/skills/${skillId}/documents/${doc.id}`);
+                              setReviewingDoc(latest);
+                            } catch { setReviewingDoc(doc); }
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <FileText size={11} style={{ color: t.tm, flexShrink: 0 }} />
+                            <span style={{ fontSize: '11px', fontWeight: 500, color: t.tp, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {doc.original_name}
+                            </span>
+                            <span style={{ fontSize: '8px', fontWeight: 600, textTransform: 'uppercase', padding: '1px 5px', borderRadius: '100px', backgroundColor: sc.bg, color: sc.color, flexShrink: 0 }}>
+                              {doc.status === 'analyzing' ? 'analyzing...' : doc.status}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '9px', color: t.tm }}>
+                            <span>{doc.extraction_type}</span>
+                            <span>|</span>
+                            <span>{(doc.file_size / 1024).toFixed(1)}KB</span>
+                            {doc.injected_to_file && (
+                              <>
+                                <span>|</span>
+                                <span style={{ color: t.violet }}>{doc.injected_to_file}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
               {/* Chat messages */}
@@ -1215,6 +1541,177 @@ export default function SkillCreator() {
                 style={{ background: 'none', border: 'none', color: t.tm, fontSize: '11px', cursor: 'pointer' }}>
                 {isNewSkill ? 'Cancel and go back' : 'Close'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Review Modal */}
+      {reviewingDoc && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ width: '700px', maxWidth: '95vw', maxHeight: '90vh', backgroundColor: t.surface, border: `1px solid ${t.border}`, borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                <FileSearch size={16} style={{ color: t.violet, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reviewingDoc.original_name}</div>
+                  <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px' }}>
+                    {reviewingDoc.extraction_type} analysis | {(reviewingDoc.file_size / 1024).toFixed(1)}KB | {reviewingDoc.mime_type}
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', padding: '2px 8px', borderRadius: '100px', flexShrink: 0,
+                  backgroundColor: reviewingDoc.status === 'validated' ? 'rgba(34,197,94,0.12)' : reviewingDoc.status === 'injected' ? 'rgba(139,92,246,0.12)' : reviewingDoc.status === 'rejected' ? 'rgba(239,68,68,0.12)' : 'rgba(59,130,246,0.12)',
+                  color: reviewingDoc.status === 'validated' ? '#22c55e' : reviewingDoc.status === 'injected' ? '#8B5CF6' : reviewingDoc.status === 'rejected' ? '#ef4444' : '#3B82F6',
+                }}>
+                  {reviewingDoc.status}
+                </span>
+              </div>
+              <button onClick={() => { setReviewingDoc(null); setEditingExtractedData(null); }} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', display: 'flex', marginLeft: '12px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+              {reviewingDoc.status === 'analyzing' ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  <Loader size={28} style={{ color: t.violet, marginBottom: '12px', animation: 'spin 1s linear infinite' }} />
+                  <div style={{ fontSize: '13px', color: t.ts }}>AI is analyzing this document...</div>
+                  <div style={{ fontSize: '11px', color: t.tm, marginTop: '4px' }}>This may take a few seconds</div>
+                </div>
+              ) : reviewingDoc.status === 'pending' && !reviewingDoc.extracted_data ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  <AlertCircle size={28} style={{ color: t.warning, marginBottom: '12px' }} />
+                  <div style={{ fontSize: '13px', color: t.ts }}>Analysis pending or failed</div>
+                  {reviewingDoc.notes && <div style={{ fontSize: '11px', color: t.tm, marginTop: '4px' }}>{reviewingDoc.notes}</div>}
+                  <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    {extractionTypes.map(et => (
+                      <button key={et.id} onClick={() => handleReanalyze(reviewingDoc.id, et.id)}
+                        style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '10px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, cursor: 'pointer' }}>
+                        Re-analyze as {et.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Re-analyze dropdown */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '10px', color: t.tm }}>Re-analyze as:</span>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {extractionTypes.filter(et => et.id !== reviewingDoc.extraction_type).slice(0, 4).map(et => (
+                        <button key={et.id} onClick={() => { handleReanalyze(reviewingDoc.id, et.id); setReviewingDoc(prev => ({ ...prev, status: 'analyzing' })); }}
+                          style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '9px', backgroundColor: t.surfaceEl, border: `1px solid ${t.border}`, color: t.ts, cursor: 'pointer' }}>
+                          {et.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Extracted Data */}
+                  {editingExtractedData !== null ? (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: t.ts }}>Edit Extracted Data (JSON)</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button onClick={() => handleSaveExtractedData(reviewingDoc.id)}
+                            style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '10px', backgroundColor: t.success, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Check size={10} /> Save
+                          </button>
+                          <button onClick={() => setEditingExtractedData(null)}
+                            style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '10px', backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.border}`, cursor: 'pointer' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        value={editingExtractedData}
+                        onChange={e => setEditingExtractedData(e.target.value)}
+                        style={{ ...inputStyle, minHeight: '400px', fontFamily: t.mono, fontSize: '11px', lineHeight: '1.5', resize: 'vertical' }}
+                      />
+                    </div>
+                  ) : reviewingDoc.extracted_data ? (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: t.ts }}>Extracted Insights</span>
+                        <button onClick={() => setEditingExtractedData(JSON.stringify(reviewingDoc.extracted_data, null, 2))}
+                          style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '10px', backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Edit3 size={10} /> Edit JSON
+                        </button>
+                      </div>
+                      {/* Render extracted data as readable cards */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {Object.entries(reviewingDoc.extracted_data).map(([key, val]) => {
+                          if (val === null || val === undefined) return null;
+                          const title = key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+                          return (
+                            <div key={key} style={{ padding: '10px 12px', borderRadius: '6px', backgroundColor: t.bg, border: `1px solid ${t.border}` }}>
+                              <div style={{ fontSize: '10px', fontWeight: 600, color: t.violet, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>{title}</div>
+                              {typeof val === 'string' ? (
+                                <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{val}</div>
+                              ) : Array.isArray(val) ? (
+                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', color: t.ts, lineHeight: '1.6' }}>
+                                  {val.map((item, i) => (
+                                    <li key={i} style={{ marginBottom: '3px' }}>{typeof item === 'string' ? item : JSON.stringify(item)}</li>
+                                  ))}
+                                </ul>
+                              ) : typeof val === 'object' ? (
+                                <pre style={{ margin: 0, fontSize: '10px', fontFamily: t.mono, color: t.ts, lineHeight: '1.5', overflow: 'auto', maxHeight: '200px' }}>
+                                  {JSON.stringify(val, null, 2)}
+                                </pre>
+                              ) : (
+                                <div style={{ fontSize: '12px', color: t.ts }}>{String(val)}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: t.tm }}>
+                      No extracted data available
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${t.border}`, display: 'flex', gap: '8px', justifyContent: 'space-between', backgroundColor: t.surfaceEl, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button onClick={() => handleDeleteDoc(reviewingDoc.id)}
+                  style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: 'rgba(239,68,68,0.1)', color: t.danger, border: `1px solid rgba(239,68,68,0.2)`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Trash2 size={11} /> Delete
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {reviewingDoc.status === 'analyzed' && (
+                  <>
+                    <button onClick={() => handleRejectDoc(reviewingDoc.id)}
+                      style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: 'rgba(239,68,68,0.1)', color: t.danger, border: `1px solid rgba(239,68,68,0.2)`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <XCircle size={11} /> Reject
+                    </button>
+                    <button onClick={() => handleValidateDoc(reviewingDoc.id)}
+                      style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: 'rgba(34,197,94,0.1)', color: t.success, border: `1px solid rgba(34,197,94,0.2)`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <CheckCircle size={11} /> Validate
+                    </button>
+                  </>
+                )}
+                {(reviewingDoc.status === 'validated' || reviewingDoc.status === 'analyzed') && reviewingDoc.extracted_data && (
+                  <button onClick={() => handleInjectDoc(reviewingDoc.id)}
+                    style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, backgroundColor: t.violet, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <ArrowRight size={11} /> Inject into Skill
+                  </button>
+                )}
+                {reviewingDoc.status === 'rejected' && (
+                  <button onClick={() => handleValidateDoc(reviewingDoc.id)}
+                    style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: 'rgba(34,197,94,0.1)', color: t.success, border: `1px solid rgba(34,197,94,0.2)`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <CheckCircle size={11} /> Re-validate
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
