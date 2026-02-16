@@ -714,6 +714,70 @@ router.post('/:id/documents/from-url', async (req, res) => {
   }
 });
 
+// GET /api/skills/:id/documents/:docId/download — download original file
+router.get('/:id/documents/:docId/download', async (req, res) => {
+  try {
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const filePath = path.join(SKILL_UPLOAD_DIR, doc.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File no longer exists on disk' });
+    }
+    res.download(filePath, doc.original_name);
+  } catch (err) {
+    console.error('[Skills] Download document error:', err.message);
+    res.status(500).json({ error: 'Download failed' });
+  }
+});
+
+// GET /api/skills/:id/documents/:docId/export-csv — export extracted data as CSV
+router.get('/:id/documents/:docId/export-csv', async (req, res) => {
+  try {
+    const doc = await db.getSkillDocument(req.params.docId);
+    if (!doc || doc.skill_id !== req.params.id) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    if (!doc.extracted_data) {
+      return res.status(400).json({ error: 'No extracted data to export' });
+    }
+
+    const data = doc.extracted_data;
+    const rows = [['Key', 'Value']];
+
+    // Flatten extracted data into key-value CSV rows
+    function flatten(obj, prefix = '') {
+      for (const [key, val] of Object.entries(obj || {})) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (val === null || val === undefined) {
+          rows.push([fullKey, '']);
+        } else if (Array.isArray(val)) {
+          val.forEach((item, i) => {
+            if (typeof item === 'object') flatten(item, `${fullKey}[${i}]`);
+            else rows.push([`${fullKey}[${i}]`, String(item)]);
+          });
+        } else if (typeof val === 'object') {
+          flatten(val, fullKey);
+        } else {
+          rows.push([fullKey, String(val)]);
+        }
+      }
+    }
+    flatten(data);
+
+    const csvContent = rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const safeName = doc.original_name.replace(/\.[^.]+$/, '') + '-analysis.csv';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.send(csvContent);
+  } catch (err) {
+    console.error('[Skills] Export CSV error:', err.message);
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
 // --- Helper: background URL analysis ---
 async function analyzeUrlForSkill(docId, url, extractionType, skill) {
   try {

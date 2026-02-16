@@ -1734,6 +1734,28 @@ export default function SkillCreator() {
                   style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: 'rgba(239,68,68,0.1)', color: t.danger, border: `1px solid rgba(239,68,68,0.2)`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <Trash2 size={11} /> Delete
                 </button>
+                {!reviewingDoc.filename?.startsWith('url-') && (
+                  <button onClick={async () => {
+                    const res = await fetch(`/api/skills/${skillId}/documents/${reviewingDoc.id}/download`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                    if (!res.ok) return;
+                    const blob = await res.blob();
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = reviewingDoc.original_name; a.click(); URL.revokeObjectURL(a.href);
+                  }}
+                    style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Download size={11} /> Original
+                  </button>
+                )}
+                {reviewingDoc.extracted_data && (
+                  <button onClick={async () => {
+                    const res = await fetch(`/api/skills/${skillId}/documents/${reviewingDoc.id}/export-csv`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                    if (!res.ok) return;
+                    const blob = await res.blob();
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = reviewingDoc.original_name.replace(/\.[^.]+$/, '') + '-analysis.csv'; a.click(); URL.revokeObjectURL(a.href);
+                  }}
+                    style={{ padding: '7px 14px', borderRadius: '6px', fontSize: '11px', backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Download size={11} /> CSV
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
                 {reviewingDoc.status === 'analyzed' && (
