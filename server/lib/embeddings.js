@@ -7,7 +7,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 1536;
 const MAX_TOKENS_PER_CHUNK = 6000; // conservative limit (model max is 8191)
-const CHARS_PER_TOKEN = 2; // safe ratio — PDF/garbled text can be as low as 1.5
+const CHARS_PER_TOKEN = 1; // worst-case ratio for PDF/binary-extracted content
 const CHUNK_OVERLAP_CHARS = 200;
 
 /**
