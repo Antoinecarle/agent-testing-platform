@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const db = require('../db');
 const skillStorage = require('../skill-storage');
-const { callGPT5, analyzeDocument } = require('../lib/agent-analysis');
+const { callGPT5, analyzeDocument, deepAnalyzeContentURL } = require('../lib/agent-analysis');
 const { DOCUMENT_EXTRACTION_MODES } = require('../lib/agent-templates');
 
 const router = express.Router();
@@ -683,6 +683,60 @@ router.post('/:id/documents/:docId/reanalyze', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// POST /api/skills/:id/documents/from-url — analyze a URL and create document record
+router.post('/:id/documents/from-url', async (req, res) => {
+  try {
+    const skill = await db.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const { url, extraction_type, notes } = req.body;
+    if (!url || !url.trim()) return res.status(400).json({ error: 'URL is required' });
+
+    const extractionType = extraction_type || 'general';
+    const filename = url.length > 80 ? url.substring(0, 80) + '...' : url;
+
+    // Create document record
+    const doc = await db.createSkillDocument(
+      req.params.id, `url-${Date.now()}`, filename, 'text/html', 0,
+      extractionType, req.user?.userId
+    );
+    await db.updateSkillDocument(doc.id, { status: 'analyzing', notes: notes || null });
+
+    // Run URL analysis in background
+    analyzeUrlForSkill(doc.id, url.trim(), extractionType, skill)
+      .catch(err => console.error('[Skills] URL analysis error:', err.message));
+
+    res.status(201).json({ document: { ...doc, status: 'analyzing' } });
+  } catch (err) {
+    console.error('[Skills] URL document error:', err.message);
+    res.status(500).json({ error: err.message || 'URL analysis failed' });
+  }
+});
+
+// --- Helper: background URL analysis ---
+async function analyzeUrlForSkill(docId, url, extractionType, skill) {
+  try {
+    const result = await deepAnalyzeContentURL(url);
+
+    const gptAnalysis = result.gptAnalysis || null;
+    const textPreview = result.extracted?.textPreview || '';
+
+    await db.updateSkillDocument(docId, {
+      status: gptAnalysis ? 'analyzed' : 'pending',
+      raw_text: textPreview || '',
+      extracted_data: gptAnalysis || { error: 'No analysis returned' },
+      notes: !gptAnalysis ? 'URL analysis failed — no AI response. Try re-analyzing.' : undefined,
+    });
+    console.log(`[Skills] URL ${docId} analyzed (${extractionType}): ${url}`);
+  } catch (err) {
+    console.error(`[Skills] URL analysis failed for ${docId}:`, err.message);
+    await db.updateSkillDocument(docId, {
+      status: 'pending',
+      notes: `URL analysis error: ${err.message}`,
+    });
+  }
+}
 
 // --- Helper: background document analysis ---
 async function analyzeDocumentForSkill(docId, filePath, filename, mimeType, extractionType, skill) {

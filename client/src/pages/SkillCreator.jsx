@@ -254,6 +254,8 @@ export default function SkillCreator() {
   const [reviewingDoc, setReviewingDoc] = useState(null);
   const [editingExtractedData, setEditingExtractedData] = useState(null);
   const [docPollingIds, setDocPollingIds] = useState(new Set());
+  const [docUrlInput, setDocUrlInput] = useState('');
+  const [docUrlLoading, setDocUrlLoading] = useState(false);
   const docFileRef = useRef(null);
 
   const ghostTimer = useRef(null);
@@ -812,6 +814,25 @@ export default function SkillCreator() {
     } catch (err) { setError('Failed to re-analyze document'); }
   };
 
+  const handleDocUrlAnalyze = async () => {
+    if (!skillId || !docUrlInput.trim()) return;
+    setDocUrlLoading(true);
+    try {
+      const data = await api(`/api/skills/${skillId}/documents/from-url`, {
+        method: 'POST',
+        body: JSON.stringify({ url: docUrlInput.trim(), extraction_type: selectedExtractionType, notes: docUploadNotes.trim() || undefined }),
+      });
+      setDocUrlInput('');
+      setDocUploadNotes('');
+      if (data.document) setDocPollingIds(prev => new Set([...prev, data.document.id]));
+      await loadDocuments();
+    } catch (err) {
+      setError(err.message || 'URL analysis failed');
+    } finally {
+      setDocUrlLoading(false);
+    }
+  };
+
   // Poll when any document is in "analyzing" status (works across page reloads)
   const hasAnalyzingDocs = documents.some(d => d.status === 'analyzing');
   useEffect(() => {
@@ -1298,7 +1319,7 @@ export default function SkillCreator() {
 
                   {/* Upload Button */}
                   <input ref={docFileRef} type="file" style={{ display: 'none' }}
-                    accept=".pdf,.md,.txt,.json,.yaml,.yml,.csv,.html,.xml"
+                    accept=".pdf,.md,.txt,.json,.yaml,.yml,.csv,.html,.xml,.png,.jpg,.jpeg,.webp,.gif"
                     onChange={e => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
                   />
                   <button
@@ -1311,8 +1332,39 @@ export default function SkillCreator() {
                       opacity: (docUploading || !skillId) ? 0.5 : 1,
                     }}
                   >
-                    {docUploading ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Uploading &amp; Analyzing...</> : <><Upload size={12} /> Upload &amp; Analyze</>}
+                    {docUploading ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Uploading &amp; Analyzing...</> : <><Upload size={12} /> Upload File or Image</>}
                   </button>
+
+                  {/* OR divider */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 0 8px' }}>
+                    <div style={{ flex: 1, height: '1px', background: t.border }} />
+                    <span style={{ fontSize: '9px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.1em' }}>or add URL</span>
+                    <div style={{ flex: 1, height: '1px', background: t.border }} />
+                  </div>
+
+                  {/* URL Input */}
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <input
+                      value={docUrlInput}
+                      onChange={e => setDocUrlInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleDocUrlAnalyze()}
+                      placeholder="https://dribbble.com/shots/..."
+                      style={{ ...inputStyle, flex: 1, fontSize: '11px', padding: '7px 10px' }}
+                    />
+                    <button
+                      onClick={handleDocUrlAnalyze}
+                      disabled={docUrlLoading || !docUrlInput.trim() || !skillId}
+                      style={{
+                        padding: '7px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: 600,
+                        backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.border}`, cursor: 'pointer',
+                        opacity: (docUrlLoading || !docUrlInput.trim()) ? 0.5 : 1,
+                        display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {docUrlLoading ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={10} />}
+                      Analyze
+                    </button>
+                  </div>
                 </div>
 
                 {/* Document Stats */}
