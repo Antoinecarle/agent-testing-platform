@@ -664,8 +664,10 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   // 9. Call LLM — adaptive max tokens based on tool type
   //    Page/interaction generation needs more tokens than analysis tools
   let llmResult;
-  const generativeTools = ['create_page', 'interaction_layer', 'create_section_template', 'generate_component'];
-  const maxTokens = generativeTools.includes(toolDef.tool_name) ? 8192 : 4096;
+  const highTokenTools = ['create_page']; // Full pages need more room for code + UX metadata
+  const generativeTools = ['interaction_layer', 'create_section_template', 'generate_component'];
+  const maxTokens = highTokenTools.includes(toolDef.tool_name) ? 16384
+    : generativeTools.includes(toolDef.tool_name) ? 8192 : 4096;
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
   } catch (err) {
