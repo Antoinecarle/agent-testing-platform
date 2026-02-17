@@ -133,11 +133,6 @@ async function handleStreamablePost(req, res, slug) {
     return res.status(202).end();
   }
 
-  const response = await handleMcpMessage(msg, session);
-  if (!response) {
-    return res.status(202).end();
-  }
-
   // Generate/reuse session ID
   let sessionId = req.headers['mcp-session-id'];
   if (msg.method === 'initialize') {
@@ -148,20 +143,47 @@ async function handleStreamablePost(req, res, slug) {
     });
   }
 
-  // Respond based on Accept header
+  // For tools/call — always use SSE to keep connection alive during long operations
+  const isToolCall = msg.method === 'tools/call';
   const acceptSSE = (req.headers.accept || '').includes('text/event-stream');
-  if (acceptSSE) {
+
+  if (isToolCall || acceptSSE) {
+    // Start SSE response immediately to prevent timeout
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'X-Accel-Buffering': 'no',
+      'Connection': 'keep-alive',
       ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
     });
     res.flushHeaders();
-    res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
-    if (res.flush) res.flush();
+
+    // Send keepalive while processing
+    const keepalive = setInterval(() => {
+      try { res.write(':keepalive\n\n'); if (res.flush) res.flush(); }
+      catch (_) { clearInterval(keepalive); }
+    }, 5000);
+
+    try {
+      const response = await handleMcpMessage(msg, session);
+      clearInterval(keepalive);
+      if (response) {
+        res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+        if (res.flush) res.flush();
+      }
+    } catch (err) {
+      clearInterval(keepalive);
+      const errResp = { jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: err.message } };
+      res.write(`event: message\ndata: ${JSON.stringify(errResp)}\n\n`);
+      if (res.flush) res.flush();
+    }
     res.end();
   } else {
+    // Simple JSON response for fast operations (initialize, tools/list, etc.)
+    const response = await handleMcpMessage(msg, session);
+    if (!response) {
+      return res.status(202).end();
+    }
     if (sessionId) res.setHeader('Mcp-Session-Id', sessionId);
     res.json(response);
   }
