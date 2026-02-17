@@ -520,17 +520,37 @@ To read a previous iteration for reference:
   const claudeMdPath = path.join(wsDir, 'CLAUDE.md');
   fs.writeFileSync(claudeMdPath, content);
 
-  // Ensure this agent's .md file exists in the workspace .claude/agents/ too
-  // so Claude CLI /agents command shows it
+  // Write ONLY the project's agent(s) to workspace .claude/agents/
+  // Clean out any stale agents first so /agents only shows relevant ones
   const wsAgentsDir = path.join(wsDir, '.claude', 'agents');
+  if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
+
+  // Determine which agents belong to this project
+  const allowedAgents = new Set();
+  if (agentName) allowedAgents.add(`${agentName}.md`);
+  if (isOrchestra && teamMembers.length > 0) {
+    for (const member of teamMembers) {
+      allowedAgents.add(`${member.agent_name}.md`);
+    }
+  }
+
+  // Remove agents that don't belong to this project
+  try {
+    const existingFiles = fs.readdirSync(wsAgentsDir).filter(f => f.endsWith('.md'));
+    for (const f of existingFiles) {
+      if (!allowedAgents.has(f)) {
+        fs.unlinkSync(path.join(wsAgentsDir, f));
+      }
+    }
+  } catch (_) {}
+
+  // Write the project's assigned agent
   if (agentName && agentPrompt) {
-    if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
     fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
   }
 
-  // Orchestra mode: write ALL team member agent .md files to .claude/agents/
+  // Orchestra mode: write ALL team member agent .md files
   if (isOrchestra && teamMembers.length > 0) {
-    if (!fs.existsSync(wsAgentsDir)) fs.mkdirSync(wsAgentsDir, { recursive: true });
     for (const member of teamMembers) {
       if (member.agent_name === agentName) continue; // already written above
       const memberPrompt = await getAgentPrompt(member.agent_name);
