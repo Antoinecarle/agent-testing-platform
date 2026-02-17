@@ -557,19 +557,33 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   const agent = await db.getAgent(session.agentName);
   if (!agent) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Agent not found' } };
 
-  // 1. Build base system prompt (agent + skills + knowledge — same as chat)
-  let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
-  try {
-    const skills = await db.getAgentSkills(session.agentName);
-    if (skills?.length > 0) {
-      systemPrompt += '\n\n## Assigned Skills\n\n';
-      for (const skill of skills) {
-        systemPrompt += `### ${skill.name}\n`;
-        if (skill.description) systemPrompt += `${skill.description}\n\n`;
-        if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
-      }
+  // 1. Build LEAN system prompt — specialized tools have their own context_template
+  //    so we only need the agent's core identity, NOT the full prompt + all skills
+  const hasTemplate = toolDef.context_template && toolDef.context_template.length > 50;
+  let systemPrompt = '';
+
+  if (hasTemplate) {
+    // Tool has its own context — use a lean agent identity + description only
+    const agentDesc = agent.description || '';
+    systemPrompt = `You are ${agent.name}. ${agentDesc}\n`;
+    if (toolDef.output_instructions) {
+      systemPrompt += `\n## Output Format\n${toolDef.output_instructions}\n`;
     }
-  } catch (_) {}
+  } else {
+    // No template — fall back to full agent prompt (like chat)
+    systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+    try {
+      const skills = await db.getAgentSkills(session.agentName);
+      if (skills?.length > 0) {
+        systemPrompt += '\n\n## Assigned Skills\n\n';
+        for (const skill of skills) {
+          systemPrompt += `### ${skill.name}\n`;
+          if (skill.description) systemPrompt += `${skill.description}\n\n`;
+          if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+        }
+      }
+    } catch (_) {}
+  }
 
   // 2. Run pre-processors (fetch URLs, analyze HTML, score SEO, etc.)
   let processorData = {};
@@ -590,18 +604,19 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   // Also inject any processor data that wasn't referenced in templates as auto-sections
   for (const [key, value] of Object.entries(processorData)) {
     if (typeof value === 'string' && value.length > 10 && !key.endsWith('__error__') && key !== '__fetched_html__' && key !== '__html_info__' && key !== '__seo_score_data__') {
-      // Only inject formatted outputs, skip raw data and errors
-      const placeholder = `{{${key}}}`;
       if (!enriched.contextAddition.includes(key)) {
         enriched.contextAddition += `\n\n${value}`;
       }
     }
   }
 
-  // Inject fetched HTML into user message if available (truncated for context)
+  // Inject a SUMMARY of fetched HTML (not raw HTML — too large, wastes tokens)
   if (processorData.__fetched_html__ && !args.page_content && !args.html_content) {
-    const truncatedHtml = processorData.__fetched_html__.slice(0, 15000);
-    enriched.userMessage += `\n\n### Fetched Page HTML (${processorData.__fetched_url__ || 'unknown'})\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`;
+    // Only inject if we DON'T already have html_analysis (which is a better summary)
+    if (!processorData.__html_analysis__) {
+      const truncatedHtml = processorData.__fetched_html__.slice(0, 5000);
+      enriched.userMessage += `\n\n### Page HTML excerpt (${processorData.__fetched_url__ || 'unknown'})\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`;
+    }
   }
 
   // 5. Inject enriched context into system prompt
@@ -609,7 +624,7 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     systemPrompt += enriched.contextAddition;
   }
 
-  // 6. Inject knowledge base (RAG) using the user message as query
+  // 6. Inject knowledge base (RAG) — only 3 most relevant entries to stay lean
   try {
     const agentKBs = await db.getAgentKnowledgeBases(session.agentName);
     if (agentKBs?.length > 0) {
@@ -617,14 +632,12 @@ async function handleSpecializedTool(id, toolDef, args, session) {
       const queryEmbedding = await generateEmbedding(queryText);
       const kbIds = agentKBs.map(kb => kb.id);
       const results = await db.searchKnowledge(queryEmbedding, {
-        threshold: 0.25, limit: 8, knowledgeBaseIds: kbIds,
+        threshold: 0.3, limit: 3, knowledgeBaseIds: kbIds,
       });
       if (results?.length > 0) {
         systemPrompt += '\n\n## Relevant Knowledge\n\n';
         for (const entry of results) {
-          const pct = Math.round((entry.similarity || 0) * 100);
-          systemPrompt += `**${entry.title || 'Entry'}** (${pct}% relevance)\n`;
-          systemPrompt += `${entry.content}\n\n`;
+          systemPrompt += `**${entry.title || 'Entry'}**\n${entry.content}\n\n`;
         }
       }
     }
@@ -638,16 +651,16 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     { role: 'user', content: enriched.userMessage },
   ];
 
-  console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars`);
+  console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars (lean: ${hasTemplate})`);
 
   // 8. Resolve LLM provider (creator's BYOK or server key)
   let { provider, apiKey, model, userLlmKeyId, usingByok } = await resolveByokProvider(session.deploymentId);
 
   if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available.' } };
 
-  // 9. Call LLM with higher token limit for specialized tools
+  // 9. Call LLM — use 4096 max tokens (enough for expert analysis, faster response)
   let llmResult;
-  const maxTokens = 8192; // Specialized tools need more output space
+  const maxTokens = 4096;
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
   } catch (err) {
