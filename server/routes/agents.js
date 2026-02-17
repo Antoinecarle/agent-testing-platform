@@ -1013,6 +1013,179 @@ router.post('/:name/mcp-tools/reorder', async (req, res) => {
   }
 });
 
+// ==================== GENERATE MCP TOOLS FROM AI ====================
+
+router.post('/:name/mcp-tools/generate', heavyLimiter, async (req, res) => {
+  try {
+    const agent = await db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // 1. Build full agent context: prompt + skills + knowledge
+    let agentContext = '';
+
+    // Agent prompt
+    agentContext += `# Agent: ${agent.name}\n`;
+    agentContext += `Description: ${agent.description || 'N/A'}\n`;
+    agentContext += `Category: ${agent.category || 'N/A'}\n\n`;
+    agentContext += `## Full Agent Prompt\n${agent.full_prompt || agent.prompt_preview || '[No prompt]'}\n\n`;
+
+    // Skills (deep — including file content)
+    try {
+      const skills = await db.getAgentSkills(req.params.name);
+      if (skills && skills.length > 0) {
+        const skillStorage = require('../skill-storage');
+        agentContext += '## Assigned Skills\n\n';
+        for (const skill of skills) {
+          agentContext += `### ${skill.name}\n`;
+          if (skill.description) agentContext += `${skill.description}\n\n`;
+          try {
+            const entryFile = skillStorage.readSkillFile(skill.slug, skill.entry_point || 'SKILL.md');
+            if (entryFile && entryFile.content) {
+              agentContext += entryFile.content.slice(0, 8000) + '\n\n';
+            } else if (skill.prompt) {
+              agentContext += skill.prompt.slice(0, 8000) + '\n\n';
+            }
+          } catch (_) {
+            if (skill.prompt) agentContext += skill.prompt.slice(0, 8000) + '\n\n';
+          }
+          // Reference files
+          try {
+            const tree = skillStorage.scanSkillTree(skill.slug);
+            if (tree) {
+              const refFiles = [];
+              const walkTree = (items) => {
+                for (const item of items) {
+                  if (item.type === 'file' && item.path !== 'SKILL.md' && item.path !== (skill.entry_point || 'SKILL.md') && refFiles.length < 4) {
+                    refFiles.push(item.path);
+                  }
+                  if (item.children) walkTree(item.children);
+                }
+              };
+              walkTree(tree);
+              for (const refPath of refFiles) {
+                const refFile = skillStorage.readSkillFile(skill.slug, refPath);
+                if (refFile && refFile.content) {
+                  agentContext += `#### ${refPath}\n${refFile.content.slice(0, 4000)}\n\n`;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn('[MCP Generate] Failed to load skills:', err.message);
+    }
+
+    // Knowledge bases
+    try {
+      const { getKnowledgeContext } = require('../workspace');
+      const kbContext = await getKnowledgeContext(req.params.name);
+      if (kbContext) agentContext += kbContext;
+    } catch (err) {
+      console.warn('[MCP Generate] Failed to load knowledge:', err.message);
+    }
+
+    // 2. Call AI to generate tool definitions
+    const { callGPT5 } = require('../lib/agent-analysis');
+
+    const systemPrompt = `You are an MCP tool architect. You design specialized tools for AI agents exposed via the Model Context Protocol (MCP).
+
+Given an agent's full context (prompt, skills, knowledge), you must create a set of specialized MCP tools that:
+1. Replace the generic "chat" tool with purpose-built operations
+2. Have structured input parameters (JSON Schema) that force callers to provide proper context
+3. Include context_template strings that inject the agent's deep knowledge into every call
+4. Cover ALL the agent's capabilities — every skill should map to 1+ tools
+
+## CRITICAL RULES FOR context_template
+- The context_template is injected into the LLM system prompt ALONGSIDE the agent's base prompt
+- It MUST contain the relevant skill/knowledge content INLINED — not references
+- Use {{param}} placeholders for caller-provided dynamic values
+- Use {{#if param}}...{{/if}} for optional sections
+- Use {{__html_analysis__}} to auto-extract SEO data from HTML params
+- Use {{__json_parse:param__}} for JSON analysis
+- The goal: when a tool is called, the LLM has ALL the context it needs to produce expert-level output
+
+## TOOL NAMING
+- snake_case only (e.g. audit_site, generate_schema)
+- Clear, action-oriented names
+
+## OUTPUT FORMAT
+Return ONLY a JSON array of tool objects. No markdown, no explanation.
+Each tool object has:
+{
+  "tool_name": "snake_case_name",
+  "description": "What this tool does — shown to Claude when listing tools (max 200 chars)",
+  "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
+  "context_template": "The full context template with {{placeholders}} and inlined knowledge",
+  "output_instructions": "How the output should be formatted"
+}
+
+Generate 5-12 tools depending on the agent's breadth. Include a general "chat" tool as last (sort_order 99) for freeform queries. Every tool MUST have a rich context_template that inlines the relevant skills/knowledge.`;
+
+    const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
+
+    console.log(`[MCP Generate] Generating tools for ${req.params.name} (context: ${agentContext.length} chars)`);
+
+    const response = await callGPT5([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ], { max_completion_tokens: 16000, responseFormat: 'json' });
+
+    // 3. Parse the response
+    let generatedTools;
+    try {
+      const parsed = JSON.parse(response);
+      generatedTools = Array.isArray(parsed) ? parsed : (parsed.tools || []);
+    } catch (e) {
+      // Try to extract JSON array from response
+      const match = response.match(/\[[\s\S]*\]/);
+      if (match) {
+        generatedTools = JSON.parse(match[0]);
+      } else {
+        return res.status(500).json({ error: 'AI returned invalid JSON', raw: response.slice(0, 1000) });
+      }
+    }
+
+    if (!Array.isArray(generatedTools) || generatedTools.length === 0) {
+      return res.status(500).json({ error: 'AI generated no tools', raw: response.slice(0, 1000) });
+    }
+
+    // 4. Delete existing tools and save new ones
+    const existingTools = await db.getMcpAgentTools(req.params.name);
+    for (const existing of existingTools) {
+      await db.deleteMcpAgentTool(existing.id);
+    }
+
+    const savedTools = [];
+    for (let i = 0; i < generatedTools.length; i++) {
+      const t = generatedTools[i];
+      if (!t.tool_name || !t.description) continue;
+
+      const saved = await db.createMcpAgentTool(req.params.name, {
+        tool_name: t.tool_name.replace(/[^a-z0-9_]/g, ''),
+        description: t.description.slice(0, 500),
+        input_schema: t.input_schema || { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] },
+        context_template: t.context_template || null,
+        output_instructions: t.output_instructions || null,
+        sort_order: t.tool_name === 'chat' ? 99 : i,
+      });
+      savedTools.push(saved);
+    }
+
+    console.log(`[MCP Generate] Created ${savedTools.length} tools for ${req.params.name}`);
+
+    res.json({
+      tools: savedTools,
+      context_size: agentContext.length,
+      generated_count: generatedTools.length,
+      saved_count: savedTools.length,
+    });
+  } catch (err) {
+    console.error('[MCP Generate] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Generation failed' });
+  }
+});
+
 // ==================== TEST CHAT — Simulate MCP chat with full agent context ====================
 
 router.post('/:name/test-chat', heavyLimiter, validate(chatMessageSchema), async (req, res) => {

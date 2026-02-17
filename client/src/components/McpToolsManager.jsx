@@ -270,6 +270,7 @@ export default function McpToolsManager({ agentName }) {
   const [deletingId, setDeletingId] = useState(null);
   const [toast, setToast] = useState(null);
   const [schemaError, setSchemaError] = useState(null);
+  const [generating, setGenerating] = useState(false);
 
   const [form, setForm] = useState({
     tool_name: '',
@@ -436,6 +437,20 @@ export default function McpToolsManager({ agentName }) {
     }
   };
 
+  const handleGenerate = async () => {
+    if (tools.length > 0 && !window.confirm('This will replace all existing tools with AI-generated ones. Continue?')) return;
+    setGenerating(true);
+    try {
+      const result = await api(`/api/agents/${agentName}/mcp-tools/generate`, { method: 'POST' });
+      showToast(`Generated ${result.saved_count} tools from agent context (${Math.round(result.context_size / 1000)}K chars analyzed)`);
+      loadTools();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '40px', textAlign: 'center', color: t.ts, fontSize: '13px' }}>
@@ -488,17 +503,36 @@ export default function McpToolsManager({ agentName }) {
             </p>
           </div>
         </div>
-        <button
-          onClick={openCreate}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            backgroundColor: t.tp, color: t.bg, border: 'none',
-            borderRadius: '6px', padding: '8px 14px',
-            fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          <Plus size={14} /> Add Tool
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              backgroundColor: generating ? t.surfaceEl : t.violetM,
+              color: generating ? t.tm : t.violet,
+              border: `1px solid ${generating ? t.border : t.violet}`,
+              borderRadius: '6px', padding: '8px 14px',
+              fontSize: '12px', fontWeight: 600,
+              cursor: generating ? 'wait' : 'pointer',
+              opacity: generating ? 0.7 : 1,
+            }}
+          >
+            <Sparkles size={14} className={generating ? 'animate-spin' : ''} />
+            {generating ? 'Generating...' : 'Auto-generate'}
+          </button>
+          <button
+            onClick={openCreate}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              backgroundColor: t.tp, color: t.bg, border: 'none',
+              borderRadius: '6px', padding: '8px 14px',
+              fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <Plus size={14} /> Add Tool
+          </button>
+        </div>
       </div>
 
       {/* Tool List or Empty State */}
@@ -522,17 +556,34 @@ export default function McpToolsManager({ agentName }) {
             MCP Tools replace the generic "chat" tool with specialized, purpose-built tools.
             Each tool has structured parameters and context templates that force better input and produce better output.
           </p>
-          <button
-            onClick={openCreate}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              backgroundColor: t.violet, color: '#fff', border: 'none',
-              borderRadius: '6px', padding: '10px 20px',
-              fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            <Plus size={14} /> Create First Tool
-          </button>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                backgroundColor: t.violet, color: '#fff', border: 'none',
+                borderRadius: '6px', padding: '12px 24px',
+                fontSize: '13px', fontWeight: 600,
+                cursor: generating ? 'wait' : 'pointer',
+                opacity: generating ? 0.7 : 1,
+              }}
+            >
+              <Sparkles size={14} />
+              {generating ? 'Analyzing agent...' : 'Auto-generate from Skills & Prompt'}
+            </button>
+            <button
+              onClick={openCreate}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                backgroundColor: 'transparent', color: t.ts, border: `1px solid ${t.borderS}`,
+                borderRadius: '6px', padding: '12px 24px',
+                fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <Plus size={14} /> Create Manually
+            </button>
+          </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
