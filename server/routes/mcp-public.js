@@ -3684,6 +3684,7 @@ data = response.json()
       const section = document.getElementById('provider-section');
       // Visible to the deployment creator OR admins
       const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
+      console.log('[Provider] updateProviderUI:', { authToken: !!authToken, authUser: authUser ? { id: authUser.id, role: authUser.role, email: authUser.email } : null, DEPLOYMENT_CREATOR_ID, isCreator });
       if (!authToken || !isCreator) { section.style.display = 'none'; return; }
       section.style.display = '';
 
@@ -3846,6 +3847,7 @@ data = response.json()
       try {
         // Verify token and get user info
         const user = await mcpApi('/api/user/me');
+        console.log('[initAuthState] user/me response:', JSON.stringify(user));
         authUser = user;
         // Get wallet
         const wallet = await mcpApi('/api/wallet');
@@ -3860,6 +3862,7 @@ data = response.json()
         }
         // Load provider settings for the deployment creator
         const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
+        console.log('[initAuthState] isCreator check:', { userId: authUser?.id, creatorId: DEPLOYMENT_CREATOR_ID, role: authUser?.role, isCreator });
         if (isCreator) {
           await loadProviderConfigs();
           await loadProviderKeys();
@@ -3868,7 +3871,7 @@ data = response.json()
         updateProviderUI();
       } catch (err) {
         // Token expired or invalid
-        console.warn('Auth check failed:', err.message);
+        console.warn('Auth check failed:', err.message, err);
         authToken = null;
         localStorage.removeItem('guru_token');
         updateNavUI();
