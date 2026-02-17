@@ -9,6 +9,316 @@ function hashApiKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+// =================== MCP SSE TRANSPORT (JSON-RPC 2.0) ===================
+const mcpSessions = new Map(); // sessionId -> { res, deploymentId, agentName, slug }
+
+// Cleanup stale sessions every 5 min
+setInterval(() => {
+  for (const [id, session] of mcpSessions) {
+    try { session.res.write(':ping\n\n'); }
+    catch (_) { mcpSessions.delete(id); }
+  }
+}, 5 * 60 * 1000);
+
+// GET /mcp/:slug/sse — SSE stream for MCP protocol
+router.get('/:slug/sse', async (req, res) => {
+  try {
+    const deployment = await db.getDeploymentBySlug(req.params.slug);
+    if (!deployment || deployment.status !== 'active') {
+      return res.status(404).json({ error: 'MCP not found or inactive' });
+    }
+
+    // Auth via query param or header
+    const apiKey = req.query.key || (req.headers.authorization || '').replace('Bearer ', '');
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required. Pass ?key=YOUR_KEY or Authorization: Bearer YOUR_KEY' });
+    }
+    const keyHash = hashApiKey(apiKey);
+    const keyRecord = await db.getApiKeyByHash(keyHash);
+    if (!keyRecord) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const sessionId = crypto.randomUUID();
+
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+
+    // Store session
+    mcpSessions.set(sessionId, {
+      res,
+      deploymentId: deployment.id,
+      agentName: deployment.agent_name,
+      slug: deployment.slug,
+      apiKeyId: keyRecord.id,
+    });
+
+    // Send endpoint event (first event per MCP SSE spec)
+    const messagesUrl = `/mcp/${deployment.slug}/messages?sessionId=${sessionId}`;
+    res.write(`event: endpoint\ndata: ${messagesUrl}\n\n`);
+
+    // Keepalive
+    const keepalive = setInterval(() => {
+      try { res.write(':keepalive\n\n'); }
+      catch (_) { clearInterval(keepalive); mcpSessions.delete(sessionId); }
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      mcpSessions.delete(sessionId);
+    });
+
+  } catch (err) {
+    console.error('[MCP SSE] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /mcp/:slug/messages — JSON-RPC message handler for MCP protocol
+router.post('/:slug/messages', async (req, res) => {
+  const sessionId = req.query.sessionId;
+  const session = mcpSessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found. Re-open the SSE connection.' });
+  }
+
+  const msg = req.body;
+  if (!msg || !msg.jsonrpc) {
+    return res.status(400).json({ error: 'Invalid JSON-RPC message' });
+  }
+
+  // Accept the request immediately
+  res.status(202).json({ ok: true });
+
+  // Process and send response via SSE
+  try {
+    const response = await handleMcpMessage(msg, session);
+    if (response) {
+      session.res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+    }
+  } catch (err) {
+    console.error('[MCP Messages] Error:', err.message);
+    if (msg.id) {
+      const errResp = {
+        jsonrpc: '2.0', id: msg.id,
+        error: { code: -32603, message: err.message },
+      };
+      try { session.res.write(`event: message\ndata: ${JSON.stringify(errResp)}\n\n`); } catch (_) {}
+    }
+  }
+});
+
+async function handleMcpMessage(msg, session) {
+  const { method, id, params } = msg;
+
+  // Notifications (no id) — no response needed
+  if (!id && method === 'notifications/initialized') return null;
+  if (!id) return null;
+
+  switch (method) {
+    case 'initialize':
+      return {
+        jsonrpc: '2.0', id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { subscribe: false, listChanged: false },
+            prompts: { listChanged: false },
+          },
+          serverInfo: {
+            name: `guru-${session.agentName}`,
+            version: '1.0.0',
+          },
+        },
+      };
+
+    case 'tools/list':
+      return {
+        jsonrpc: '2.0', id,
+        result: {
+          tools: [
+            {
+              name: 'chat',
+              description: `Send a message to ${session.agentName} AI agent and get a response. The agent has deep domain knowledge and specialized skills loaded.`,
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  message: { type: 'string', description: 'Your message to the agent' },
+                  context: { type: 'string', description: 'Optional context or previous conversation to include' },
+                },
+                required: ['message'],
+              },
+            },
+            {
+              name: 'get_agent_info',
+              description: `Get information about the ${session.agentName} agent including skills, capabilities, and token counts.`,
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+        },
+      };
+
+    case 'tools/call': {
+      const toolName = params?.name;
+      const toolArgs = params?.arguments || {};
+
+      if (toolName === 'chat') {
+        return await handleChatTool(id, toolArgs, session);
+      } else if (toolName === 'get_agent_info') {
+        return await handleInfoTool(id, session);
+      }
+      return { jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${toolName}` } };
+    }
+
+    case 'resources/list':
+      return {
+        jsonrpc: '2.0', id,
+        result: { resources: [] },
+      };
+
+    case 'prompts/list': {
+      const agent = await db.getAgent(session.agentName);
+      return {
+        jsonrpc: '2.0', id,
+        result: {
+          prompts: [
+            {
+              name: 'agent_system_prompt',
+              description: `The full system prompt for ${session.agentName}, including all skills and knowledge.`,
+              arguments: [],
+            },
+          ],
+        },
+      };
+    }
+
+    case 'prompts/get': {
+      const promptName = params?.name;
+      if (promptName === 'agent_system_prompt') {
+        const agent = await db.getAgent(session.agentName);
+        let systemPrompt = agent?.full_prompt || '';
+        try {
+          const skills = await db.getAgentSkills(session.agentName);
+          if (skills?.length > 0) {
+            systemPrompt += '\n\n## Assigned Skills\n\n';
+            for (const skill of skills) {
+              systemPrompt += `### ${skill.name}\n`;
+              if (skill.description) systemPrompt += `${skill.description}\n\n`;
+              if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+            }
+          }
+        } catch (_) {}
+        return {
+          jsonrpc: '2.0', id,
+          result: {
+            description: `System prompt for ${session.agentName}`,
+            messages: [{ role: 'user', content: { type: 'text', text: systemPrompt } }],
+          },
+        };
+      }
+      return { jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown prompt: ${promptName}` } };
+    }
+
+    default:
+      return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
+  }
+}
+
+async function handleChatTool(id, args, session) {
+  const startTime = Date.now();
+  const agent = await db.getAgent(session.agentName);
+  if (!agent) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Agent not found' } };
+
+  // Build system prompt
+  let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+  try {
+    const skills = await db.getAgentSkills(session.agentName);
+    if (skills?.length > 0) {
+      systemPrompt += '\n\n## Assigned Skills\n\n';
+      for (const skill of skills) {
+        systemPrompt += `### ${skill.name}\n`;
+        if (skill.description) systemPrompt += `${skill.description}\n\n`;
+        if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+      }
+    }
+  } catch (_) {}
+
+  // Build messages
+  const messages = [
+    { role: 'system', content: systemPrompt },
+  ];
+  if (args.context) messages.push({ role: 'user', content: args.context });
+  messages.push({ role: 'user', content: args.message });
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'OpenAI not configured' } };
+
+  const model = 'gpt-5-mini-2025-08-07';
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+    body: JSON.stringify({ model, messages, max_completion_tokens: 4096 }),
+  });
+
+  const result = await response.json();
+  const durationMs = Date.now() - startTime;
+
+  if (result.error) {
+    await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', result.error.message);
+    return { jsonrpc: '2.0', id, error: { code: -32603, message: result.error.message } };
+  }
+
+  const usage = result.usage || {};
+  const inputTokens = usage.prompt_tokens || 0;
+  const outputTokens = usage.completion_tokens || 0;
+  await db.logTokenUsage(session.deploymentId, session.agentName, model, inputTokens, outputTokens, 'mcp-chat', '', durationMs, 'success', '');
+  await db.incrementDeploymentStats(session.deploymentId, inputTokens, outputTokens);
+  await db.updateApiKeyLastUsed(session.apiKeyId);
+
+  const text = result.choices?.[0]?.message?.content || '';
+  return {
+    jsonrpc: '2.0', id,
+    result: {
+      content: [{ type: 'text', text }],
+      isError: false,
+    },
+  };
+}
+
+async function handleInfoTool(id, session) {
+  const agent = await db.getAgent(session.agentName);
+  if (!agent) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Agent not found' } };
+  let skills = [];
+  try { skills = await db.getAgentSkills(session.agentName); } catch (_) {}
+  const promptTokens = agent.full_prompt ? Math.round(agent.full_prompt.length / 4) : 0;
+  const skillTokens = skills.reduce((sum, s) => sum + (s.prompt ? Math.round(s.prompt.length / 4) : 0), 0);
+
+  return {
+    jsonrpc: '2.0', id,
+    result: {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          name: agent.name,
+          description: agent.description,
+          model: agent.model,
+          category: agent.category,
+          rating: agent.rating,
+          skills: skills.map(s => ({ name: s.name, category: s.category })),
+          tokens: { core: promptTokens, skills: skillTokens, total: promptTokens + skillTokens },
+        }, null, 2),
+      }],
+      isError: false,
+    },
+  };
+}
+
 // Validate API key middleware
 async function validateApiKey(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -1965,12 +2275,39 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       </div>
       <div class="setup-block">
         <div class="setup-tabs">
-          <button class="setup-tab active" onclick="switchTab(this, 'curl')">cURL</button>
+          <button class="setup-tab active" onclick="switchTab(this, 'mcp')">Claude MCP</button>
+          <button class="setup-tab" onclick="switchTab(this, 'curl')">cURL</button>
           <button class="setup-tab" onclick="switchTab(this, 'node')">Node.js</button>
           <button class="setup-tab" onclick="switchTab(this, 'python')">Python</button>
         </div>
         <div class="setup-content">
-          <div id="tab-curl" class="tab-panel">
+          <div id="tab-mcp" class="tab-panel">
+            <div style="padding:0 0 16px;font-size:13px;color:var(--text-muted);line-height:1.7">
+              Add this to your <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px">.mcp.json</code> or Claude Code settings:
+            </div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+{
+  <span class="string">"mcpServers"</span>: {
+    <span class="string">"${deployment.slug}"</span>: {
+      <span class="string">"type"</span>: <span class="string">"sse"</span>,
+      <span class="string">"url"</span>: <span class="string">"${getBaseUrl()}/mcp/${deployment.slug}/sse?key=YOUR_API_KEY"</span>
+    }
+  }
+}
+            </div>
+            <div style="margin-top:16px;padding:16px;border-radius:10px;background:rgba(139,92,246,0.08);border:1px solid ${color}22">
+              <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:8px">&#x1f4a1; Available Tools</div>
+              <div style="font-size:13px;color:var(--text-muted);line-height:1.7">
+                <strong style="color:var(--text)">chat</strong> — Send messages to ${agentName} with full context (prompt + skills)<br>
+                <strong style="color:var(--text)">get_agent_info</strong> — Get agent capabilities, skills list, and token counts
+              </div>
+            </div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-dim)">
+              &#x1f511; Replace <code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px">YOUR_API_KEY</code> with a key from the <a href="#access" style="color:var(--primary)">Access section</a> below.
+            </div>
+          </div>
+          <div id="tab-curl" class="tab-panel" style="display:none">
             <div class="code-block">
               <button class="copy-btn" onclick="copyCode(this)">Copy</button>
 <span class="comment"># Chat with ${agentName} MCP</span>
