@@ -4,11 +4,43 @@ const db = require('../db');
 const { generateEmbedding } = require('../lib/embeddings');
 const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
 const { callLLMProvider, PROVIDER_CONFIGS } = require('../lib/llm-providers');
+const { formatToolsForMcp, buildEnrichedContext, getDefaultTools } = require('../lib/mcp-agent-tools');
 
 const router = express.Router();
 
 function hashApiKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+/**
+ * Resolve LLM provider for a deployment — creator-based BYOK
+ * The deployment CREATOR configures their own API key; callers just use the agent.
+ * Falls back to server OPENAI_API_KEY if no creator key is configured.
+ */
+async function resolveByokProvider(deploymentId) {
+  let provider = 'openai';
+  let apiKey = process.env.OPENAI_API_KEY;
+  let model = 'gpt-5-mini-2025-08-07';
+  let userLlmKeyId = null;
+  let usingByok = false;
+
+  try {
+    const deployment = await db.getDeployment(deploymentId);
+    if (deployment && deployment.deployed_by) {
+      const creatorKey = await db.getActiveUserLlmKey(deployment.deployed_by);
+      if (creatorKey && creatorKey.encrypted_key) {
+        provider = creatorKey.provider;
+        apiKey = decryptApiKey(creatorKey.encrypted_key);
+        model = creatorKey.model;
+        userLlmKeyId = creatorKey.id;
+        usingByok = true;
+      }
+    }
+  } catch (err) {
+    console.warn('[BYOK] Resolution failed, using server key:', err.message);
+  }
+
+  return { provider, apiKey, model, userLlmKeyId, usingByok };
 }
 
 // =================== MCP SSE TRANSPORT (JSON-RPC 2.0) ===================
@@ -315,40 +347,48 @@ async function handleMcpMessage(msg, session) {
         },
       };
 
-    case 'tools/list':
+    case 'tools/list': {
+      // Load per-agent specialized tools from DB, fallback to default chat + get_agent_info
+      let agentTools;
+      try {
+        const dbTools = await db.getMcpAgentTools(session.agentName);
+        agentTools = formatToolsForMcp(dbTools, session.agentName);
+      } catch (err) {
+        console.warn(`[MCP] Failed to load agent tools for ${session.agentName}:`, err.message);
+        agentTools = getDefaultTools(session.agentName);
+      }
       return {
         jsonrpc: '2.0', id,
-        result: {
-          tools: [
-            {
-              name: 'chat',
-              description: `Send a message to ${session.agentName} AI agent and get a response. The agent has deep domain knowledge and specialized skills loaded.`,
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  message: { type: 'string', description: 'Your message to the agent' },
-                  context: { type: 'string', description: 'Optional context or previous conversation to include' },
-                },
-                required: ['message'],
-              },
-            },
-            {
-              name: 'get_agent_info',
-              description: `Get information about the ${session.agentName} agent including skills, capabilities, and token counts.`,
-              inputSchema: { type: 'object', properties: {} },
-            },
-          ],
-        },
+        result: { tools: agentTools },
       };
+    }
 
     case 'tools/call': {
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
 
+      if (toolName === 'get_agent_info') {
+        return await handleInfoTool(id, session);
+      }
+
+      // Check if this is a specialized tool from DB
+      try {
+        const dbTools = await db.getMcpAgentTools(session.agentName);
+        const specializedTool = dbTools.find(t => t.tool_name === toolName && t.is_active !== false);
+        if (specializedTool) {
+          // Chat tool without context_template → use original handler (preserves message/context params)
+          if (toolName === 'chat' && !specializedTool.context_template) {
+            return await handleChatTool(id, toolArgs, session);
+          }
+          return await handleSpecializedTool(id, specializedTool, toolArgs, session);
+        }
+      } catch (err) {
+        console.warn(`[MCP] Failed to check specialized tools:`, err.message);
+      }
+
+      // Fallback to generic chat
       if (toolName === 'chat') {
         return await handleChatTool(id, toolArgs, session);
-      } else if (toolName === 'get_agent_info') {
-        return await handleInfoTool(id, session);
       }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${toolName}` } };
     }
@@ -433,29 +473,10 @@ async function handleChatTool(id, args, session) {
   if (args.context) messages.push({ role: 'user', content: args.context });
   messages.push({ role: 'user', content: args.message });
 
-  // BYOK resolution: try user's configured LLM key first, fallback to server OpenAI
-  let provider = 'openai';
-  let apiKey = process.env.OPENAI_API_KEY;
-  let model = 'gpt-5-mini-2025-08-07';
-  let userLlmKeyId = null;
-  let usingByok = false;
+  // BYOK resolution: check deployment creator's configured LLM key, fallback to server OpenAI
+  let { provider, apiKey, model, userLlmKeyId, usingByok } = await resolveByokProvider(session.deploymentId);
 
-  if (session.userId) {
-    try {
-      const userKey = await db.getActiveUserLlmKey(session.userId);
-      if (userKey && userKey.encrypted_key) {
-        provider = userKey.provider;
-        apiKey = decryptApiKey(userKey.encrypted_key);
-        model = userKey.model;
-        userLlmKeyId = userKey.id;
-        usingByok = true;
-      }
-    } catch (err) {
-      console.warn('[MCP Chat] BYOK resolution failed, using server key:', err.message);
-    }
-  }
-
-  if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available. Configure your own key or contact the platform admin.' } };
+  if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available. The MCP creator must configure an API key.' } };
 
   let llmResult;
   try {
@@ -488,6 +509,118 @@ async function handleChatTool(id, args, session) {
 
   if (usingByok && userLlmKeyId) await db.updateUserLlmKeyLastUsed(userLlmKeyId);
   await db.logTokenUsage(session.deploymentId, session.agentName, model, inputTokens, outputTokens, 'mcp-chat', '', durationMs, 'success', '');
+  await db.incrementDeploymentStats(session.deploymentId, inputTokens, outputTokens);
+  await db.updateApiKeyLastUsed(session.apiKeyId);
+
+  return {
+    jsonrpc: '2.0', id,
+    result: {
+      content: [{ type: 'text', text }],
+      isError: false,
+    },
+  };
+}
+
+/**
+ * Handle a specialized tool call — tools defined per-agent in mcp_agent_tools DB table.
+ * Enriches the context using the tool's context_template + auto-extraction before LLM call.
+ */
+async function handleSpecializedTool(id, toolDef, args, session) {
+  const startTime = Date.now();
+  const agent = await db.getAgent(session.agentName);
+  if (!agent) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Agent not found' } };
+
+  // 1. Build base system prompt (agent + skills + knowledge — same as chat)
+  let systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+  try {
+    const skills = await db.getAgentSkills(session.agentName);
+    if (skills?.length > 0) {
+      systemPrompt += '\n\n## Assigned Skills\n\n';
+      for (const skill of skills) {
+        systemPrompt += `### ${skill.name}\n`;
+        if (skill.description) systemPrompt += `${skill.description}\n\n`;
+        if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Build enriched context from tool definition + args
+  const enriched = buildEnrichedContext(toolDef, args);
+
+  // 3. Inject enriched context into system prompt
+  if (enriched.contextAddition) {
+    systemPrompt += enriched.contextAddition;
+  }
+
+  // 4. Inject knowledge base (RAG) using the user message as query
+  try {
+    const agentKBs = await db.getAgentKnowledgeBases(session.agentName);
+    if (agentKBs?.length > 0) {
+      const queryText = enriched.userMessage || args.message || toolDef.tool_name;
+      const queryEmbedding = await generateEmbedding(queryText);
+      const kbIds = agentKBs.map(kb => kb.id);
+      const results = await db.searchKnowledge(queryEmbedding, {
+        threshold: 0.25, limit: 8, knowledgeBaseIds: kbIds,
+      });
+      if (results?.length > 0) {
+        systemPrompt += '\n\n## Relevant Knowledge\n\n';
+        for (const entry of results) {
+          const pct = Math.round((entry.similarity || 0) * 100);
+          systemPrompt += `**${entry.title || 'Entry'}** (${pct}% relevance)\n`;
+          systemPrompt += `${entry.content}\n\n`;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[MCP Specialized] Knowledge injection failed:', err.message);
+  }
+
+  // 5. Build messages
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: enriched.userMessage },
+  ];
+
+  console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars`);
+
+  // 6. Resolve LLM provider (creator's BYOK or server key)
+  let { provider, apiKey, model, userLlmKeyId, usingByok } = await resolveByokProvider(session.deploymentId);
+
+  if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available.' } };
+
+  // 7. Call LLM with higher token limit for specialized tools
+  let llmResult;
+  const maxTokens = 8192; // Specialized tools need more output space
+  try {
+    llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
+  } catch (err) {
+    if (usingByok && process.env.OPENAI_API_KEY) {
+      console.warn(`[MCP Specialized] BYOK failed: ${err.message}, falling back`);
+      if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
+      try {
+        provider = 'openai';
+        model = 'gpt-5-mini-2025-08-07';
+        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, model, messages, { maxTokens });
+        usingByok = false;
+      } catch (fallbackErr) {
+        const durationMs = Date.now() - startTime;
+        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, `mcp-${toolDef.tool_name}`, '', durationMs, 'error', fallbackErr.message);
+        return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+      }
+    } else {
+      const durationMs = Date.now() - startTime;
+      await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, `mcp-${toolDef.tool_name}`, '', durationMs, 'error', err.message);
+      if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
+      return { jsonrpc: '2.0', id, error: { code: -32603, message: err.message } };
+    }
+  }
+
+  // 8. Log and return
+  const durationMs = Date.now() - startTime;
+  const { text, inputTokens, outputTokens } = llmResult;
+
+  if (usingByok && userLlmKeyId) await db.updateUserLlmKeyLastUsed(userLlmKeyId);
+  await db.logTokenUsage(session.deploymentId, session.agentName, model, inputTokens, outputTokens, `mcp-${toolDef.tool_name}`, '', durationMs, 'success', '');
   await db.incrementDeploymentStats(session.deploymentId, inputTokens, outputTokens);
   await db.updateApiKeyLastUsed(session.apiKeyId);
 
@@ -676,30 +809,16 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
       ...messages,
     ];
 
-    // BYOK resolution for REST endpoint
-    let selectedProvider = 'openai';
-    let selectedApiKey = process.env.OPENAI_API_KEY;
-    let selectedModel = model || 'gpt-5-mini-2025-08-07';
-    let restUserLlmKeyId = null;
-    let restUsingByok = false;
-
-    if (req.byokUserId) {
-      try {
-        const userKey = await db.getActiveUserLlmKey(req.byokUserId);
-        if (userKey && userKey.encrypted_key) {
-          selectedProvider = userKey.provider;
-          selectedApiKey = decryptApiKey(userKey.encrypted_key);
-          selectedModel = model || userKey.model;
-          restUserLlmKeyId = userKey.id;
-          restUsingByok = true;
-        }
-      } catch (err) {
-        console.warn('[MCP REST Chat] BYOK resolution failed:', err.message);
-      }
-    }
+    // BYOK resolution for REST endpoint — uses deployment creator's key
+    const byok = await resolveByokProvider(deployment.id);
+    let selectedProvider = byok.provider;
+    let selectedApiKey = byok.apiKey;
+    let selectedModel = model || byok.model;
+    let restUserLlmKeyId = byok.userLlmKeyId;
+    let restUsingByok = byok.usingByok;
 
     if (!selectedApiKey) {
-      return res.status(503).json({ error: 'No LLM API key available. Configure your own key or contact the platform admin.' });
+      return res.status(503).json({ error: 'No LLM API key available. The MCP creator must configure an API key.' });
     }
 
     let llmResult;
@@ -2831,10 +2950,13 @@ data = response.json()
         <div class="provider-form" id="provider-form">
           <div class="provider-field">
             <label>API Key</label>
-            <input type="password" id="provider-key-input" placeholder="sk-..." autocomplete="off" />
+            <div style="display:flex;gap:8px">
+              <input type="password" id="provider-key-input" placeholder="sk-..." autocomplete="off" style="flex:1" />
+              <button class="btn-outline" onclick="fetchModels()" id="btn-fetch-models" style="white-space:nowrap;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;background:none;border:1px solid var(--border);color:var(--text-muted);cursor:pointer">Fetch Models</button>
+            </div>
           </div>
           <div class="provider-field">
-            <label>Model</label>
+            <label>Model <span id="model-source-badge" style="font-size:10px;color:var(--text-dim);font-weight:400"></span></label>
             <select id="provider-model-select"></select>
           </div>
           <div class="provider-actions">
@@ -3171,6 +3293,7 @@ data = response.json()
     const AGENT_NAME = '${escapeHtml(agent.name)}';
     const AGENT_PRICE = ${agent.price || 0};
     const AGENT_IS_PREMIUM = ${agent.is_premium ? 'true' : 'false'};
+    const DEPLOYMENT_CREATOR_ID = '${deployment.deployed_by || ''}';
     let authToken = localStorage.getItem('guru_token');
     let authUser = null;
     let walletBalance = 0;
@@ -3559,7 +3682,9 @@ data = response.json()
 
     function updateProviderUI() {
       const section = document.getElementById('provider-section');
-      if (!authToken || !hasPurchased) { section.style.display = 'none'; return; }
+      // Only visible to the deployment creator (not purchasers)
+      const isCreator = authUser && authUser.id === DEPLOYMENT_CREATOR_ID;
+      if (!authToken || !isCreator) { section.style.display = 'none'; return; }
       section.style.display = '';
 
       const cfg = providerConfigs[currentProvider];
@@ -3691,6 +3816,10 @@ data = response.json()
         updateAccessUI();
         if (hasPurchased) {
           await loadApiKeys();
+        }
+        // Load provider settings for the deployment creator
+        const isCreator = authUser && authUser.id === DEPLOYMENT_CREATOR_ID;
+        if (isCreator) {
           await loadProviderConfigs();
           await loadProviderKeys();
         }

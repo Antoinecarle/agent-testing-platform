@@ -924,6 +924,95 @@ router.delete('/:name', async (req, res) => {
   }
 });
 
+// ==================== MCP AGENT TOOLS — Per-agent specialized tool definitions ====================
+
+// GET /api/agents/:name/mcp-tools — list all MCP tools for an agent
+router.get('/:name/mcp-tools', async (req, res) => {
+  try {
+    const tools = await db.getMcpAgentTools(req.params.name);
+    res.json(tools);
+  } catch (err) {
+    console.error('[MCP Tools] List error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/:name/mcp-tools — create a new MCP tool
+router.post('/:name/mcp-tools', async (req, res) => {
+  try {
+    const agent = await db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const { tool_name, description, input_schema, context_template, output_instructions, sort_order } = req.body;
+    if (!tool_name || !description) {
+      return res.status(400).json({ error: 'tool_name and description are required' });
+    }
+
+    const tool = await db.createMcpAgentTool(req.params.name, {
+      tool_name,
+      description,
+      input_schema: input_schema || { type: 'object', properties: {} },
+      context_template: context_template || null,
+      output_instructions: output_instructions || null,
+      sort_order: sort_order || 0,
+    });
+    res.status(201).json(tool);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: `Tool "${req.body.tool_name}" already exists for this agent` });
+    }
+    console.error('[MCP Tools] Create error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/agents/:name/mcp-tools/:toolId — update a MCP tool
+router.put('/:name/mcp-tools/:toolId', async (req, res) => {
+  try {
+    const existing = await db.getMcpAgentTool(req.params.toolId);
+    if (!existing || existing.agent_name !== req.params.name) {
+      return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    await db.updateMcpAgentTool(req.params.toolId, req.body);
+    const updated = await db.getMcpAgentTool(req.params.toolId);
+    res.json(updated);
+  } catch (err) {
+    console.error('[MCP Tools] Update error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/agents/:name/mcp-tools/:toolId — delete a MCP tool
+router.delete('/:name/mcp-tools/:toolId', async (req, res) => {
+  try {
+    const existing = await db.getMcpAgentTool(req.params.toolId);
+    if (!existing || existing.agent_name !== req.params.name) {
+      return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    await db.deleteMcpAgentTool(req.params.toolId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[MCP Tools] Delete error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/agents/:name/mcp-tools/reorder — reorder MCP tools
+router.post('/:name/mcp-tools/reorder', async (req, res) => {
+  try {
+    const { toolIds } = req.body;
+    if (!Array.isArray(toolIds)) return res.status(400).json({ error: 'toolIds array required' });
+
+    await db.reorderMcpAgentTools(req.params.name, toolIds);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[MCP Tools] Reorder error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ==================== TEST CHAT — Simulate MCP chat with full agent context ====================
 
 router.post('/:name/test-chat', heavyLimiter, validate(chatMessageSchema), async (req, res) => {

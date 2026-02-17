@@ -2020,6 +2020,66 @@ async function insertAuditLog(userId, action, resource, resourceId, details, ipA
   });
 }
 
+// ===================== MCP AGENT TOOLS =====================
+
+async function createMcpAgentTool(agentName, toolData) {
+  const { data, error } = await supabase.from('mcp_agent_tools').insert({
+    agent_name: agentName,
+    tool_name: toolData.tool_name,
+    description: toolData.description,
+    input_schema: toolData.input_schema,
+    context_template: toolData.context_template || null,
+    output_instructions: toolData.output_instructions || null,
+    is_active: toolData.is_active !== false,
+    sort_order: toolData.sort_order || 0,
+    created_at: now(),
+    updated_at: now(),
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function getMcpAgentTools(agentName) {
+  const { data } = await supabase.from('mcp_agent_tools')
+    .select('*')
+    .eq('agent_name', agentName)
+    .order('sort_order', { ascending: true });
+  return data || [];
+}
+
+async function getMcpAgentTool(id) {
+  const { data } = await supabase.from('mcp_agent_tools')
+    .select('*')
+    .eq('id', id)
+    .single();
+  return data;
+}
+
+async function updateMcpAgentTool(id, fields) {
+  const update = { updated_at: now() };
+  if (fields.tool_name !== undefined) update.tool_name = fields.tool_name;
+  if (fields.description !== undefined) update.description = fields.description;
+  if (fields.input_schema !== undefined) update.input_schema = fields.input_schema;
+  if (fields.context_template !== undefined) update.context_template = fields.context_template;
+  if (fields.output_instructions !== undefined) update.output_instructions = fields.output_instructions;
+  if (fields.is_active !== undefined) update.is_active = fields.is_active;
+  if (fields.sort_order !== undefined) update.sort_order = fields.sort_order;
+  await supabase.from('mcp_agent_tools').update(update).eq('id', id);
+}
+
+async function deleteMcpAgentTool(id) {
+  await supabase.from('mcp_agent_tools').delete().eq('id', id);
+}
+
+async function reorderMcpAgentTools(agentName, toolIds) {
+  for (let i = 0; i < toolIds.length; i++) {
+    await supabase.from('mcp_agent_tools')
+      .update({ sort_order: i, updated_at: now() })
+      .eq('id', toolIds[i])
+      .eq('agent_name', agentName);
+  }
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -2127,4 +2187,7 @@ module.exports = {
   // User LLM Keys
   upsertUserLlmKey, getUserLlmKeys, getUserLlmKey, getActiveUserLlmKey,
   deleteUserLlmKey, updateUserLlmKeyLastUsed, updateUserLlmKeyError,
+  // MCP Agent Tools
+  createMcpAgentTool, getMcpAgentTools, getMcpAgentTool,
+  updateMcpAgentTool, deleteMcpAgentTool, reorderMcpAgentTools,
 };
