@@ -381,7 +381,7 @@ async function handleMcpMessage(msg, session) {
       const systemTool = getSystemTool(toolName);
       if (systemTool) {
         try {
-          const resultText = await executeSystemTool(systemTool, toolArgs);
+          const resultText = await executeSystemTool(systemTool, toolArgs, { agent_name: session.agentName });
           // Log usage (0 tokens — no LLM call)
           await db.logTokenUsage(session.deploymentId, session.agentName, 'system', 0, 0, `mcp-${toolName}`, '', 0, 'success', '');
           await db.updateApiKeyLastUsed(session.apiKeyId);
@@ -589,7 +589,7 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   let processorData = {};
   if (toolDef.pre_processors && Array.isArray(toolDef.pre_processors) && toolDef.pre_processors.length > 0) {
     console.log(`[MCP Specialized] Running ${toolDef.pre_processors.length} pre-processors: ${toolDef.pre_processors.map(p => p.type).join(', ')}`);
-    processorData = await runProcessors(toolDef.pre_processors, args);
+    processorData = await runProcessors(toolDef.pre_processors, args, { agent_name: session.agentName, tool_name: toolDef.tool_name });
     console.log(`[MCP Specialized] Processor data keys: ${Object.keys(processorData).join(', ')}`);
   }
 

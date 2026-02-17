@@ -784,7 +784,304 @@ const PROCESSORS = {
       data.__llms_txt_exists__ = false;
     }
   },
+
+  /**
+   * inject_knowledge: Searches the agent's knowledge bases using tool params
+   * and injects the most relevant entries as structured context.
+   * Config: { "type": "inject_knowledge", "search_fields": ["brief", "page_type", "domain"] }
+   * Requires context.agent_name to be set (passed from mcp-public.js).
+   * Writes: __knowledge_context__
+   */
+  inject_knowledge: async (args, config, data, context) => {
+    const agentName = context?.agent_name;
+    if (!agentName) {
+      data.__knowledge_context__ = '';
+      return;
+    }
+
+    // Build search query from specified fields (or all string args)
+    const searchFields = config.search_fields || Object.keys(args);
+    const queryParts = [];
+    for (const field of searchFields) {
+      const val = args[field];
+      if (val && typeof val === 'string' && val.length > 2) {
+        queryParts.push(val);
+      }
+    }
+    // Also include the tool name for context
+    if (config.tool_name) queryParts.push(config.tool_name);
+
+    const queryText = queryParts.join(' ').slice(0, 500);
+    if (!queryText || queryText.length < 3) {
+      data.__knowledge_context__ = '';
+      return;
+    }
+
+    try {
+      const db = require('../db');
+      const { generateEmbedding } = require('./embeddings');
+
+      const agentKBs = await db.getAgentKnowledgeBases(agentName);
+      if (!agentKBs || agentKBs.length === 0) {
+        data.__knowledge_context__ = '';
+        return;
+      }
+
+      const queryEmbedding = await generateEmbedding(queryText);
+      const kbIds = agentKBs.map(kb => kb.id);
+      const results = await db.searchKnowledge(queryEmbedding, {
+        threshold: 0.2,  // Lower threshold = more results for knowledge-rich agents
+        limit: config.limit || 8,
+        knowledgeBaseIds: kbIds,
+      });
+
+      if (!results || results.length === 0) {
+        data.__knowledge_context__ = '';
+        return;
+      }
+
+      console.log(`[MCP Processor] inject_knowledge: found ${results.length} entries for "${queryText.slice(0, 60)}..."`);
+
+      let out = '## Relevant Knowledge (from agent knowledge bases)\n\n';
+      for (const entry of results) {
+        const similarity = entry.similarity ? ` (relevance: ${Math.round(entry.similarity * 100)}%)` : '';
+        out += `### ${entry.title || 'Knowledge Entry'}${similarity}\n`;
+        out += `${entry.content}\n\n`;
+      }
+      out += '---\nUse the knowledge above to inform your response. Prioritize this domain-specific knowledge over generic patterns.\n';
+
+      data.__knowledge_context__ = out;
+    } catch (err) {
+      console.warn(`[MCP Processor] inject_knowledge failed:`, err.message);
+      data.__knowledge_context__ = '';
+    }
+  },
+
+  /**
+   * analyze_design: UX/design-focused analysis of HTML (complements html_analysis which is SEO-focused).
+   * Extracts: color palette, typography, layout structure, components, CSS custom properties,
+   * animations, interaction hints, accessibility patterns.
+   * Uses __fetched_html__ or a specified param.
+   * Writes: __design_analysis__, __design_info__ (raw object)
+   */
+  analyze_design: async (args, config, data) => {
+    const paramName = config.param;
+    let html = paramName ? args[paramName] : null;
+    if (!html && data.__fetched_html__) html = data.__fetched_html__;
+    if (!html) {
+      data.__design_analysis__ = '[No HTML content available for design analysis]';
+      return;
+    }
+
+    const info = extractDesignInfo(html);
+    data.__design_info__ = info;
+    data.__design_analysis__ = formatDesignAnalysis(info);
+  },
 };
+
+
+// =================== DESIGN EXTRACTION ===================
+
+/**
+ * Extract UX/design-relevant information from HTML.
+ * Focused on visual patterns, not SEO.
+ */
+function extractDesignInfo(html) {
+  if (!html || typeof html !== 'string') return null;
+
+  // 1. CSS Custom Properties (--var-name: value)
+  const cssVarMatches = [...html.matchAll(/--([a-zA-Z0-9-]+)\s*:\s*([^;}{]+)/g)];
+  const cssVariables = {};
+  for (const m of cssVarMatches) {
+    const name = `--${m[1]}`;
+    const value = m[2].trim();
+    cssVariables[name] = value;
+  }
+
+  // 2. Color palette extraction (hex, rgb, hsl)
+  const colorMatches = [...html.matchAll(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/g)];
+  const colorFreq = {};
+  for (const m of colorMatches) {
+    const c = m[1].toLowerCase();
+    colorFreq[c] = (colorFreq[c] || 0) + 1;
+  }
+  const colors = Object.entries(colorFreq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([color, count]) => ({ color, count }));
+
+  // 3. Typography
+  const fontFamilyMatches = [...html.matchAll(/font-family\s*:\s*([^;}{]+)/gi)];
+  const fonts = [...new Set(fontFamilyMatches.map(m => m[1].trim()))];
+  const fontSizeMatches = [...html.matchAll(/font-size\s*:\s*([^;}{]+)/gi)];
+  const fontSizes = [...new Set(fontSizeMatches.map(m => m[1].trim()))].sort();
+
+  // 4. Layout patterns
+  const hasGrid = /display\s*:\s*grid/i.test(html);
+  const hasFlex = /display\s*:\s*flex/i.test(html);
+  const gridTemplates = [...html.matchAll(/grid-template-columns\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+  const hasPosition = /position\s*:\s*(absolute|fixed|sticky)/i.test(html);
+
+  // 5. Breakpoints / media queries
+  const mediaQueries = [...html.matchAll(/@media[^{]+/gi)].map(m => m[0].trim());
+  const breakpoints = [...new Set(mediaQueries.map(mq => {
+    const w = mq.match(/(\d+)px/);
+    return w ? parseInt(w[1]) : null;
+  }).filter(Boolean))].sort((a, b) => a - b);
+
+  // 6. Animations and transitions
+  const keyframes = [...html.matchAll(/@keyframes\s+([a-zA-Z0-9_-]+)/gi)].map(m => m[1]);
+  const transitions = [...html.matchAll(/transition\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+  const hasTransform = /transform\s*:/i.test(html);
+
+  // 7. Interactive elements hints
+  const hasEventListeners = /addEventListener/i.test(html);
+  const hasDragDrop = /drag(?:start|end|over|enter|leave|drop)|draggable/i.test(html);
+  const hasCanvas = /<canvas/i.test(html);
+  const hasSVG = /<svg/i.test(html);
+  const hasIntersectionObserver = /IntersectionObserver/i.test(html);
+  const hasResizeObserver = /ResizeObserver/i.test(html);
+  const hasPointerEvents = /pointer-events|pointerdown|pointermove|pointerup/i.test(html);
+  const hasWheel = /wheel|mousewheel|onwheel/i.test(html);
+  const hasKeyboard = /keydown|keyup|keypress|keyboard/i.test(html);
+
+  // 8. Component detection (common patterns)
+  const components = [];
+  if (/<(?:button|\.btn)/i.test(html)) components.push('buttons');
+  if (/modal|dialog|overlay/i.test(html)) components.push('modals');
+  if (/sidebar|drawer|aside/i.test(html)) components.push('sidebar');
+  if (/card|panel/i.test(html)) components.push('cards');
+  if (/tab[s]?[\s-]/i.test(html)) components.push('tabs');
+  if (/tooltip|popover/i.test(html)) components.push('tooltips');
+  if (/dropdown|select|menu/i.test(html)) components.push('dropdowns');
+  if (/input|textarea|form/i.test(html)) components.push('forms');
+  if (/table|thead|tbody/i.test(html)) components.push('tables');
+  if (/badge|tag|chip/i.test(html)) components.push('badges');
+  if (/avatar|profile-img/i.test(html)) components.push('avatars');
+  if (/toast|notification|alert/i.test(html)) components.push('notifications');
+  if (/progress|loading|spinner/i.test(html)) components.push('loading');
+  if (/breadcrumb/i.test(html)) components.push('breadcrumbs');
+
+  // 9. Spacing patterns
+  const gaps = [...html.matchAll(/gap\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+  const paddings = [...html.matchAll(/padding\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+  const margins = [...html.matchAll(/margin\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+
+  // 10. Shadows and effects
+  const shadows = [...html.matchAll(/box-shadow\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+  const hasBackdropFilter = /backdrop-filter/i.test(html);
+  const hasGlassmorphism = hasBackdropFilter && /blur/i.test(html);
+  const borderRadius = [...html.matchAll(/border-radius\s*:\s*([^;}{]+)/gi)].map(m => m[1].trim());
+
+  // 11. Accessibility patterns
+  const hasAriaLabels = /aria-label/i.test(html);
+  const hasRoles = /role=/i.test(html);
+  const hasFocusStyles = /(:focus|focus-visible|focus-within)/i.test(html);
+  const hasReducedMotion = /prefers-reduced-motion/i.test(html);
+  const hasTabIndex = /tabindex/i.test(html);
+
+  return {
+    cssVariables,
+    colors,
+    fonts,
+    fontSizes,
+    layout: { hasGrid, hasFlex, gridTemplates, hasPosition },
+    breakpoints,
+    mediaQueries: mediaQueries.slice(0, 10),
+    animations: { keyframes, transitions: [...new Set(transitions)].slice(0, 10), hasTransform },
+    interactions: {
+      hasEventListeners, hasDragDrop, hasCanvas, hasSVG,
+      hasIntersectionObserver, hasResizeObserver, hasPointerEvents,
+      hasWheel, hasKeyboard,
+    },
+    components,
+    spacing: {
+      gaps: [...new Set(gaps)].slice(0, 10),
+      paddings: [...new Set(paddings)].slice(0, 10),
+    },
+    effects: {
+      shadows: [...new Set(shadows)].slice(0, 8),
+      hasGlassmorphism, hasBackdropFilter,
+      borderRadius: [...new Set(borderRadius)].slice(0, 10),
+    },
+    accessibility: { hasAriaLabels, hasRoles, hasFocusStyles, hasReducedMotion, hasTabIndex },
+  };
+}
+
+/**
+ * Format design analysis into readable markdown for context injection.
+ */
+function formatDesignAnalysis(info) {
+  if (!info) return '[No design data available]';
+
+  let out = '### Design & UX Analysis\n\n';
+
+  // Colors
+  out += '**Color Palette:**\n';
+  for (const c of (info.colors || []).slice(0, 12)) {
+    out += `- ${c.color} (used ${c.count}x)\n`;
+  }
+
+  // Typography
+  if (info.fonts.length > 0) out += `\n**Fonts:** ${info.fonts.join(', ')}\n`;
+  if (info.fontSizes.length > 0) out += `**Font Scale:** ${info.fontSizes.join(', ')}\n`;
+
+  // Layout
+  out += `\n**Layout:** ${info.layout.hasGrid ? 'CSS Grid' : ''}${info.layout.hasFlex ? (info.layout.hasGrid ? ' + ' : '') + 'Flexbox' : ''}\n`;
+  if (info.layout.gridTemplates.length > 0) {
+    out += `**Grid Templates:** ${info.layout.gridTemplates.join(' | ')}\n`;
+  }
+  if (info.breakpoints.length > 0) {
+    out += `**Breakpoints:** ${info.breakpoints.join('px, ')}px\n`;
+  }
+
+  // Components
+  if (info.components.length > 0) {
+    out += `\n**Components Detected:** ${info.components.join(', ')}\n`;
+  }
+
+  // Animations
+  if (info.animations.keyframes.length > 0) {
+    out += `\n**Animations:** ${info.animations.keyframes.join(', ')}\n`;
+  }
+
+  // Effects
+  if (info.effects.hasGlassmorphism) out += '**Visual Style:** Glassmorphism (backdrop-filter blur)\n';
+  if (info.effects.shadows.length > 0) out += `**Shadows:** ${info.effects.shadows.length} shadow styles\n`;
+  if (info.effects.borderRadius.length > 0) out += `**Border Radius:** ${[...new Set(info.effects.borderRadius)].slice(0, 5).join(', ')}\n`;
+
+  // Interactions
+  const interactionList = [];
+  if (info.interactions.hasDragDrop) interactionList.push('drag-and-drop');
+  if (info.interactions.hasPointerEvents) interactionList.push('pointer events');
+  if (info.interactions.hasWheel) interactionList.push('mouse wheel/zoom');
+  if (info.interactions.hasKeyboard) interactionList.push('keyboard handlers');
+  if (info.interactions.hasCanvas) interactionList.push('canvas rendering');
+  if (info.interactions.hasSVG) interactionList.push('SVG graphics');
+  if (info.interactions.hasIntersectionObserver) interactionList.push('scroll-triggered animations');
+  if (interactionList.length > 0) {
+    out += `\n**Interactions:** ${interactionList.join(', ')}\n`;
+  }
+
+  // CSS Variables
+  const varCount = Object.keys(info.cssVariables).length;
+  if (varCount > 0) {
+    out += `\n**CSS Custom Properties:** ${varCount} variables\n`;
+    const importantVars = Object.entries(info.cssVariables)
+      .filter(([k]) => k.includes('color') || k.includes('bg') || k.includes('primary') || k.includes('accent') || k.includes('radius') || k.includes('font'))
+      .slice(0, 15);
+    for (const [name, value] of importantVars) {
+      out += `  ${name}: ${value}\n`;
+    }
+  }
+
+  // Accessibility
+  const a11y = info.accessibility;
+  const a11yScore = [a11y.hasAriaLabels, a11y.hasRoles, a11y.hasFocusStyles, a11y.hasReducedMotion, a11y.hasTabIndex].filter(Boolean).length;
+  out += `\n**Accessibility Score:** ${a11yScore}/5 (${a11y.hasAriaLabels ? 'aria-labels' : ''}${a11y.hasFocusStyles ? ', focus styles' : ''}${a11y.hasReducedMotion ? ', reduced-motion' : ''}${a11y.hasKeyboard ? ', keyboard nav' : ''})\n`;
+
+  return out;
+}
 
 
 /**
@@ -792,9 +1089,10 @@ const PROCESSORS = {
  *
  * @param {Array} processors - Array of processor configs: [{ type, param, ... }]
  * @param {Object} args - Tool call arguments
+ * @param {Object} context - Optional context: { agent_name, tool_name }
  * @returns {Object} processorData - accumulated data from all processors
  */
-async function runProcessors(processors, args) {
+async function runProcessors(processors, args, context) {
   if (!processors || !Array.isArray(processors) || processors.length === 0) {
     return {};
   }
@@ -808,7 +1106,7 @@ async function runProcessors(processors, args) {
     }
 
     try {
-      await processor(args, config, data);
+      await processor(args, config, data, context);
     } catch (err) {
       console.error(`[MCP Processor] ${config.type} failed:`, err.message);
       data[`__${config.type}_error__`] = err.message;
@@ -923,11 +1221,11 @@ function getSystemTool(toolName) {
  * Execute a system tool (direct response — no LLM call).
  * Runs the pre-processors and returns structured results directly.
  */
-async function executeSystemTool(toolDef, args) {
+async function executeSystemTool(toolDef, args, context) {
   const startTime = Date.now();
   console.log(`[MCP System Tool] Executing ${toolDef.tool_name} with args:`, JSON.stringify(args).slice(0, 200));
 
-  const processorData = await runProcessors(toolDef.pre_processors, args);
+  const processorData = await runProcessors(toolDef.pre_processors, args, context);
   const durationMs = Date.now() - startTime;
 
   console.log(`[MCP System Tool] ${toolDef.tool_name} completed in ${durationMs}ms — keys: ${Object.keys(processorData).join(', ')}`);
@@ -1108,6 +1406,8 @@ module.exports = {
   scoreSeo,
   formatSeoScore,
   extractHtmlInfo,
+  extractDesignInfo,
+  formatDesignAnalysis,
   PROCESSORS,
   SYSTEM_TOOLS,
   getSystemToolsMcp,

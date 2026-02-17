@@ -1152,8 +1152,12 @@ Run server-side BEFORE the LLM call. Only use when the tool needs to fetch/analy
 - {"type": "fetch_multi", "param": "urls"} — parallel fetch+analyze. Writes {{__multi_summary__}}
 - {"type": "check_robots_txt", "param": "url"} — fetches /robots.txt. Writes {{__robots_txt__}}
 - {"type": "check_llms_txt", "param": "url"} — fetches /llms.txt. Writes {{__llms_txt__}}
+- {"type": "inject_knowledge", "search_fields": ["brief", "page_type", "domain"]} — searches the agent's knowledge bases using the specified fields as query, injects relevant entries as context. Writes {{__knowledge_context__}}. USE THIS for any tool that benefits from the agent's domain knowledge.
+- {"type": "analyze_design"} — extracts UX/design info from fetched HTML: color palette, typography, layout, components, animations, interactions. Writes {{__design_analysis__}}. USE THIS instead of html_analysis for design/code agents analyzing reference sites.
 
-DO NOT use pre_processors for code generation, content writing, or strategy tools.
+DO NOT use SEO pre_processors (seo_score, check_existing, check_robots_txt, check_llms_txt) for code generation, content writing, or strategy tools.
+DO use inject_knowledge for ANY agent type that has knowledge bases — it injects relevant domain knowledge automatically.
+DO use analyze_design (instead of html_analysis) when tools need to analyze the visual/UX structure of a reference site.
 
 ## context_template RULES
 - Injected into the LLM system prompt ALONGSIDE the agent's base prompt
