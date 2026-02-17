@@ -1085,7 +1085,14 @@ router.post('/:name/mcp-tools/generate', heavyLimiter, async (req, res) => {
       console.warn('[MCP Generate] Failed to load knowledge:', err.message);
     }
 
-    // 2. Call AI to generate tool definitions
+    // 2. Truncate context to stay within token limits (~40K chars max)
+    const MAX_CONTEXT = 40000;
+    if (agentContext.length > MAX_CONTEXT) {
+      console.log(`[MCP Generate] Truncating context from ${agentContext.length} to ${MAX_CONTEXT} chars`);
+      agentContext = agentContext.slice(0, MAX_CONTEXT) + '\n\n[... context truncated for token limit ...]';
+    }
+
+    // 3. Call AI to generate tool definitions
     const { callGPT5 } = require('../lib/agent-analysis');
 
     const systemPrompt = `You are an MCP tool architect. You design specialized tools for AI agents exposed via the Model Context Protocol (MCP).
@@ -1101,7 +1108,7 @@ Given an agent's full context (prompt, skills, knowledge), you must create a set
 - It MUST contain the relevant skill/knowledge content INLINED — not references
 - Use {{param}} placeholders for caller-provided dynamic values
 - Use {{#if param}}...{{/if}} for optional sections
-- Use {{__html_analysis__}} to auto-extract SEO data from HTML params
+- Use {{__html_analysis__}} to auto-extract SEO data from HTML params (for params containing HTML)
 - Use {{__json_parse:param__}} for JSON analysis
 - The goal: when a tool is called, the LLM has ALL the context it needs to produce expert-level output
 
@@ -1110,45 +1117,68 @@ Given an agent's full context (prompt, skills, knowledge), you must create a set
 - Clear, action-oriented names
 
 ## OUTPUT FORMAT
-Return ONLY a JSON array of tool objects. No markdown, no explanation.
-Each tool object has:
-{
-  "tool_name": "snake_case_name",
-  "description": "What this tool does — shown to Claude when listing tools (max 200 chars)",
-  "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
-  "context_template": "The full context template with {{placeholders}} and inlined knowledge",
-  "output_instructions": "How the output should be formatted"
-}
+Return a JSON object with a "tools" key containing an array of tool objects:
+{"tools": [
+  {
+    "tool_name": "snake_case_name",
+    "description": "What this tool does — shown to Claude when listing tools (max 200 chars)",
+    "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
+    "context_template": "The full context template with {{placeholders}} and inlined knowledge",
+    "output_instructions": "How the output should be formatted"
+  }
+]}
 
-Generate 5-12 tools depending on the agent's breadth. Include a general "chat" tool as last (sort_order 99) for freeform queries. Every tool MUST have a rich context_template that inlines the relevant skills/knowledge.`;
+Generate 5-12 tools depending on the agent's breadth. Include a general "chat" tool as last for freeform queries. Every tool MUST have a rich context_template that inlines the relevant skills/knowledge.`;
 
     const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
 
     console.log(`[MCP Generate] Generating tools for ${req.params.name} (context: ${agentContext.length} chars)`);
 
-    const response = await callGPT5([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ], { max_completion_tokens: 16000, responseFormat: 'json' });
+    let response;
+    try {
+      response = await callGPT5([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ], { max_completion_tokens: 16000, responseFormat: 'json' });
+    } catch (llmErr) {
+      console.error(`[MCP Generate] LLM call failed:`, llmErr.message);
+      return res.status(502).json({ error: `LLM call failed: ${llmErr.message}` });
+    }
 
-    // 3. Parse the response
+    if (!response || response.length < 10) {
+      console.error(`[MCP Generate] Empty LLM response`);
+      return res.status(502).json({ error: 'LLM returned empty response' });
+    }
+
+    console.log(`[MCP Generate] Got LLM response (${response.length} chars)`);
+
+    // 4. Parse the response
     let generatedTools;
     try {
       const parsed = JSON.parse(response);
-      generatedTools = Array.isArray(parsed) ? parsed : (parsed.tools || []);
+      generatedTools = Array.isArray(parsed) ? parsed : (parsed.tools || Object.values(parsed).find(v => Array.isArray(v)) || []);
     } catch (e) {
       // Try to extract JSON array from response
       const match = response.match(/\[[\s\S]*\]/);
       if (match) {
-        generatedTools = JSON.parse(match[0]);
+        try {
+          generatedTools = JSON.parse(match[0]);
+        } catch (e2) {
+          console.error(`[MCP Generate] JSON extraction failed:`, e2.message, 'Raw:', response.slice(0, 500));
+          return res.status(500).json({ error: 'AI returned unparseable JSON', raw: response.slice(0, 1000) });
+        }
       } else {
-        return res.status(500).json({ error: 'AI returned invalid JSON', raw: response.slice(0, 1000) });
+        console.error(`[MCP Generate] No JSON array in response. Raw:`, response.slice(0, 500));
+        return res.status(500).json({ error: 'AI returned invalid format', raw: response.slice(0, 1000) });
       }
     }
 
     if (!Array.isArray(generatedTools) || generatedTools.length === 0) {
+      console.error(`[MCP Generate] No tools in parsed response`);
       return res.status(500).json({ error: 'AI generated no tools', raw: response.slice(0, 1000) });
     }
+
+    console.log(`[MCP Generate] Parsed ${generatedTools.length} tools, saving to DB...`);
 
     // 4. Delete existing tools and save new ones
     const existingTools = await db.getMcpAgentTools(req.params.name);
@@ -1181,7 +1211,7 @@ Generate 5-12 tools depending on the agent's breadth. Include a general "chat" t
       saved_count: savedTools.length,
     });
   } catch (err) {
-    console.error('[MCP Generate] Error:', err.message);
+    console.error('[MCP Generate] Error:', err.message, err.stack?.split('\n').slice(0, 3).join('\n'));
     res.status(500).json({ error: err.message || 'Generation failed' });
   }
 });
