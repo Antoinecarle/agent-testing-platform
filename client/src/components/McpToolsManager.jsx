@@ -438,14 +438,14 @@ export default function McpToolsManager({ agentName }) {
 
   if (loading) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', color: t.ts, fontSize: '13px' }}>
+      <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '40px', textAlign: 'center', color: t.ts, fontSize: '13px' }}>
         Loading tools...
       </div>
     );
   }
 
   return (
-    <div>
+    <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '20px' }}>
       {/* Toast */}
       {toast && (
         <div style={{
