@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { api } from '../api';
 import AgentCreator from '../components/AgentCreator';
 import OnboardingBanner from '../components/OnboardingBanner';
+import TemplateGallery from '../components/TemplateGallery';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -998,37 +999,33 @@ export default function Dashboard() {
           </div>
 
           {projects.length === 0 ? (
-            <div style={{
-              padding: '50px 40px', borderRadius: '16px', border: `2px dashed ${t.border}`,
-              textAlign: 'center', backgroundColor: `${t.surface}44`
-            }}>
-              <div style={{ marginBottom: '16px', color: t.tm }}>
-                <Globe size={40} strokeWidth={1} style={{ margin: '0 auto' }} />
-              </div>
-              <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>Your workspace is empty</h3>
-              <p style={{ color: t.ts, fontSize: '13px', maxWidth: '300px', margin: '0 auto 20px', lineHeight: '1.5' }}>
-                Start by creating a new project or initialize with our sample test suite.
-              </p>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                <button onClick={handleSeed} disabled={seeding} style={{
-                  padding: '10px 18px', borderRadius: '8px', backgroundColor: t.surfaceEl,
-                  color: t.tp, border: `1px solid ${t.borderS}`, fontWeight: 600, fontSize: '13px', cursor: 'pointer'
-                }}>
-                  {seeding ? 'Generating...' : 'Seed Sample Data'}
-                </button>
-                <button onClick={() => navigate('/project/new')} style={{
-                  padding: '10px 18px', borderRadius: '8px', backgroundColor: t.violet,
-                  color: '#fff', border: 'none', fontWeight: 600, fontSize: '13px', cursor: 'pointer'
-                }}>
-                  Create Project
-                </button>
+            <div>
+              <TemplateGallery onProjectCreated={fetchData} />
+              <div style={{
+                marginTop: '20px', textAlign: 'center', padding: '16px',
+                borderRadius: '10px', border: `1px dashed ${t.border}`,
+                background: `${t.surface}44`,
+              }}>
+                <span style={{ color: t.ts, fontSize: '13px' }}>
+                  Or{' '}
+                  <button onClick={() => navigate('/project/new')} style={{
+                    background: 'none', border: 'none', color: t.violet, cursor: 'pointer',
+                    fontWeight: 600, fontSize: '13px', textDecoration: 'underline',
+                  }}>
+                    create an empty project
+                  </button>
+                  {' '}from scratch
+                </span>
               </div>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-              {projects.map((project) => (
-                <ProjectCard key={project.id} project={project} navigate={navigate} onDelete={handleDeleteProject} t={t} />
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <TemplateGallery compact onProjectCreated={fetchData} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                {projects.map((project) => (
+                  <ProjectCard key={project.id} project={project} navigate={navigate} onDelete={handleDeleteProject} t={t} />
+                ))}
+              </div>
             </div>
           )}
         </motion.div>

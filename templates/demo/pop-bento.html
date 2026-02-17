@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DRIP CULTURE - Streetwear</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a0a;color:#fafafa;font-family:'Space Grotesk',sans-serif;overflow-x:hidden}
+  .container{max-width:1200px;margin:0 auto;padding:0 24px}
+  header{padding:20px 0;display:flex;justify-content:space-between;align-items:center}
+  .logo{font-size:28px;font-weight:800;letter-spacing:-0.06em;display:flex;align-items:center;gap:8px}
+  .logo span{background:#FF6B35;color:#0a0a0a;padding:2px 8px;border-radius:4px;font-size:14px;transform:rotate(-2deg);display:inline-block}
+  nav{display:flex;gap:24px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+  nav a{color:#888;text-decoration:none;transition:color 0.2s}
+  nav a:hover{color:#FF6B35}
+  .hero{padding:60px 0;display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center}
+  .hero-text h1{font-size:clamp(40px,7vw,80px);font-weight:800;line-height:0.95;letter-spacing:-0.05em;text-transform:uppercase}
+  .hero-text h1 .outline{-webkit-text-stroke:2px #fafafa;color:transparent}
+  .hero-text h1 .orange{color:#FF6B35}
+  .hero-text p{font-size:16px;color:#888;margin:20px 0 28px;line-height:1.6;max-width:380px}
+  .hero-cta{display:flex;gap:12px}
+  .hero-cta a{padding:14px 28px;border-radius:100px;font-weight:700;font-size:14px;text-decoration:none;transition:all 0.3s}
+  .hero-cta .primary{background:#FF6B35;color:#0a0a0a}
+  .hero-cta .primary:hover{background:#ff8555;transform:scale(1.05)}
+  .hero-cta .secondary{background:transparent;color:#fafafa;border:2px solid #333}
+  .hero-cta .secondary:hover{border-color:#FF6B35;color:#FF6B35}
+  .hero-visual{position:relative}
+  .hero-card{background:#1a1a1a;border-radius:20px;padding:24px;border:1px solid #222;transform:rotate(2deg)}
+  .hero-card img{width:100%;border-radius:12px;aspect-ratio:3/4;object-fit:cover}
+  .hero-card .price{position:absolute;bottom:40px;right:0;background:#FF6B35;color:#0a0a0a;padding:8px 20px;border-radius:100px 0 0 100px;font-weight:800;font-size:18px}
+  .float-tag{position:absolute;padding:8px 16px;border-radius:100px;font-size:12px;font-weight:700;white-space:nowrap}
+  .bento{padding:40px 0}
+  .bento-grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:auto;gap:16px}
+  .bento-card{border-radius:20px;padding:28px;position:relative;overflow:hidden;transition:transform 0.3s}
+  .bento-card:hover{transform:translateY(-4px)}
+  .b1{grid-column:span 2;grid-row:span 2;background:linear-gradient(135deg,#FF6B35,#ff8555);color:#0a0a0a;min-height:360px;display:flex;flex-direction:column;justify-content:flex-end}
+  .b1 h2{font-size:42px;font-weight:800;line-height:1;letter-spacing:-0.04em;text-transform:uppercase}
+  .b1 p{font-size:14px;opacity:0.8;margin-top:8px}
+  .b2{background:#1a1a1a;border:1px solid #222;display:flex;flex-direction:column;justify-content:space-between}
+  .b2 .number{font-size:48px;font-weight:800;color:#FF6B35;letter-spacing:-0.04em}
+  .b2 .label{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:0.1em}
+  .b3{background:linear-gradient(135deg,#7C3AED,#a855f7);display:flex;flex-direction:column;justify-content:flex-end}
+  .b3 h3{font-size:20px;font-weight:800;text-transform:uppercase}
+  .b3 p{font-size:12px;opacity:0.7;margin-top:4px}
+  .b4{grid-column:span 2;background:#111;border:1px solid #222;display:flex;align-items:center;gap:24px}
+  .b4 img{width:80px;height:80px;border-radius:16px;object-fit:cover;border:3px solid #FF6B35}
+  .b4 .review-text{font-size:14px;color:#ccc;line-height:1.5;font-style:italic}
+  .b4 .review-author{font-size:12px;color:#FF6B35;font-weight:700;margin-top:8px}
+  .b5{background:#18181b;border:1px solid #222;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+  .b5 .emoji{font-size:36px}
+  .b5 h4{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em}
+  .b6{background:linear-gradient(180deg,#1a1a1a,#111);border:1px solid #222}
+  .b6 h4{font-size:16px;font-weight:700;margin-bottom:12px}
+  .b6 .tag-list{display:flex;flex-wrap:wrap;gap:6px}
+  .b6 .tag{padding:6px 14px;border-radius:100px;background:#222;font-size:11px;font-weight:600;color:#aaa}
+  .products{padding:80px 0}
+  .products h2{font-size:36px;font-weight:800;text-transform:uppercase;letter-spacing:-0.04em;margin-bottom:8px}
+  .products .subtitle{color:#888;font-size:14px;margin-bottom:40px}
+  .product-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .product-card{background:#1a1a1a;border-radius:16px;overflow:hidden;border:1px solid #222;transition:all 0.3s}
+  .product-card:hover{border-color:#FF6B35;transform:translateY(-4px)}
+  .product-card img{width:100%;aspect-ratio:1;object-fit:cover}
+  .product-info{padding:16px}
+  .product-info h4{font-size:15px;font-weight:700;margin-bottom:4px}
+  .product-info .price-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+  .product-info .price{font-size:18px;font-weight:800;color:#FF6B35}
+  .product-info .add-btn{width:32px;height:32px;border-radius:50%;background:#FF6B35;color:#0a0a0a;display:flex;align-items:center;justify-content:center;font-size:18px;border:none;cursor:pointer}
+  .newsletter{padding:80px 0;text-align:center}
+  .newsletter-box{background:linear-gradient(135deg,#1a1a1a,#111);border:1px solid #222;border-radius:24px;padding:60px 40px;max-width:600px;margin:0 auto}
+  .newsletter-box h2{font-size:28px;font-weight:800;text-transform:uppercase;letter-spacing:-0.03em;margin-bottom:8px}
+  .newsletter-box p{color:#888;font-size:14px;margin-bottom:24px}
+  .newsletter-form{display:flex;gap:8px;max-width:400px;margin:0 auto}
+  .newsletter-form input{flex:1;padding:12px 16px;border-radius:100px;background:#222;border:1px solid #333;color:#fff;font-size:14px;outline:none}
+  .newsletter-form input:focus{border-color:#FF6B35}
+  .newsletter-form button{padding:12px 24px;border-radius:100px;background:#FF6B35;color:#0a0a0a;font-weight:700;font-size:14px;border:none;cursor:pointer}
+  footer{padding:32px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between;font-size:12px;color:#444}
+  @media(max-width:768px){
+    .hero{grid-template-columns:1fr}
+    .bento-grid{grid-template-columns:1fr}
+    .b1,.b4{grid-column:span 1}
+    .product-grid{grid-template-columns:1fr 1fr}
+    nav{display:none}
+  }
+  @media(max-width:480px){
+    .product-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">DRIP <span>NYC</span></div>
+    <nav>
+      <a href="#">Shop</a>
+      <a href="#">Collections</a>
+      <a href="#">About</a>
+      <a href="#">Contact</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-text">
+      <h1>The <span class="orange">Culture</span><br>Wears<br><span class="outline">Different</span></h1>
+      <p>Premium streetwear for those who lead, not follow. Limited drops. Unlimited expression.</p>
+      <div class="hero-cta">
+        <a href="#" class="primary">Shop Now</a>
+        <a href="#" class="secondary">Fall '24 &rarr;</a>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-card">
+        <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=600&q=80" alt="Streetwear">
+        <div class="price">$189</div>
+      </div>
+      <div class="float-tag" style="top:20px;left:-20px;background:#7C3AED;color:#fff">Limited Edition</div>
+      <div class="float-tag" style="bottom:80px;left:-10px;background:#0a0a0a;border:1px solid #333;color:#fff">&#x2B50; 4.9 (2.3k reviews)</div>
+    </div>
+  </section>
+
+  <section class="bento">
+    <div class="bento-grid">
+      <div class="bento-card b1">
+        <h2>Fall<br>Collection<br>2024</h2>
+        <p>48 new pieces dropping this season</p>
+      </div>
+      <div class="bento-card b2">
+        <div><div class="number">50K+</div><div class="label">Community Members</div></div>
+      </div>
+      <div class="bento-card b3">
+        <h3>Collabs</h3>
+        <p>Nike x DRIP dropping soon</p>
+      </div>
+      <div class="bento-card b4">
+        <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80" alt="Customer">
+        <div>
+          <div class="review-text">"Best quality streetwear I've ever owned. The attention to detail is insane."</div>
+          <div class="review-author">@marcus_style</div>
+        </div>
+      </div>
+      <div class="bento-card b5">
+        <div class="emoji">&#x1F4E6;</div>
+        <h4>Free Shipping</h4>
+        <div style="font-size:12px;color:#666">On orders $100+</div>
+      </div>
+      <div class="bento-card b6">
+        <h4>Popular Tags</h4>
+        <div class="tag-list">
+          <span class="tag">Oversized</span>
+          <span class="tag">Y2K</span>
+          <span class="tag">Techwear</span>
+          <span class="tag">Vintage</span>
+          <span class="tag">Minimalist</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="products">
+    <h2>Hot Right Now &#x1F525;</h2>
+    <div class="subtitle">Most popular picks this week</div>
+    <div class="product-grid">
+      <div class="product-card">
+        <img src="https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=500&q=80" alt="Oversized Hoodie">
+        <div class="product-info">
+          <h4>Oversized Graphic Hoodie</h4>
+          <div style="font-size:12px;color:#888">Black / S-XXL</div>
+          <div class="price-row">
+            <span class="price">$129</span>
+            <button class="add-btn">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="product-card">
+        <img src="https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=500&q=80" alt="Cargo Pants">
+        <div class="product-info">
+          <h4>Tech Cargo Pants</h4>
+          <div style="font-size:12px;color:#888">Olive / 28-38</div>
+          <div class="price-row">
+            <span class="price">$159</span>
+            <button class="add-btn">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="product-card">
+        <img src="https://images.unsplash.com/photo-1588117305388-c2631a279f82?w=500&q=80" alt="Beanie">
+        <div class="product-info">
+          <h4>DRIP Logo Beanie</h4>
+          <div style="font-size:12px;color:#888">One Size</div>
+          <div class="price-row">
+            <span class="price">$45</span>
+            <button class="add-btn">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="newsletter">
+    <div class="newsletter-box">
+      <h2>Join the Drip &#x1F4A7;</h2>
+      <p>Get early access to drops, exclusive deals, and culture updates.</p>
+      <div class="newsletter-form">
+        <input type="email" placeholder="your@email.com">
+        <button>Subscribe</button>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>&copy; 2024 DRIP CULTURE NYC</span>
+    <span>Instagram &middot; TikTok &middot; Twitter</span>
+  </footer>
+</div>
+</body>
+</html>

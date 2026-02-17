@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const path = require('path');
 const db = require('./db');
 const { ensureUserHome, isClaudeAuthenticated } = require('./user-home');
+const { seedWelcomeProject } = require('./lib/welcome-seed');
 const { validate, loginSchema, registerSchema } = require('./middleware/validate');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
@@ -76,6 +77,9 @@ router.post('/register', validate(registerSchema), async (req, res) => {
 
     // Create user home directory with symlinked agents
     ensureUserHome(id);
+
+    // Fire-and-forget: seed welcome demo project for new user
+    seedWelcomeProject(id).catch(err => console.error('[Auth] Welcome seed failed:', err.message));
 
     const payload = { userId: id, email, role: 'user' };
     const { accessToken, refreshToken } = generateTokens(payload);

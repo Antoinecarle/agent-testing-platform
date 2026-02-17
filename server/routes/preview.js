@@ -38,6 +38,31 @@ function placeholderSvg(filename, width = 800, height = 600) {
 </svg>`;
 }
 
+const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates', 'demo');
+
+// GET /api/preview/template/:templateId — serve bundled template HTML for iframe preview
+router.get('/template/:templateId', (req, res) => {
+  try {
+    const manifestPath = path.join(TEMPLATES_DIR, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      return res.status(404).send('<h1>Templates not available</h1>');
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    const tmpl = manifest.find(t => t.id === req.params.templateId);
+    if (!tmpl) {
+      return res.status(404).send('<h1>Template not found</h1>');
+    }
+    const filePath = path.join(TEMPLATES_DIR, tmpl.file);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('<h1>Template file missing</h1>');
+    }
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error('[Preview] Template error:', err.message);
+    res.status(500).send('<h1>Server error</h1>');
+  }
+});
+
 // GET /api/preview/showcase/:projectId — public project info + all iterations (for client sharing)
 router.get('/showcase/:projectId', async (req, res) => {
   try {

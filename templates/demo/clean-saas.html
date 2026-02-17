@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flowboard - Project Management</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#09090b;color:#fafafa;font-family:'Inter',sans-serif;overflow-x:hidden}
+  .container{max-width:1200px;margin:0 auto;padding:0 32px}
+  header{padding:20px 0;display:flex;justify-content:space-between;align-items:center}
+  .logo{font-size:20px;font-weight:800;letter-spacing:-0.04em;display:flex;align-items:center;gap:8px}
+  .logo-icon{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff}
+  nav{display:flex;gap:28px;font-size:14px;color:#71717a}
+  nav a{color:inherit;text-decoration:none;transition:color 0.2s}
+  nav a:hover{color:#fafafa}
+  .header-actions{display:flex;gap:12px;align-items:center}
+  .btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;border:none;text-decoration:none}
+  .btn-ghost{background:transparent;color:#a1a1aa;border:1px solid #27272a}
+  .btn-ghost:hover{background:#18181b;color:#fafafa;border-color:#3f3f46}
+  .btn-primary{background:#8b5cf6;color:#fff}
+  .btn-primary:hover{background:#7c3aed;box-shadow:0 0 20px rgba(139,92,246,0.3)}
+  .hero{padding:100px 0 80px;text-align:center}
+  .hero .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px 4px 6px;border-radius:100px;background:#18181b;border:1px solid #27272a;font-size:12px;color:#a1a1aa;margin-bottom:24px}
+  .hero .badge .dot{width:6px;height:6px;border-radius:50%;background:#8b5cf6;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .hero h1{font-size:clamp(36px,6vw,72px);font-weight:800;letter-spacing:-0.04em;line-height:1.05;margin-bottom:20px}
+  .hero h1 .gradient{background:linear-gradient(135deg,#8b5cf6,#c084fc,#e879f9);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .hero p{font-size:18px;color:#71717a;max-width:520px;margin:0 auto 36px;line-height:1.6}
+  .hero-actions{display:flex;gap:12px;justify-content:center}
+  .hero-actions .btn{padding:12px 24px;font-size:14px}
+  .preview{margin:40px auto 0;max-width:960px;border-radius:16px;border:1px solid #27272a;overflow:hidden;background:#111;position:relative;box-shadow:0 40px 80px -20px rgba(0,0,0,0.6)}
+  .preview-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;background:#18181b;border-bottom:1px solid #27272a}
+  .preview-dot{width:10px;height:10px;border-radius:50%}
+  .preview-body{padding:24px;display:grid;grid-template-columns:220px 1fr;gap:20px;min-height:320px}
+  .sidebar{display:flex;flex-direction:column;gap:4px}
+  .sidebar-item{padding:8px 12px;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:8px;color:#71717a;cursor:pointer;transition:all 0.15s}
+  .sidebar-item.active{background:#27272a;color:#fafafa}
+  .sidebar-item svg{width:16px;height:16px;opacity:0.6}
+  .main-content{background:#18181b;border-radius:12px;padding:20px}
+  .main-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+  .main-header h3{font-size:16px;font-weight:700}
+  .task-list{display:flex;flex-direction:column;gap:8px}
+  .task{padding:12px 14px;background:#09090b;border:1px solid #27272a;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:13px}
+  .task-check{width:16px;height:16px;border-radius:4px;border:2px solid #3f3f46;flex-shrink:0}
+  .task-check.done{background:#8b5cf6;border-color:#8b5cf6}
+  .task-tag{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600}
+  .features{padding:100px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+  .feature-card{padding:28px;border-radius:14px;border:1px solid #27272a;background:#111;transition:all 0.3s}
+  .feature-card:hover{border-color:#8b5cf633;background:#18181b;transform:translateY(-4px)}
+  .feature-icon{width:40px;height:40px;border-radius:10px;background:#8b5cf615;border:1px solid #8b5cf633;display:flex;align-items:center;justify-content:center;margin-bottom:16px;font-size:18px}
+  .feature-card h4{font-size:16px;font-weight:700;margin-bottom:8px;letter-spacing:-0.01em}
+  .feature-card p{font-size:13px;color:#71717a;line-height:1.6}
+  .logos{padding:60px 0;text-align:center;border-top:1px solid #18181b;border-bottom:1px solid #18181b}
+  .logos p{font-size:12px;color:#3f3f46;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:24px}
+  .logo-row{display:flex;justify-content:center;gap:48px;align-items:center;opacity:0.3;font-size:18px;font-weight:700;color:#71717a}
+  .cta-section{padding:100px 0;text-align:center}
+  .cta-section h2{font-size:40px;font-weight:800;letter-spacing:-0.03em;margin-bottom:12px}
+  .cta-section p{color:#71717a;font-size:16px;margin-bottom:32px}
+  footer{padding:32px 0;border-top:1px solid #18181b;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#3f3f46}
+  @media(max-width:768px){
+    .features{grid-template-columns:1fr}
+    .preview-body{grid-template-columns:1fr}
+    .sidebar{display:none}
+    nav{display:none}
+    .logo-row{flex-wrap:wrap;gap:24px}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo"><div class="logo-icon">F</div> Flowboard</div>
+    <nav>
+      <a href="#">Features</a>
+      <a href="#">Pricing</a>
+      <a href="#">Docs</a>
+      <a href="#">Changelog</a>
+    </nav>
+    <div class="header-actions">
+      <a href="#" class="btn btn-ghost">Log in</a>
+      <a href="#" class="btn btn-primary">Start Free</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="badge"><span class="dot"></span> Now in public beta</div>
+    <h1>Ship projects<br><span class="gradient">10x faster</span></h1>
+    <p>The minimal project management tool built for teams who value speed and clarity over bloated features.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn btn-primary">Get Started Free &rarr;</a>
+      <a href="#" class="btn btn-ghost">See Demo</a>
+    </div>
+  </section>
+
+  <div class="preview">
+    <div class="preview-bar">
+      <div class="preview-dot" style="background:#ef4444"></div>
+      <div class="preview-dot" style="background:#f59e0b"></div>
+      <div class="preview-dot" style="background:#22c55e"></div>
+      <span style="flex:1;text-align:center;font-size:12px;color:#3f3f46">Flowboard Dashboard</span>
+    </div>
+    <div class="preview-body">
+      <div class="sidebar">
+        <div class="sidebar-item active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Dashboard
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          Tasks
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Timeline
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Team
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          Settings
+        </div>
+      </div>
+      <div class="main-content">
+        <div class="main-header">
+          <h3>Sprint #14</h3>
+          <span class="btn btn-ghost" style="font-size:11px;padding:4px 10px">+ Add Task</span>
+        </div>
+        <div class="task-list">
+          <div class="task">
+            <div class="task-check done"></div>
+            <span style="flex:1">Design new onboarding flow</span>
+            <span class="task-tag" style="background:#8b5cf615;color:#8b5cf6">Design</span>
+          </div>
+          <div class="task">
+            <div class="task-check done"></div>
+            <span style="flex:1">Implement auth middleware</span>
+            <span class="task-tag" style="background:#22c55e15;color:#22c55e">Backend</span>
+          </div>
+          <div class="task">
+            <div class="task-check"></div>
+            <span style="flex:1">API rate limiting setup</span>
+            <span class="task-tag" style="background:#f59e0b15;color:#f59e0b">Infra</span>
+          </div>
+          <div class="task">
+            <div class="task-check"></div>
+            <span style="flex:1">Dashboard analytics widgets</span>
+            <span class="task-tag" style="background:#8b5cf615;color:#8b5cf6">Design</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section class="features">
+    <div class="feature-card">
+      <div class="feature-icon">&#x26A1;</div>
+      <h4>Lightning Fast</h4>
+      <p>Built with performance in mind. Every interaction responds in under 50ms. No loading spinners, ever.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F512;</div>
+      <h4>Secure by Default</h4>
+      <p>End-to-end encryption, SOC 2 compliant, and fine-grained permissions for every team member.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F504;</div>
+      <h4>Real-time Sync</h4>
+      <p>Changes propagate instantly across all devices. Collaborate in real-time without conflicts.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F3AF;</div>
+      <h4>Focus Mode</h4>
+      <p>Minimize distractions with intelligent task prioritization and clean, minimal interfaces.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F4CA;</div>
+      <h4>Smart Analytics</h4>
+      <p>Understand team velocity, bottlenecks, and progress with beautiful, actionable dashboards.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F50C;</div>
+      <h4>API-First</h4>
+      <p>Everything accessible via REST and GraphQL APIs. Build custom integrations in minutes.</p>
+    </div>
+  </section>
+
+  <section class="logos">
+    <p>Trusted by teams at</p>
+    <div class="logo-row">
+      <span>Vercel</span>
+      <span>Linear</span>
+      <span>Stripe</span>
+      <span>Notion</span>
+      <span>Figma</span>
+    </div>
+  </section>
+
+  <section class="cta-section">
+    <h2>Start shipping today</h2>
+    <p>Free for teams up to 5 members. No credit card required.</p>
+    <a href="#" class="btn btn-primary" style="padding:14px 32px;font-size:15px">Get Started &rarr;</a>
+  </section>
+
+  <footer>
+    <span>&copy; 2024 Flowboard Inc.</span>
+    <span>Privacy &middot; Terms &middot; Status</span>
+  </footer>
+</div>
+</body>
+</html>

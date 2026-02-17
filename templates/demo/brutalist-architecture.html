@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BRUT. Architecture Studio</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Space+Mono:wght@400;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a0a;color:#f5f5f0;font-family:'Space Grotesk',sans-serif;overflow-x:hidden}
+  .mono{font-family:'Space Mono',monospace}
+  .red{color:#ff0000}
+  header{padding:32px 48px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #222}
+  header .logo{font-size:32px;font-weight:700;letter-spacing:-0.04em}
+  header nav{display:flex;gap:32px;font-size:13px;text-transform:uppercase;letter-spacing:0.15em;color:#888}
+  header nav a{color:inherit;text-decoration:none;transition:color 0.2s}
+  header nav a:hover{color:#ff0000}
+  .hero{padding:120px 48px 80px;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:end}
+  .hero h1{font-size:clamp(48px,8vw,120px);line-height:0.9;font-weight:700;letter-spacing:-0.05em;text-transform:uppercase}
+  .hero h1 span{display:block;-webkit-text-stroke:2px #f5f5f0;color:transparent}
+  .hero-right{display:flex;flex-direction:column;gap:24px}
+  .hero-right p{font-size:16px;line-height:1.7;color:#999;max-width:400px}
+  .hero-right .cta{display:inline-flex;align-items:center;gap:12px;padding:16px 32px;border:2px solid #ff0000;color:#ff0000;font-size:14px;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;text-decoration:none;transition:all 0.3s;width:fit-content}
+  .hero-right .cta:hover{background:#ff0000;color:#0a0a0a}
+  .marquee{padding:40px 0;border-top:1px solid #222;border-bottom:1px solid #222;overflow:hidden;white-space:nowrap}
+  .marquee-inner{display:inline-flex;gap:80px;animation:scroll 20s linear infinite;font-size:14px;text-transform:uppercase;letter-spacing:0.2em;color:#444}
+  .marquee-inner span.dot{color:#ff0000}
+  @keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+  .projects{padding:100px 48px}
+  .projects .section-label{font-size:12px;text-transform:uppercase;letter-spacing:0.2em;color:#666;margin-bottom:48px;display:flex;align-items:center;gap:16px}
+  .projects .section-label::after{content:'';flex:1;height:1px;background:#333}
+  .project-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px}
+  .project-card{position:relative;aspect-ratio:4/3;overflow:hidden;background:#111;cursor:pointer}
+  .project-card img{width:100%;height:100%;object-fit:cover;filter:grayscale(1);transition:all 0.6s cubic-bezier(0.16,1,0.3,1)}
+  .project-card:hover img{filter:grayscale(0);transform:scale(1.05)}
+  .project-card .overlay{position:absolute;bottom:0;left:0;right:0;padding:32px;background:linear-gradient(transparent,rgba(0,0,0,0.9));transform:translateY(20px);opacity:0;transition:all 0.4s}
+  .project-card:hover .overlay{transform:translateY(0);opacity:1}
+  .project-card .overlay h3{font-size:24px;font-weight:700;text-transform:uppercase;letter-spacing:-0.02em}
+  .project-card .overlay p{font-size:12px;color:#888;margin-top:4px;text-transform:uppercase;letter-spacing:0.1em}
+  .stats{padding:80px 48px;display:grid;grid-template-columns:repeat(4,1fr);gap:48px;border-top:1px solid #222;border-bottom:1px solid #222}
+  .stat-item .number{font-size:64px;font-weight:700;letter-spacing:-0.04em;line-height:1}
+  .stat-item .label{font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#666;margin-top:8px}
+  .philosophy{padding:120px 48px;display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}
+  .philosophy h2{font-size:48px;font-weight:700;text-transform:uppercase;letter-spacing:-0.03em;line-height:1.1}
+  .philosophy h2 em{font-style:normal;color:#ff0000}
+  .philosophy p{font-size:15px;line-height:1.8;color:#888}
+  .philosophy blockquote{margin-top:32px;padding-left:24px;border-left:3px solid #ff0000;font-size:18px;font-style:italic;color:#ccc;line-height:1.6}
+  footer{padding:48px;border-top:1px solid #222;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#444}
+  footer .social{display:flex;gap:24px}
+  footer .social a{color:#666;text-decoration:none;text-transform:uppercase;letter-spacing:0.1em;font-size:11px}
+  footer .social a:hover{color:#ff0000}
+  @media(max-width:768px){
+    .hero{grid-template-columns:1fr;padding:60px 24px}
+    .project-grid{grid-template-columns:1fr}
+    .stats{grid-template-columns:repeat(2,1fr);padding:48px 24px}
+    .philosophy{grid-template-columns:1fr;padding:60px 24px}
+    header{padding:24px}
+    .projects{padding:60px 24px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BRUT<span class="red">.</span></div>
+  <nav>
+    <a href="#">Projects</a>
+    <a href="#">Philosophy</a>
+    <a href="#">Studio</a>
+    <a href="#">Contact</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <h1>We Build<br><span>Brutal</span><br>Spaces</h1>
+  <div class="hero-right">
+    <p>Architecture that refuses to apologize. Raw concrete, exposed steel, and uncompromising form. Every structure tells a story of material honesty.</p>
+    <a href="#" class="cta">View Projects &rarr;</a>
+    <div class="mono" style="font-size:11px;color:#555;margin-top:16px">EST. 2019 &mdash; BERLIN / TOKYO / NYC</div>
+  </div>
+</section>
+
+<div class="marquee">
+  <div class="marquee-inner">
+    <span>Residential</span><span class="dot">&bull;</span>
+    <span>Commercial</span><span class="dot">&bull;</span>
+    <span>Cultural</span><span class="dot">&bull;</span>
+    <span>Infrastructure</span><span class="dot">&bull;</span>
+    <span>Interior</span><span class="dot">&bull;</span>
+    <span>Urban Planning</span><span class="dot">&bull;</span>
+    <span>Residential</span><span class="dot">&bull;</span>
+    <span>Commercial</span><span class="dot">&bull;</span>
+    <span>Cultural</span><span class="dot">&bull;</span>
+    <span>Infrastructure</span><span class="dot">&bull;</span>
+    <span>Interior</span><span class="dot">&bull;</span>
+    <span>Urban Planning</span><span class="dot">&bull;</span>
+  </div>
+</div>
+
+<section class="projects">
+  <div class="section-label"><span class="mono">001</span> Selected Works</div>
+  <div class="project-grid">
+    <div class="project-card">
+      <img src="https://images.unsplash.com/photo-1511818966892-d7d671e672a2?w=800&q=80" alt="Concrete Pavilion">
+      <div class="overlay"><h3>Concrete Pavilion</h3><p>Berlin, 2024</p></div>
+    </div>
+    <div class="project-card">
+      <img src="https://images.unsplash.com/photo-1513584684374-8bab748fbf90?w=800&q=80" alt="Steel Residence">
+      <div class="overlay"><h3>Steel Residence</h3><p>Tokyo, 2023</p></div>
+    </div>
+    <div class="project-card">
+      <img src="https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=800&q=80" alt="Urban Void">
+      <div class="overlay"><h3>Urban Void</h3><p>New York, 2023</p></div>
+    </div>
+    <div class="project-card">
+      <img src="https://images.unsplash.com/photo-1545558014-8692077e9b5c?w=800&q=80" alt="Glass Monolith">
+      <div class="overlay"><h3>Glass Monolith</h3><p>Zurich, 2024</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="stats">
+  <div class="stat-item"><div class="number red">47</div><div class="label">Projects Completed</div></div>
+  <div class="stat-item"><div class="number">12</div><div class="label">Design Awards</div></div>
+  <div class="stat-item"><div class="number">3</div><div class="label">Global Studios</div></div>
+  <div class="stat-item"><div class="number">28</div><div class="label">Team Members</div></div>
+</div>
+
+<section class="philosophy">
+  <div>
+    <h2>Truth in <em>Material</em></h2>
+    <p>We believe architecture should reveal its construction, not hide it. Every beam, every joint, every surface has a story to tell. Our practice is grounded in the conviction that honest materials create honest spaces.</p>
+    <blockquote>"The building should be a direct expression of its structure and purpose."</blockquote>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:24px">
+    <div style="padding:32px;border:1px solid #222">
+      <div class="mono" style="font-size:11px;color:#ff0000;margin-bottom:8px">01</div>
+      <div style="font-weight:700;font-size:18px;margin-bottom:8px">Material Honesty</div>
+      <div style="font-size:13px;color:#888;line-height:1.6">Raw concrete and exposed steel as primary expressive elements.</div>
+    </div>
+    <div style="padding:32px;border:1px solid #222">
+      <div class="mono" style="font-size:11px;color:#ff0000;margin-bottom:8px">02</div>
+      <div style="font-weight:700;font-size:18px;margin-bottom:8px">Structural Clarity</div>
+      <div style="font-size:13px;color:#888;line-height:1.6">Every load path visible. Every connection celebrated.</div>
+    </div>
+    <div style="padding:32px;border:1px solid #222">
+      <div class="mono" style="font-size:11px;color:#ff0000;margin-bottom:8px">03</div>
+      <div style="font-weight:700;font-size:18px;margin-bottom:8px">Spatial Drama</div>
+      <div style="font-size:13px;color:#888;line-height:1.6">Bold volumes and light interplay that evoke emotional responses.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="mono">&copy; 2024 BRUT. Studio</div>
+  <div class="social">
+    <a href="#">Instagram</a>
+    <a href="#">Behance</a>
+    <a href="#">LinkedIn</a>
+  </div>
+</footer>
+</body>
+</html>

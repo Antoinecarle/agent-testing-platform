@@ -1,10 +1,77 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const db = require('../db');
 const { validate, createProjectSchema, updateProjectSchema, forkProjectSchema } = require('../middleware/validate');
 const { resolveOrg, checkPlanLimit } = require('../middleware/rbac');
 
 const router = express.Router();
+
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates', 'demo');
+const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+
+// GET /api/projects/templates — list bundled demo templates
+router.get('/templates', (req, res) => {
+  try {
+    const manifestPath = path.join(TEMPLATES_DIR, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      return res.json([]);
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    res.json(manifest);
+  } catch (err) {
+    console.error('[Projects] Templates error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/projects/from-template — create project from a bundled template
+router.post('/from-template', async (req, res) => {
+  try {
+    const { template_id, name } = req.body;
+    if (!template_id) return res.status(400).json({ error: 'template_id required' });
+
+    const manifestPath = path.join(TEMPLATES_DIR, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) {
+      return res.status(404).json({ error: 'Templates not available' });
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    const tmpl = manifest.find(t => t.id === template_id);
+    if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+
+    const srcFile = path.join(TEMPLATES_DIR, tmpl.file);
+    if (!fs.existsSync(srcFile)) {
+      return res.status(404).json({ error: 'Template file missing' });
+    }
+
+    // Create project
+    const projectId = crypto.randomUUID();
+    const projectName = name || tmpl.name;
+    await db.createProject(projectId, projectName, tmpl.description || '', tmpl.agent_name || '', 'solo', null, req.user.userId);
+
+    // Create iteration with template content
+    const iterationId = crypto.randomUUID();
+    const destDir = path.join(ITERATIONS_DIR, projectId, iterationId);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcFile, path.join(destDir, 'index.html'));
+
+    const filePath = `${projectId}/${iterationId}/index.html`;
+    await db.createIteration(
+      iterationId, projectId, tmpl.agent_name || '', 1,
+      tmpl.name, `Created from template: ${tmpl.name}`, null, filePath, '', 'completed',
+      { template_id: tmpl.id, accent_color: tmpl.accent_color }
+    );
+    await db.updateProjectIterationCount(projectId, 1);
+
+    const project = await db.getProject(projectId);
+    res.status(201).json({ project, iterationId });
+  } catch (err) {
+    console.error('[Projects] From-template error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // GET /api/projects — list projects (filtered by user, admin sees all)
 router.get('/', async (req, res) => {
@@ -68,10 +135,6 @@ router.post('/fork', validate(forkProjectSchema), async (req, res) => {
 
     // Create v1 iteration in the new project
     const iterationId = crypto.randomUUID();
-    const path = require('path');
-    const fs = require('fs');
-    const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
-    const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 
     const sourceDir = path.join(ITERATIONS_DIR, source_project_id || sourceIteration.project_id, source_iteration_id);
     const destDir = path.join(ITERATIONS_DIR, projectId, iterationId);

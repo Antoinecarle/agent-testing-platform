@@ -1,0 +1,38 @@
+[
+  {
+    "id": "brutalist-architecture",
+    "name": "Brutalist Architecture Studio",
+    "description": "Bold, raw concrete aesthetics with high-contrast typography and anti-design principles.",
+    "file": "brutalist-architecture.html",
+    "agent_name": "brutalist-raw",
+    "accent_color": "#ff0000",
+    "category": "Portfolio"
+  },
+  {
+    "id": "clean-saas",
+    "name": "Clean SaaS Dashboard",
+    "description": "Minimal, precise interface with monochrome palette inspired by Linear and Raycast.",
+    "file": "clean-saas.html",
+    "agent_name": "clean-minimal-saas",
+    "accent_color": "#8B5CF6",
+    "category": "SaaS"
+  },
+  {
+    "id": "pop-bento",
+    "name": "Streetwear Pop Bento",
+    "description": "Energetic bento-grid layout with bold colors, floating elements and playful typography.",
+    "file": "pop-bento.html",
+    "agent_name": "pop-bento-builder",
+    "accent_color": "#FF6B35",
+    "category": "E-commerce"
+  },
+  {
+    "id": "glass-ai",
+    "name": "Glassmorphism AI Platform",
+    "description": "Frosted glass UI with aurora gradients and cinematic depth for AI/tech products.",
+    "file": "glass-ai.html",
+    "agent_name": "glassmorphism-aurora",
+    "accent_color": "#06B6D4",
+    "category": "AI/Tech"
+  }
+]
