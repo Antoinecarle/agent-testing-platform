@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Rocket, Globe, Key, BarChart3, Pause, Play, Trash, Sparkles, MessageCircle, Wrench } from 'lucide-react';
 import { api, getUser } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 import AgentCreator from '../components/AgentCreator';
@@ -821,6 +821,42 @@ export default function AgentDetail() {
           <div style={{ textAlign: 'left' }}>
             <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>Enhance with AI</div>
             <div style={{ fontSize: '11px', color: t.ts }}>Improve this agent via AI conversation</div>
+          </div>
+          <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
+        </button>
+
+        {/* MCP Tools */}
+        <button
+          onClick={() => navigate(`/agents/${name}/mcp-tools`)}
+          style={{
+            flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: '14px',
+            padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.05) 100%)',
+            border: '1px solid rgba(34,197,94,0.25)',
+            transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = '#22c55e';
+            e.currentTarget.style.boxShadow = '0 8px 32px -8px rgba(34,197,94,0.4)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = 'rgba(34,197,94,0.25)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          <div style={{
+            width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(34,197,94,0.3)',
+          }}>
+            <Wrench size={20} color="#fff" />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '14px', fontWeight: '700', color: t.tp, marginBottom: '2px' }}>MCP Tools</div>
+            <div style={{ fontSize: '11px', color: t.ts }}>Configure specialized tools for this MCP</div>
           </div>
           <ChevronRight size={16} style={{ color: t.tm, marginLeft: 'auto', flexShrink: 0 }} />
         </button>

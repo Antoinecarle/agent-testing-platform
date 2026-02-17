@@ -10,6 +10,7 @@ import AgentBrowser from './pages/AgentBrowser';
 import AgentCreate from './pages/AgentCreate';
 import AgentDetail from './pages/AgentDetail';
 import AgentEdit from './pages/AgentEdit';
+import AgentMcpTools from './pages/AgentMcpTools';
 import AgentTeams from './pages/AgentTeams';
 import AgentStats from './pages/AgentStats';
 import ProjectView from './pages/ProjectView';
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="skills/create" element={<SkillCreator />} />
           <Route path="skills/:id/edit" element={<SkillCreator />} />
           <Route path="agents/:name/edit" element={<AgentEdit />} />
+          <Route path="agents/:name/mcp-tools" element={<AgentMcpTools />} />
           <Route path="agents/:name" element={<AgentDetail />} />
           <Route path="project/:id" element={<ProjectView />} />
           <Route path="compare/:id" element={<Comparison />} />
