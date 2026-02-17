@@ -91,67 +91,129 @@ router.get('/:slug/sse', async (req, res) => {
   }
 });
 
-// POST /mcp/:slug/sse — Streamable HTTP transport (Claude Code sends POST here)
+// =================== STREAMABLE HTTP TRANSPORT ===================
+// Handles both POST /mcp/:slug/sse and POST /mcp/:slug/mcp
+// Claude Code uses this when type is "sse" (fallback) or "streamable-http"
+
+const streamableSessions = new Map(); // sessionId -> { deploymentId, agentName, slug, apiKeyId }
+
+async function handleStreamablePost(req, res, slug) {
+  const deployment = await db.getDeploymentBySlug(slug);
+  if (!deployment || deployment.status !== 'active') {
+    return res.status(404).json({ jsonrpc: '2.0', error: { code: -32600, message: 'MCP not found' } });
+  }
+
+  // Auth via query param, header, or session
+  const apiKey = req.query.key || (req.headers.authorization || '').replace('Bearer ', '');
+  if (!apiKey) {
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32600, message: 'API key required' } });
+  }
+  const keyHash = hashApiKey(apiKey);
+  let keyRecord = await db.getApiKeyByHash(keyHash);
+  if (!keyRecord) keyRecord = await db.getUserApiTokenByHash(keyHash);
+  if (!keyRecord) {
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid API key' } });
+  }
+
+  const msg = req.body;
+  if (!msg || !msg.jsonrpc) {
+    return res.status(400).json({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid JSON-RPC' } });
+  }
+  console.log(`[MCP Streamable] ${deployment.slug} method=${msg.method} id=${msg.id}`);
+
+  const session = {
+    res: null, deploymentId: deployment.id,
+    agentName: deployment.agent_name, slug: deployment.slug,
+    apiKeyId: keyRecord.id,
+  };
+
+  // Handle notifications (no id) — respond 202
+  if (!msg.id) {
+    return res.status(202).end();
+  }
+
+  const response = await handleMcpMessage(msg, session);
+  if (!response) {
+    return res.status(202).end();
+  }
+
+  // Generate/reuse session ID
+  let sessionId = req.headers['mcp-session-id'];
+  if (msg.method === 'initialize') {
+    sessionId = crypto.randomUUID();
+    streamableSessions.set(sessionId, {
+      deploymentId: deployment.id, agentName: deployment.agent_name,
+      slug: deployment.slug, apiKeyId: keyRecord.id,
+    });
+  }
+
+  // Respond based on Accept header
+  const acceptSSE = (req.headers.accept || '').includes('text/event-stream');
+  if (acceptSSE) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+      ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+    });
+    res.flushHeaders();
+    res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+    if (res.flush) res.flush();
+    res.end();
+  } else {
+    if (sessionId) res.setHeader('Mcp-Session-Id', sessionId);
+    res.json(response);
+  }
+}
+
+// POST /mcp/:slug/sse — Streamable HTTP (Claude Code fallback from SSE type)
 router.post('/:slug/sse', async (req, res) => {
   try {
-    const deployment = await db.getDeploymentBySlug(req.params.slug);
-    if (!deployment || deployment.status !== 'active') {
-      return res.status(404).json({ jsonrpc: '2.0', error: { code: -32600, message: 'MCP not found' } });
-    }
-
-    // Auth
-    const apiKey = req.query.key || (req.headers.authorization || '').replace('Bearer ', '');
-    if (!apiKey) {
-      return res.status(401).json({ jsonrpc: '2.0', error: { code: -32600, message: 'API key required' } });
-    }
-    const keyHash = hashApiKey(apiKey);
-    let keyRecord = await db.getApiKeyByHash(keyHash);
-    if (!keyRecord) keyRecord = await db.getUserApiTokenByHash(keyHash);
-    if (!keyRecord) {
-      return res.status(401).json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid API key' } });
-    }
-
-    const msg = req.body;
-    if (!msg || !msg.jsonrpc) {
-      return res.status(400).json({ jsonrpc: '2.0', error: { code: -32700, message: 'Invalid JSON-RPC' } });
-    }
-    console.log(`[MCP Streamable] ${deployment.slug} method=${msg.method} id=${msg.id}`);
-
-    const session = {
-      res: null, deploymentId: deployment.id,
-      agentName: deployment.agent_name, slug: deployment.slug,
-      apiKeyId: keyRecord.id,
-    };
-
-    const response = await handleMcpMessage(msg, session);
-    if (response) {
-      // Check if client wants SSE or JSON response
-      const acceptSSE = (req.headers.accept || '').includes('text/event-stream');
-      if (acceptSSE) {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache, no-transform',
-          'X-Accel-Buffering': 'no',
-        });
-        res.flushHeaders();
-        res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
-        if (res.flush) res.flush();
-        res.end();
-      } else {
-        res.json(response);
-      }
-    } else {
-      res.status(202).json({ ok: true });
-    }
+    await handleStreamablePost(req, res, req.params.slug);
   } catch (err) {
-    console.error('[MCP Streamable] Error:', err.message);
+    console.error('[MCP Streamable /sse] Error:', err.message);
     res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: err.message } });
   }
 });
 
-// DELETE /mcp/:slug/sse — Streamable HTTP session cleanup
-router.delete('/:slug/sse', (req, res) => {
-  res.status(200).json({ ok: true });
+// POST /mcp/:slug/mcp — Dedicated Streamable HTTP endpoint
+router.post('/:slug/mcp', async (req, res) => {
+  try {
+    await handleStreamablePost(req, res, req.params.slug);
+  } catch (err) {
+    console.error('[MCP Streamable /mcp] Error:', err.message);
+    res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: err.message } });
+  }
+});
+
+// GET /mcp/:slug/mcp — SSE notifications stream for Streamable HTTP
+router.get('/:slug/mcp', async (req, res) => {
+  // Streamable HTTP allows GET for server-initiated notifications
+  // For now, just keep the connection open for session keepalive
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
+    'Connection': 'keep-alive',
+  });
+  res.flushHeaders();
+  res.write(':ok\n\n');
+  if (res.flush) res.flush();
+
+  const keepalive = setInterval(() => {
+    try { res.write(':keepalive\n\n'); if (res.flush) res.flush(); }
+    catch (_) { clearInterval(keepalive); }
+  }, 30000);
+
+  req.on('close', () => clearInterval(keepalive));
+});
+
+// DELETE /mcp/:slug/sse — Session cleanup
+router.delete('/:slug/sse', (req, res) => { res.status(200).end(); });
+router.delete('/:slug/mcp', (req, res) => {
+  const sessionId = req.headers['mcp-session-id'];
+  if (sessionId) streamableSessions.delete(sessionId);
+  res.status(200).end();
 });
 
 // POST /mcp/:slug/messages — JSON-RPC message handler for MCP protocol
