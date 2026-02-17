@@ -128,7 +128,8 @@ async function handleStreamablePost(req, res, slug) {
   };
 
   // Handle notifications (no id) — respond 202
-  if (!msg.id) {
+  // IMPORTANT: id can be 0 which is falsy, so check for undefined/null explicitly
+  if (msg.id === undefined || msg.id === null) {
     return res.status(202).end();
   }
 
@@ -260,8 +261,9 @@ async function handleMcpMessage(msg, session) {
   const { method, id, params } = msg;
 
   // Notifications (no id) — no response needed
-  if (!id && method === 'notifications/initialized') return null;
-  if (!id) return null;
+  // Note: id can be 0 (falsy), check explicitly for undefined/null
+  if ((id === undefined || id === null) && method === 'notifications/initialized') return null;
+  if (id === undefined || id === null) return null;
 
   switch (method) {
     case 'initialize':

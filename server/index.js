@@ -603,18 +603,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     ].join('\n') + '\n');
   });
 
-  // .well-known endpoints for MCP OAuth discovery (return 404 JSON — no OAuth needed)
-  app.get('/.well-known/oauth-authorization-server', (req, res) => {
-    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
-  });
-  app.get('/.well-known/oauth-authorization-server/*', (req, res) => {
-    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
-  });
-  app.get('/.well-known/oauth-protected-resource', (req, res) => {
-    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
-  });
-  app.get('/.well-known/oauth-protected-resource/*', (req, res) => {
-    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
+  // .well-known endpoints — return 404 JSON for all MCP/OAuth discovery (no OAuth needed)
+  app.get('/.well-known/*', (req, res) => {
+    res.status(404).json({ error: 'Not found. This server uses API key authentication.' });
   });
 
   // Serve static frontend
