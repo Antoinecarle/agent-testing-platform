@@ -1,0 +1,700 @@
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { api, clearToken } from '../api';
+import {
+  User, Shield, Building2, CreditCard, Settings as SettingsIcon,
+  Check, AlertCircle, Mail, Lock, Eye, EyeOff, Plus, Trash2,
+  Crown, Users, ChevronRight, Loader2, ExternalLink,
+} from 'lucide-react';
+
+const t = {
+  bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
+  border: 'rgba(255,255,255,0.08)', borderS: 'rgba(255,255,255,0.15)',
+  violet: '#8B5CF6', violetM: 'rgba(139,92,246,0.2)', violetG: 'rgba(139,92,246,0.12)',
+  tp: '#F4F4F5', ts: '#A1A1AA', tm: '#52525B',
+  success: '#22c55e', warning: '#f59e0b', danger: '#ef4444',
+  mono: '"JetBrains Mono","Fira Code",monospace',
+};
+
+const inputStyle = {
+  width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`,
+  borderRadius: '6px', padding: '10px 12px', color: '#fff', fontSize: '13px',
+  outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+};
+
+const labelStyle = {
+  display: 'block', fontSize: '12px', fontWeight: '500', color: t.ts, marginBottom: '6px',
+};
+
+const TABS = [
+  { id: 'profile', label: 'Profile', icon: User },
+  { id: 'security', label: 'Security', icon: Shield },
+  { id: 'organizations', label: 'Organizations', icon: Building2 },
+  { id: 'billing', label: 'Billing', icon: CreditCard },
+];
+
+const ROLE_COLORS = {
+  owner: t.violet,
+  admin: t.warning,
+  member: t.success,
+  viewer: t.ts,
+};
+
+function Toast({ message, type, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+  const bg = type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+  const border = type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)';
+  const color = type === 'success' ? t.success : t.danger;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      style={{
+        position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
+        padding: '10px 20px', borderRadius: '8px', background: bg,
+        border: `1px solid ${border}`, color, fontSize: '13px', fontWeight: '500',
+        zIndex: 9999, display: 'flex', alignItems: 'center', gap: '8px',
+      }}
+    >
+      {type === 'success' ? <Check size={14} /> : <AlertCircle size={14} />}
+      {message}
+    </motion.div>
+  );
+}
+
+export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const activeTab = searchParams.get('tab') || 'profile';
+  const setActiveTab = (tab) => setSearchParams({ tab });
+
+  const [profile, setProfile] = useState(null);
+  const [orgs, setOrgs] = useState([]);
+  const [billing, setBilling] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  // Profile form
+  const [displayName, setDisplayName] = useState('');
+  const [company, setCompany] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+
+  // Password form
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+
+  // New org form
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgSlug, setNewOrgSlug] = useState('');
+  const [showNewOrg, setShowNewOrg] = useState(false);
+
+  // Delete account
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [profileRes, orgsRes, billingRes] = await Promise.allSettled([
+        api('/api/settings/profile'),
+        api('/api/organizations'),
+        api('/api/settings/billing'),
+      ]);
+      if (profileRes.status === 'fulfilled' && profileRes.value) {
+        const p = profileRes.value;
+        setProfile(p);
+        setDisplayName(p.display_name || '');
+        setCompany(p.company || '');
+        setJobTitle(p.job_title || '');
+        setAvatarUrl(p.avatar_url || '');
+      }
+      if (orgsRes.status === 'fulfilled') setOrgs(orgsRes.value || []);
+      if (billingRes.status === 'fulfilled') setBilling(billingRes.value || null);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function showToast(message, type = 'success') {
+    setToast({ message, type });
+  }
+
+  async function saveProfile() {
+    setSaving(true);
+    try {
+      const updated = await api('/api/settings/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ display_name: displayName, company, job_title: jobTitle, avatar_url: avatarUrl }),
+      });
+      setProfile(updated);
+      showToast('Profile updated');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePassword() {
+    if (newPassword !== confirmPassword) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api('/api/settings/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      showToast('Password changed');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function requestVerification() {
+    setSaving(true);
+    try {
+      await api('/api/settings/request-verification', { method: 'POST' });
+      showToast('Verification email sent');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createOrg() {
+    if (!newOrgName.trim() || !newOrgSlug.trim()) return;
+    setSaving(true);
+    try {
+      await api('/api/organizations', {
+        method: 'POST',
+        body: JSON.stringify({ name: newOrgName, slug: newOrgSlug }),
+      });
+      setNewOrgName('');
+      setNewOrgSlug('');
+      setShowNewOrg(false);
+      const orgsData = await api('/api/organizations');
+      setOrgs(orgsData);
+      showToast('Organization created');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteAccount() {
+    setSaving(true);
+    try {
+      await api('/api/settings/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      clearToken();
+      navigate('/login');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: t.ts }}>
+        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+        <span style={{ marginLeft: '8px', fontSize: '13px' }}>Loading settings...</span>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{ padding: '32px', maxWidth: '900px', margin: '0 auto' }}
+    >
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
+      {/* Header */}
+      <div style={{ marginBottom: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+          <SettingsIcon size={20} color={t.violet} />
+          <h1 style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.02em', color: t.tp }}>
+            Settings
+          </h1>
+        </div>
+        <p style={{ fontSize: '13px', color: t.ts }}>Manage your account, security, and organizations</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '24px' }}>
+        {/* Sidebar tabs */}
+        <div style={{ width: '180px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '8px 12px', borderRadius: '6px', border: 'none',
+                    background: active ? t.surfaceEl : 'transparent',
+                    color: active ? t.tp : t.ts,
+                    fontSize: '13px', fontWeight: active ? '500' : '400',
+                    cursor: 'pointer', textAlign: 'left',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Icon size={14} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {activeTab === 'profile' && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Section title="Profile Information">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <Field label="Display Name" value={displayName} onChange={setDisplayName} />
+                  <Field label="Email" value={profile?.email || ''} disabled />
+                  <Field label="Company" value={company} onChange={setCompany} placeholder="Your company" />
+                  <Field label="Job Title" value={jobTitle} onChange={setJobTitle} placeholder="Your role" />
+                </div>
+                <Field label="Avatar URL" value={avatarUrl} onChange={setAvatarUrl} placeholder="https://..." style={{ marginTop: '16px' }} />
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={saveProfile}
+                    disabled={saving}
+                    style={{
+                      padding: '8px 20px', background: t.tp, color: t.bg,
+                      border: 'none', borderRadius: '4px', fontSize: '12px',
+                      fontWeight: '600', cursor: 'pointer', opacity: saving ? 0.7 : 1,
+                    }}
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </Section>
+
+              {/* Danger Zone */}
+              <Section title="Danger Zone" danger style={{ marginTop: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: '500', color: t.danger }}>Delete Account</div>
+                    <div style={{ fontSize: '12px', color: t.tm, marginTop: '2px' }}>
+                      Permanently delete your account and all data
+                    </div>
+                  </div>
+                  {!showDeleteConfirm ? (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      style={{
+                        padding: '6px 14px', background: 'transparent', color: t.danger,
+                        border: `1px solid rgba(239,68,68,0.3)`, borderRadius: '4px',
+                        fontSize: '12px', fontWeight: '500', cursor: 'pointer',
+                      }}
+                    >
+                      Delete Account
+                    </button>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="password"
+                        placeholder="Confirm password"
+                        value={deletePassword}
+                        onChange={e => setDeletePassword(e.target.value)}
+                        style={{ ...inputStyle, width: '180px' }}
+                      />
+                      <button
+                        onClick={deleteAccount}
+                        disabled={saving}
+                        style={{
+                          padding: '6px 14px', background: t.danger, color: '#fff',
+                          border: 'none', borderRadius: '4px', fontSize: '12px',
+                          fontWeight: '600', cursor: 'pointer',
+                        }}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => { setShowDeleteConfirm(false); setDeletePassword(''); }}
+                        style={{
+                          padding: '6px 14px', background: 'transparent', color: t.ts,
+                          border: `1px solid ${t.border}`, borderRadius: '4px',
+                          fontSize: '12px', cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </Section>
+            </motion.div>
+          )}
+
+          {activeTab === 'security' && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              {/* Email verification */}
+              <Section title="Email Verification">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '28px', height: '28px', borderRadius: '50%',
+                      background: profile?.email_verified ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {profile?.email_verified ? (
+                        <Check size={14} color={t.success} />
+                      ) : (
+                        <AlertCircle size={14} color={t.warning} />
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13px', color: t.tp }}>
+                        {profile?.email || 'No email'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: profile?.email_verified ? t.success : t.warning }}>
+                        {profile?.email_verified ? 'Verified' : 'Not verified'}
+                      </div>
+                    </div>
+                  </div>
+                  {!profile?.email_verified && (
+                    <button
+                      onClick={requestVerification}
+                      disabled={saving}
+                      style={{
+                        padding: '6px 14px', background: t.violetM, color: t.violet,
+                        border: `1px solid ${t.violet}`, borderRadius: '4px',
+                        fontSize: '12px', fontWeight: '500', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                      }}
+                    >
+                      <Mail size={12} />
+                      Send Verification
+                    </button>
+                  )}
+                </div>
+              </Section>
+
+              {/* Change password */}
+              <Section title="Change Password" style={{ marginTop: '24px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '360px' }}>
+                  <Field
+                    label="Current Password"
+                    type={showPasswords ? 'text' : 'password'}
+                    value={currentPassword}
+                    onChange={setCurrentPassword}
+                  />
+                  <Field
+                    label="New Password"
+                    type={showPasswords ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={setNewPassword}
+                    placeholder="Min 6 characters"
+                  />
+                  <Field
+                    label="Confirm New Password"
+                    type={showPasswords ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <button
+                      onClick={() => setShowPasswords(!showPasswords)}
+                      style={{
+                        background: 'none', border: 'none', color: t.ts, fontSize: '11px',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                      }}
+                    >
+                      {showPasswords ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {showPasswords ? 'Hide' : 'Show'} passwords
+                    </button>
+                    <button
+                      onClick={changePassword}
+                      disabled={saving || !currentPassword || !newPassword || !confirmPassword}
+                      style={{
+                        padding: '8px 20px', background: t.tp, color: t.bg,
+                        border: 'none', borderRadius: '4px', fontSize: '12px',
+                        fontWeight: '600', cursor: 'pointer',
+                        opacity: (saving || !currentPassword || !newPassword) ? 0.5 : 1,
+                      }}
+                    >
+                      {saving ? 'Changing...' : 'Change Password'}
+                    </button>
+                  </div>
+                </div>
+              </Section>
+            </motion.div>
+          )}
+
+          {activeTab === 'organizations' && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Section
+                title="Your Organizations"
+                action={
+                  <button
+                    onClick={() => setShowNewOrg(!showNewOrg)}
+                    style={{
+                      padding: '6px 12px', background: t.violetM, color: t.violet,
+                      border: `1px solid ${t.violet}`, borderRadius: '4px',
+                      fontSize: '11px', fontWeight: '600', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                    }}
+                  >
+                    <Plus size={12} />
+                    New Organization
+                  </button>
+                }
+              >
+                {/* New org form */}
+                {showNewOrg && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    style={{
+                      padding: '16px', background: t.bg, borderRadius: '8px',
+                      border: `1px solid ${t.borderS}`, marginBottom: '16px',
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <Field label="Name" value={newOrgName} onChange={setNewOrgName} placeholder="My Team" />
+                      <Field
+                        label="Slug"
+                        value={newOrgSlug}
+                        onChange={(v) => setNewOrgSlug(v.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                        placeholder="my-team"
+                      />
+                    </div>
+                    <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => setShowNewOrg(false)}
+                        style={{
+                          padding: '6px 14px', background: 'transparent', color: t.ts,
+                          border: `1px solid ${t.border}`, borderRadius: '4px',
+                          fontSize: '12px', cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={createOrg}
+                        disabled={saving || !newOrgName.trim() || !newOrgSlug.trim()}
+                        style={{
+                          padding: '6px 14px', background: t.violet, color: '#fff',
+                          border: 'none', borderRadius: '4px', fontSize: '12px',
+                          fontWeight: '600', cursor: 'pointer',
+                          opacity: (!newOrgName.trim() || !newOrgSlug.trim()) ? 0.5 : 1,
+                        }}
+                      >
+                        Create
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Org list */}
+                {orgs.length === 0 ? (
+                  <div style={{
+                    padding: '32px', textAlign: 'center', color: t.tm,
+                    border: `1px dashed ${t.border}`, borderRadius: '8px',
+                  }}>
+                    <Building2 size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                    <div style={{ fontSize: '13px' }}>No organizations yet</div>
+                    <div style={{ fontSize: '11px', marginTop: '4px' }}>Create one to collaborate with your team</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {orgs.map((org) => (
+                      <div
+                        key={org.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '12px 16px', background: t.bg, borderRadius: '8px',
+                          border: `1px solid ${t.border}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{
+                            width: '32px', height: '32px', borderRadius: '8px',
+                            background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <Building2 size={14} color={t.violet} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: '500', color: t.tp }}>{org.name}</div>
+                            <div style={{ fontSize: '11px', color: t.tm }}>{org.slug}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '100px', fontSize: '10px',
+                            fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em',
+                            background: `${ROLE_COLORS[org.user_role]}20`,
+                            color: ROLE_COLORS[org.user_role],
+                            border: `1px solid ${ROLE_COLORS[org.user_role]}40`,
+                          }}>
+                            {org.user_role}
+                          </span>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '100px', fontSize: '10px',
+                            fontWeight: '500', background: t.surfaceEl, color: t.ts,
+                          }}>
+                            {org.plan || 'free'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+            </motion.div>
+          )}
+
+          {activeTab === 'billing' && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Section title="Billing & Plans">
+                {(!billing?.organizations || billing.organizations.length === 0) ? (
+                  <div style={{
+                    padding: '32px', textAlign: 'center', color: t.tm,
+                    border: `1px dashed ${t.border}`, borderRadius: '8px',
+                  }}>
+                    <CreditCard size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                    <div style={{ fontSize: '13px' }}>No billing information</div>
+                    <div style={{ fontSize: '11px', marginTop: '4px' }}>Create an organization to manage billing</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {billing.organizations.map((org) => (
+                      <div
+                        key={org.organization_id}
+                        style={{
+                          padding: '16px 20px', background: t.bg, borderRadius: '8px',
+                          border: `1px solid ${t.border}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: '500', color: t.tp }}>
+                            {org.organization_name}
+                          </div>
+                          <span style={{
+                            padding: '4px 12px', borderRadius: '100px', fontSize: '11px',
+                            fontWeight: '600', textTransform: 'uppercase',
+                            background: org.plan === 'enterprise' ? 'rgba(139,92,246,0.15)' :
+                                       org.plan === 'pro' ? 'rgba(34,197,94,0.15)' : t.surfaceEl,
+                            color: org.plan === 'enterprise' ? t.violet :
+                                  org.plan === 'pro' ? t.success : t.ts,
+                          }}>
+                            {org.plan}
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                          <LimitCard label="Projects" value={org.max_projects === -1 ? 'Unlimited' : org.max_projects} />
+                          <LimitCard label="Agents" value={org.max_agents === -1 ? 'Unlimited' : org.max_agents} />
+                          <LimitCard label="Members" value={org.max_members === -1 ? 'Unlimited' : org.max_members} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+            </motion.div>
+          )}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </motion.div>
+  );
+}
+
+function Section({ title, children, action, danger, style }) {
+  return (
+    <div style={{
+      background: t.surface, border: `1px solid ${danger ? 'rgba(239,68,68,0.2)' : t.border}`,
+      borderRadius: '12px', padding: '20px', ...style,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: '600', color: danger ? t.danger : t.tp }}>
+          {title}
+        </h2>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, type = 'text', placeholder, disabled, style }) {
+  return (
+    <div style={style}>
+      <label style={labelStyle}>{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          ...inputStyle,
+          opacity: disabled ? 0.5 : 1,
+          cursor: disabled ? 'not-allowed' : 'text',
+        }}
+      />
+    </div>
+  );
+}
+
+function LimitCard({ label, value }) {
+  return (
+    <div style={{
+      padding: '10px 12px', background: t.surfaceEl, borderRadius: '6px',
+      textAlign: 'center',
+    }}>
+      <div style={{ fontSize: '16px', fontWeight: '600', color: t.tp }}>
+        {value}
+      </div>
+      <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {label}
+      </div>
+    </div>
+  );
+}

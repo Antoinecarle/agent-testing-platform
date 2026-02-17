@@ -255,6 +255,12 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   app.use('/api/billing', verifyToken, billingRoutes);
 
+  const settingsRoutes = require('./routes/settings');
+  app.use('/api/settings', verifyToken, settingsRoutes);
+
+  const onboardingRoutes = require('./routes/onboarding');
+  app.use('/api/onboarding', verifyToken, onboardingRoutes);
+
   const marketplaceRoutes = require('./routes/marketplace');
   app.use('/api/marketplace', verifyToken, marketplaceRoutes);
 

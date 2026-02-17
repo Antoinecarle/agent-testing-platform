@@ -513,6 +513,69 @@ async function updateUserClaudeStatus(id, connected, subscription, homeDir) {
   }).eq('id', id);
 }
 
+async function updateUserProfile(id, fields) {
+  const update = {};
+  if (fields.display_name !== undefined) update.display_name = fields.display_name;
+  if (fields.company !== undefined) update.company = fields.company;
+  if (fields.job_title !== undefined) update.job_title = fields.job_title;
+  if (fields.avatar_url !== undefined) update.avatar_url = fields.avatar_url;
+  if (fields.onboarding_completed !== undefined) update.onboarding_completed = fields.onboarding_completed;
+  if (Object.keys(update).length === 0) return;
+  await supabase.from('users').update(update).eq('id', id);
+}
+
+async function updateUserPassword(id, passwordHash) {
+  await supabase.from('users').update({
+    password_hash: passwordHash,
+    password_changed_at: new Date().toISOString(),
+  }).eq('id', id);
+}
+
+async function setEmailVerificationToken(id, token, expiresAt) {
+  await supabase.from('users').update({
+    email_verification_token: token,
+    email_verification_expires_at: expiresAt,
+  }).eq('id', id);
+}
+
+async function getUserByVerificationToken(token) {
+  const { data } = await supabase.from('users').select('*').eq('email_verification_token', token).maybeSingle();
+  return data || null;
+}
+
+async function verifyUserEmail(id) {
+  await supabase.from('users').update({
+    email_verified: true,
+    email_verification_token: null,
+    email_verification_expires_at: null,
+  }).eq('id', id);
+}
+
+async function deleteUser(id) {
+  await supabase.from('users').delete().eq('id', id);
+}
+
+// ===================== ONBOARDING =====================
+
+async function getOnboardingProgress(userId) {
+  const { data } = await supabase.from('onboarding_progress').select('*').eq('user_id', userId);
+  return data || [];
+}
+
+async function completeOnboardingStep(userId, step) {
+  const { data: existing } = await supabase.from('onboarding_progress')
+    .select('id').eq('user_id', userId).eq('step', step).single();
+  if (existing) {
+    await supabase.from('onboarding_progress').update({
+      completed: true, completed_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+  } else {
+    await supabase.from('onboarding_progress').insert({
+      user_id: userId, step, completed: true, completed_at: new Date().toISOString(),
+    });
+  }
+}
+
 // --- Seed admin ---
 async function seedAdmin() {
   const adminEmail = process.env.EMAIL || 'admin@vps.local';
@@ -1779,6 +1842,10 @@ module.exports = {
   getTerminalTabBySession,
   // Users
   getUserByEmail, getUserById, getAllUsers, createUser, updateUserClaudeStatus,
+  updateUserProfile, updateUserPassword, setEmailVerificationToken,
+  getUserByVerificationToken, verifyUserEmail, deleteUser,
+  // Onboarding
+  getOnboardingProgress, completeOnboardingStep,
   // Agent Teams
   createTeam, getAllTeams, getTeamsByUser, getTeam, updateTeam, deleteTeam,
   addTeamMember, removeTeamMember, getTeamMembers, reorderTeamMembers, updateTeamMemberRole,

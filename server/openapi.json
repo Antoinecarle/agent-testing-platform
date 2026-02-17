@@ -365,6 +365,198 @@
           "503": { "description": "Service not ready" }
         }
       }
+    },
+    "/api/settings/profile": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get current user profile",
+        "responses": {
+          "200": { "description": "User profile data" },
+          "404": { "description": "User not found" }
+        }
+      },
+      "put": {
+        "tags": ["Settings"],
+        "summary": "Update user profile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "display_name": { "type": "string" },
+                  "company": { "type": "string" },
+                  "job_title": { "type": "string" },
+                  "avatar_url": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated profile" }
+        }
+      }
+    },
+    "/api/settings/change-password": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Change password",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["current_password", "new_password"],
+                "properties": {
+                  "current_password": { "type": "string" },
+                  "new_password": { "type": "string", "minLength": 6 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Password changed" },
+          "401": { "description": "Current password incorrect" }
+        }
+      }
+    },
+    "/api/settings/request-verification": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Send email verification",
+        "responses": {
+          "200": { "description": "Verification email sent" }
+        }
+      }
+    },
+    "/api/settings/verify-email": {
+      "post": {
+        "tags": ["Settings"],
+        "summary": "Verify email with token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token"],
+                "properties": {
+                  "token": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Email verified" },
+          "404": { "description": "Invalid token" },
+          "410": { "description": "Token expired" }
+        }
+      }
+    },
+    "/api/settings/billing": {
+      "get": {
+        "tags": ["Settings"],
+        "summary": "Get billing summary",
+        "responses": {
+          "200": { "description": "Billing info per organization" }
+        }
+      }
+    },
+    "/api/settings/account": {
+      "delete": {
+        "tags": ["Settings"],
+        "summary": "Delete user account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Account deleted" },
+          "400": { "description": "Must transfer org ownership first" }
+        }
+      }
+    },
+    "/api/onboarding/status": {
+      "get": {
+        "tags": ["Onboarding"],
+        "summary": "Get onboarding progress",
+        "responses": {
+          "200": {
+            "description": "Onboarding status with steps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "label": { "type": "string" },
+                          "description": { "type": "string" },
+                          "completed": { "type": "boolean" }
+                        }
+                      }
+                    },
+                    "completed": { "type": "integer" },
+                    "total": { "type": "integer" },
+                    "percentage": { "type": "integer" },
+                    "onboarding_completed": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/onboarding/complete-step": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Mark onboarding step as complete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["step"],
+                "properties": {
+                  "step": { "type": "string", "enum": ["verify_email", "complete_profile", "create_org", "create_agent", "create_project"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Step completed" },
+          "400": { "description": "Invalid step" }
+        }
+      }
+    },
+    "/api/onboarding/dismiss": {
+      "post": {
+        "tags": ["Onboarding"],
+        "summary": "Dismiss onboarding",
+        "responses": {
+          "200": { "description": "Onboarding dismissed" }
+        }
+      }
     }
   }
 }

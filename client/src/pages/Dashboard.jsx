@@ -4,6 +4,7 @@ import { Plus, Search, Play, Activity, Clock, Terminal, ArrowUpRight, CheckCircl
 import { motion } from 'framer-motion';
 import { api } from '../api';
 import AgentCreator from '../components/AgentCreator';
+import OnboardingBanner from '../components/OnboardingBanner';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -169,6 +170,7 @@ export default function Dashboard() {
   const [showAgentArrows, setShowAgentArrows] = useState(false);
   const [activeSkill, setActiveSkill] = useState(null);
   const [showAgentCreator, setShowAgentCreator] = useState(false);
+  const [onboarding, setOnboarding] = useState(null);
   const agentScrollRef = React.useRef(null);
 
   const fetchData = async () => {
@@ -181,7 +183,22 @@ export default function Dashboard() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  const fetchOnboarding = async () => {
+    try {
+      const data = await api('/api/onboarding/status');
+      if (!data.onboarding_completed) setOnboarding(data);
+      else setOnboarding(null);
+    } catch (_) {}
+  };
+
+  const dismissOnboarding = async () => {
+    try {
+      await api('/api/onboarding/dismiss', { method: 'POST' });
+      setOnboarding(null);
+    } catch (_) {}
+  };
+
+  useEffect(() => { fetchData(); fetchOnboarding(); }, []);
 
   const handleSeed = async () => {
     setSeeding(true);
@@ -325,6 +342,17 @@ export default function Dashboard() {
           </div>
         </div>
       </motion.header>
+
+      {/* Onboarding Banner */}
+      {onboarding && (
+        <OnboardingBanner
+          steps={onboarding.steps}
+          completed={onboarding.completed}
+          total={onboarding.total}
+          percentage={onboarding.percentage}
+          onDismiss={dismissOnboarding}
+        />
+      )}
 
       {/* Quick Actions Bar */}
       <motion.div variants={itemVariants} className="dash-actions" style={{

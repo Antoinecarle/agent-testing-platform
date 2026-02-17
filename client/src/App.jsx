@@ -24,6 +24,7 @@ import Personaboarding from './pages/Personaboarding';
 import KnowledgeBase from './pages/KnowledgeBase';
 import KnowledgeExplorer from './pages/KnowledgeExplorer';
 import AgentChat from './pages/AgentChat';
+import Settings from './pages/Settings';
 
 function ProtectedRoute({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="knowledge/:id/explore" element={<KnowledgeExplorer />} />
           <Route path="chat/:agentName" element={<AgentChat />} />
           <Route path="chat/:agentName/:chatId" element={<AgentChat />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="personaboarding" element={<Personaboarding />} />
           <Route path="sessions" element={<Sessions />} />
         </Route>
