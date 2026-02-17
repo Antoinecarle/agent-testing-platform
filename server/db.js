@@ -270,10 +270,11 @@ async function reorderCategories(orderedIds) {
 
 // ===================== PROJECTS =====================
 
-async function createProject(id, name, description, agentName, mode, teamId, userId) {
+async function createProject(id, name, description, agentName, mode, teamId, userId, projectType) {
   await supabase.from('projects').insert({
     id, name, description: description || '', agent_name: agentName || '', status: 'active',
     mode: mode || 'solo', team_id: teamId || null, user_id: userId || null,
+    project_type: projectType || 'html',
   });
 }
 
@@ -303,12 +304,13 @@ async function getProject(id) {
   return data || null;
 }
 
-async function updateProject(id, name, description, agentName, status, mode, teamId) {
+async function updateProject(id, name, description, agentName, status, mode, teamId, projectType) {
   const update = {
     name, description: description || '', agent_name: agentName || '', status: status || 'active', updated_at: now(),
   };
   if (mode !== undefined) update.mode = mode;
   if (teamId !== undefined) update.team_id = teamId;
+  if (projectType !== undefined) update.project_type = projectType;
   await supabase.from('projects').update(update).eq('id', id);
 }
 

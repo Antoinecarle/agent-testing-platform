@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
+import FileExplorer from '../components/FileExplorer';
+import FileViewer from '../components/FileViewer';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -266,6 +268,13 @@ export default function ProjectView() {
   const [userClaudeConnected, setUserClaudeConnected] = useState(null);
   const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
   const [agentSkills, setAgentSkills] = useState([]);
+  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files'
+  const [viewingFile, setViewingFile] = useState(null); // file path for FileViewer
+  // Inline editing state
+  const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
@@ -419,6 +428,48 @@ export default function ProjectView() {
     setBranchContext(node.id);
   }, [setBranchContext]);
 
+  // Inline editing handlers
+  const startEditName = useCallback(() => {
+    setEditName(project?.name || '');
+    setEditingName(true);
+  }, [project]);
+
+  const saveName = useCallback(async () => {
+    if (!editName.trim() || editName === project?.name) {
+      setEditingName(false);
+      return;
+    }
+    try {
+      const updated = await api(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName.trim() }),
+      });
+      setProject(updated);
+    } catch (err) { console.error('Save name error:', err); }
+    setEditingName(false);
+  }, [editName, project, projectId]);
+
+  const startEditDesc = useCallback(() => {
+    setEditDesc(project?.description || '');
+    setEditingDesc(true);
+  }, [project]);
+
+  const saveDesc = useCallback(async () => {
+    try {
+      const updated = await api(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ description: editDesc.trim() }),
+      });
+      setProject(updated);
+    } catch (err) { console.error('Save desc error:', err); }
+    setEditingDesc(false);
+  }, [editDesc, projectId]);
+
+  // File explorer handler
+  const handleFileSelect = useCallback((node) => {
+    setViewingFile(node.path);
+  }, []);
+
   // Send prompt to the active terminal as a claude command
   const handleGenerate = useCallback(() => {
     if (!prompt.trim()) return;
@@ -457,8 +508,9 @@ export default function ProjectView() {
             { id: 'tree', label: 'Worktree' },
             { id: 'preview', label: 'Preview' },
             { id: 'terminal', label: 'Terminal' },
+            { id: 'files', label: 'Files' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setMobilePanel(tab.id)} style={{
+            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); if (tab.id === 'files') setRightPanel('files'); else if (tab.id === 'terminal') setRightPanel('terminal'); }} style={{
               flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
               background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
               color: mobilePanel === tab.id ? t.tp : t.tm,
@@ -527,10 +579,72 @@ export default function ProjectView() {
       }}>
         <div style={{
           height: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
-          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', fontSize: '12px', color: t.ts, flexShrink: 0,
+          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', fontSize: '12px', color: t.ts, flexShrink: 0,
           overflow: 'hidden',
         }}>
-          <span style={{ color: t.tp, fontWeight: '500' }}>{project?.name || 'Loading...'}</span>
+          {/* Inline editable project name */}
+          {editingName ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <input
+                autoFocus
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+                style={{
+                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
+                  padding: '2px 8px', color: t.tp, fontSize: '12px', fontWeight: '500',
+                  outline: 'none', width: '200px',
+                }}
+              />
+              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveName} />
+              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingName(false)} />
+            </div>
+          ) : (
+            <span
+              onClick={startEditName}
+              style={{ color: t.tp, fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+              title="Click to edit project name"
+            >
+              {project?.name || 'Loading...'}
+              <Pencil size={10} style={{ color: t.tm, opacity: 0.5 }} />
+            </span>
+          )}
+          {/* Inline editable description */}
+          {project?.description && !editingDesc && (
+            <span
+              onClick={startEditDesc}
+              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title="Click to edit description"
+            >
+              {project.description}
+            </span>
+          )}
+          {editingDesc && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <input
+                autoFocus
+                value={editDesc}
+                onChange={e => setEditDesc(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveDesc(); if (e.key === 'Escape') setEditingDesc(false); }}
+                placeholder="Description..."
+                style={{
+                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
+                  padding: '2px 8px', color: t.tp, fontSize: '11px',
+                  outline: 'none', width: '200px',
+                }}
+              />
+              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveDesc} />
+              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingDesc(false)} />
+            </div>
+          )}
+          {!editingDesc && !project?.description && (
+            <span
+              onClick={startEditDesc}
+              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', opacity: 0.5, fontStyle: 'italic' }}
+            >
+              + description
+            </span>
+          )}
           {selected && <>
             <span style={{ color: t.tm }}>/</span>
             <span>{selected.title || `V${selected.version}`}</span>
@@ -538,23 +652,12 @@ export default function ProjectView() {
               {selected.agent_name}
             </span>
           </>}
-          {agentSkills.length > 0 && (
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', overflow: 'hidden', flexShrink: 1, minWidth: 0 }}>
-              <span style={{ color: t.tm, fontSize: '10px', flexShrink: 0 }}>Skills:</span>
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', overflow: 'auto', maxWidth: '100%' }}>
-                {agentSkills.map(s => (
-                  <span key={s.id} style={{
-                    background: s.color ? `${s.color}20` : 'rgba(139,92,246,0.12)',
-                    color: s.color || t.violet,
-                    padding: '1px 6px', borderRadius: '99px', fontSize: '9px', fontWeight: '600',
-                    border: `1px solid ${s.color ? `${s.color}40` : 'rgba(139,92,246,0.2)'}`,
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}>
-                    {s.name}
-                  </span>
-                ))}
-              </div>
-            </div>
+          {/* Project type badge */}
+          {project?.project_type === 'fullstack' && (
+            <span style={{
+              background: 'rgba(34,197,94,0.12)', color: '#22c55e', padding: '1px 6px',
+              borderRadius: '99px', fontSize: '9px', fontWeight: '700', border: '1px solid rgba(34,197,94,0.3)',
+            }}>FULLSTACK</span>
           )}
           <div style={{ flex: 1 }} />
           <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
@@ -629,116 +732,163 @@ export default function ProjectView() {
         }} />
       )}
 
-      {/* RIGHT: Terminal */}
+      {/* RIGHT: Terminal + Files Panel */}
       <aside style={{
         width: isMobile ? '100%' : `${rightW}px`,
         background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: isMobile && mobilePanel !== 'terminal' ? 'none' : 'flex',
+        display: isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' ? 'none' : 'flex',
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        {claudeStatus && !claudeStatus.installed ? (
-          /* Claude CLI not installed — Setup screen */
-          <>
-            <div style={{ height: '44px', display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${t.border}`, gap: '8px' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>Claude CLI Setup Required</span>
+        {/* Panel type switcher: Terminal | Files */}
+        <div style={{
+          display: 'flex', borderBottom: `1px solid ${t.border}`, height: '34px', flexShrink: 0,
+          background: t.bg,
+        }}>
+          <button
+            onClick={() => { setRightPanel('terminal'); setViewingFile(null); }}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              background: rightPanel === 'terminal' ? t.surface : 'transparent',
+              color: rightPanel === 'terminal' ? t.tp : t.tm,
+              border: 'none', borderBottom: rightPanel === 'terminal' ? `2px solid ${t.violet}` : '2px solid transparent',
+              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Terminal
+          </button>
+          <button
+            onClick={() => setRightPanel('files')}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              background: rightPanel === 'files' ? t.surface : 'transparent',
+              color: rightPanel === 'files' ? t.tp : t.tm,
+              border: 'none', borderBottom: rightPanel === 'files' ? `2px solid ${t.violet}` : '2px solid transparent',
+              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            <FolderTree size={12} />
+            Files
+          </button>
+        </div>
+
+        {rightPanel === 'files' ? (
+          /* FILE EXPLORER PANEL */
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ width: viewingFile ? '200px' : '100%', minWidth: '160px', overflow: 'hidden', borderRight: viewingFile ? `1px solid ${t.border}` : 'none', flexShrink: 0 }}>
+              <FileExplorer projectId={projectId} onFileSelect={handleFileSelect} selectedFile={viewingFile} />
             </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '20px 16px', borderBottom: `1px solid ${t.border}` }}>
-                <p style={{ fontSize: '13px', color: t.ts, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-                  Claude Code CLI is not installed on this server. Install it to enable AI-powered iterations.
-                </p>
-                <button onClick={() => {
-                  if (setupTerminalRef.current) {
-                    setupTerminalRef.current.sendInput('npm install -g @anthropic-ai/claude-code\n');
-                  }
-                }} style={{
-                  background: t.violet, color: '#fff', border: 'none', borderRadius: '6px',
-                  padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center',
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                  Install Claude Code CLI
-                </button>
-                <p style={{ fontSize: '10px', color: t.tm, margin: '8px 0 0 0', textAlign: 'center' }}>
-                  Runs: <code style={{ background: t.surfaceEl, padding: '2px 4px', borderRadius: '3px' }}>npm install -g @anthropic-ai/claude-code</code>
-                </p>
-              </div>
-              <div style={{ flex: 1, position: 'relative' }}>
-                <TerminalPanel
-                  ref={setupTerminalRef}
-                  projectId={projectId}
-                  onSessionCreated={() => {}}
-                />
-              </div>
-              <div style={{ padding: '8px 16px', borderTop: `1px solid ${t.border}`, display: 'flex', justifyContent: 'center' }}>
-                <button onClick={() => {
-                  api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => {});
-                }} style={{
-                  background: 'transparent', color: t.ts, border: `1px solid ${t.border}`,
-                  borderRadius: '4px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer',
-                }}>
-                  Check again
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          /* Claude installed — Normal terminal tabs */
-          <>
-            {/* Per-user Claude auth banner */}
-            {userClaudeConnected === false && (
-              <div style={{
-                padding: '8px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex',
-                alignItems: 'center', gap: '8px', background: 'rgba(245,158,11,0.06)', fontSize: '11px',
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span style={{ color: '#f59e0b', flex: 1 }}>Claude not authenticated. Run <code style={{ background: t.surfaceEl, padding: '1px 4px', borderRadius: '3px' }}>claude</code> in the terminal to connect.</span>
-                <span onClick={() => navigate('/setup-claude')} style={{ color: t.violet, cursor: 'pointer', fontWeight: '500', fontSize: '11px' }}>Setup</span>
+            {viewingFile && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <FileViewer projectId={projectId} filePath={viewingFile} onClose={() => setViewingFile(null)} />
               </div>
             )}
-            <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`, height: '44px', flexShrink: 0 }}>
-              {termTabs.map(tab => (
-                <div key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                  padding: '0 14px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-                  color: activeTab === tab.id ? t.tp : t.ts,
-                  background: activeTab === tab.id ? t.surface : t.bg,
-                  borderBottom: activeTab === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
-                  borderRight: `1px solid ${t.border}`,
-                }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                  {tab.name}
-                  {termTabs.length > 1 && (
-                    <span onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
-                      style={{ marginLeft: '4px', opacity: 0.4, fontSize: '14px', lineHeight: 1 }}
-                      onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                      onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>
-                      x
-                    </span>
-                  )}
+          </div>
+        ) : (
+          /* TERMINAL PANEL */
+          <>
+            {claudeStatus && !claudeStatus.installed ? (
+              <>
+                <div style={{ height: '44px', display: 'flex', alignItems: 'center', padding: '0 14px', borderBottom: `1px solid ${t.border}`, gap: '8px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>Claude CLI Setup Required</span>
                 </div>
-              ))}
-              <div onClick={addTab} style={{ padding: '0 12px', display: 'flex', alignItems: 'center', cursor: 'pointer', color: t.tm }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </div>
-            </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ padding: '20px 16px', borderBottom: `1px solid ${t.border}` }}>
+                    <p style={{ fontSize: '13px', color: t.ts, margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                      Claude Code CLI is not installed on this server. Install it to enable AI-powered iterations.
+                    </p>
+                    <button onClick={() => {
+                      if (setupTerminalRef.current) {
+                        setupTerminalRef.current.sendInput('npm install -g @anthropic-ai/claude-code\n');
+                      }
+                    }} style={{
+                      background: t.violet, color: '#fff', border: 'none', borderRadius: '6px',
+                      padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center',
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                      Install Claude Code CLI
+                    </button>
+                    <p style={{ fontSize: '10px', color: t.tm, margin: '8px 0 0 0', textAlign: 'center' }}>
+                      Runs: <code style={{ background: t.surfaceEl, padding: '2px 4px', borderRadius: '3px' }}>npm install -g @anthropic-ai/claude-code</code>
+                    </p>
+                  </div>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <TerminalPanel
+                      ref={setupTerminalRef}
+                      projectId={projectId}
+                      onSessionCreated={() => {}}
+                    />
+                  </div>
+                  <div style={{ padding: '8px 16px', borderTop: `1px solid ${t.border}`, display: 'flex', justifyContent: 'center' }}>
+                    <button onClick={() => {
+                      api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => {});
+                    }} style={{
+                      background: 'transparent', color: t.ts, border: `1px solid ${t.border}`,
+                      borderRadius: '4px', padding: '6px 12px', fontSize: '11px', cursor: 'pointer',
+                    }}>
+                      Check again
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {userClaudeConnected === false && (
+                  <div style={{
+                    padding: '8px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex',
+                    alignItems: 'center', gap: '8px', background: 'rgba(245,158,11,0.06)', fontSize: '11px',
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span style={{ color: '#f59e0b', flex: 1 }}>Claude not authenticated. Run <code style={{ background: t.surfaceEl, padding: '1px 4px', borderRadius: '3px' }}>claude</code> in the terminal to connect.</span>
+                    <span onClick={() => navigate('/setup-claude')} style={{ color: t.violet, cursor: 'pointer', fontWeight: '500', fontSize: '11px' }}>Setup</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`, height: '36px', flexShrink: 0 }}>
+                  {termTabs.map(tab => (
+                    <div key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                      padding: '0 14px', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                      color: activeTab === tab.id ? t.tp : t.ts,
+                      background: activeTab === tab.id ? t.surface : t.bg,
+                      borderBottom: activeTab === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
+                      borderRight: `1px solid ${t.border}`,
+                    }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                      {tab.name}
+                      {termTabs.length > 1 && (
+                        <span onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
+                          style={{ marginLeft: '4px', opacity: 0.4, fontSize: '14px', lineHeight: 1 }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                          onMouseLeave={e => e.currentTarget.style.opacity = 0.4}>
+                          x
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  <div onClick={addTab} style={{ padding: '0 12px', display: 'flex', alignItems: 'center', cursor: 'pointer', color: t.tm }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </div>
+                </div>
 
-            <div style={{ flex: 1, position: 'relative' }}>
-              {tabsLoaded && activeTab && (() => {
-                const tab = termTabs.find(t => t.id === activeTab);
-                if (!tab) return null;
-                return (
-                  <TerminalPanel
-                    ref={terminalRef}
-                    key={tab.id}
-                    sessionId={tab.sessionId}
-                    projectId={projectId}
-                    onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
-                  />
-                );
-              })()}
-            </div>
+                <div style={{ flex: 1, position: 'relative' }}>
+                  {tabsLoaded && activeTab && (() => {
+                    const tab = termTabs.find(t => t.id === activeTab);
+                    if (!tab) return null;
+                    return (
+                      <TerminalPanel
+                        ref={terminalRef}
+                        key={tab.id}
+                        sessionId={tab.sessionId}
+                        projectId={projectId}
+                        onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
+                      />
+                    );
+                  })()}
+                </div>
+              </>
+            )}
           </>
         )}
       </aside>
@@ -816,6 +966,7 @@ function NewProjectForm({ onCreated }) {
   const [agentTypes, setAgentTypes] = useState([]);
   const [selectedType, setSelectedType] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [projectType, setProjectType] = useState('html'); // 'html' | 'fullstack'
   // Orchestra state
   const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [] });
   const [orchestraReady, setOrchestraReady] = useState(false); // team built, show form
@@ -841,7 +992,7 @@ function NewProjectForm({ onCreated }) {
     if (!name) return;
     setSaving(true);
     try {
-      const body = { name, description: desc, mode: mode || 'solo' };
+      const body = { name, description: desc, mode: mode || 'solo', project_type: projectType };
 
       if (mode === 'orchestra') {
         body.agent_name = orchestraTeam.orchestrator;
@@ -1172,6 +1323,36 @@ function NewProjectForm({ onCreated }) {
               {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
             </optgroup>
           </select>
+        </div>
+        {/* Project Type Toggle */}
+        <div>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Type de projet
+          </label>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {[
+              { id: 'html', label: 'HTML', desc: 'Fichier unique auto-detect', icon: '<>', color: '#e34f26' },
+              { id: 'fullstack', label: 'Fullstack', desc: 'Projet complet avec deps', icon: 'FS', color: '#22c55e' },
+            ].map(pt => (
+              <button
+                key={pt.id}
+                type="button"
+                onClick={() => setProjectType(pt.id)}
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                  padding: '12px', borderRadius: '8px', cursor: 'pointer',
+                  background: projectType === pt.id ? `${pt.color}10` : t.bg,
+                  border: projectType === pt.id ? `2px solid ${pt.color}60` : `1px solid ${t.border}`,
+                  color: projectType === pt.id ? pt.color : t.tm,
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'monospace' }}>{pt.icon}</span>
+                <span style={{ fontSize: '12px', fontWeight: 600 }}>{pt.label}</span>
+                <span style={{ fontSize: '10px', color: t.tm, textAlign: 'center' }}>{pt.desc}</span>
+              </button>
+            ))}
+          </div>
         </div>
         <button type="submit" disabled={saving || !name.trim()} style={{
           background: name.trim() ? typeColor : t.surfaceEl,

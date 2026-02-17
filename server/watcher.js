@@ -320,6 +320,36 @@ async function pollAllWorkspaces() {
   }
 }
 
+// Directories to skip when watching for file changes
+const SKIP_WATCH_DIRS = new Set([
+  'node_modules', '.git', '.claude', '.next', '.nuxt', 'dist', 'build',
+  '.cache', '.parcel-cache', '.turbo', '__pycache__', '.venv', 'venv',
+]);
+
+// Debounce file change events per project (avoid flooding during rapid edits)
+const fileChangeTimers = new Map();
+const FILE_CHANGE_DEBOUNCE_MS = 500;
+
+/**
+ * Emit a file-changed Socket.IO event for real-time file explorer updates (debounced per file)
+ */
+function emitFileChange(projectId, filePath, changeType) {
+  if (!ioRef) return;
+  const key = `${projectId}:${filePath}`;
+  if (fileChangeTimers.has(key)) {
+    clearTimeout(fileChangeTimers.get(key));
+  }
+  fileChangeTimers.set(key, setTimeout(() => {
+    fileChangeTimers.delete(key);
+    ioRef.emit('file-changed', {
+      projectId,
+      path: filePath,
+      changeType,
+      timestamp: Date.now(),
+    });
+  }, FILE_CHANGE_DEBOUNCE_MS));
+}
+
 /**
  * Start watching a project workspace (fs.watch + polling fallback)
  */
@@ -368,10 +398,17 @@ function watchProject(projectId) {
         const fullPath = path.join(wsDir, filename);
         try {
           if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-            watchSubdir(projectId, fullPath, projectWatchers);
+            if (!SKIP_WATCH_DIRS.has(filename)) {
+              watchSubdir(projectId, fullPath, projectWatchers);
+            }
           }
         } catch (_) {}
       }
+
+      // Emit real-time file change event for ALL files
+      const fullPath = path.join(wsDir, filename);
+      const exists = fs.existsSync(fullPath);
+      emitFileChange(projectId, filename, exists ? (eventType === 'rename' ? 'created' : 'modified') : 'deleted');
 
       if (filename.endsWith('.html')) {
         triggerImport(projectId);
@@ -383,7 +420,7 @@ function watchProject(projectId) {
     try {
       const entries = fs.readdirSync(wsDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+        if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIP_WATCH_DIRS.has(entry.name)) {
           watchSubdir(projectId, path.join(wsDir, entry.name), projectWatchers);
         }
       }
@@ -400,9 +437,19 @@ function watchProject(projectId) {
  */
 function watchSubdir(projectId, dirPath, watchersList) {
   try {
+    const wsDir = path.join(WORKSPACES_DIR, projectId);
     const watcher = fs.watch(dirPath, (eventType, filename) => {
-      if (!filename || !filename.endsWith('.html') || filename.startsWith('.')) return;
-      triggerImport(projectId);
+      if (!filename || filename.startsWith('.')) return;
+
+      // Emit real-time file change event for ALL files
+      const relativePath = path.relative(wsDir, path.join(dirPath, filename));
+      const fullPath = path.join(dirPath, filename);
+      const exists = fs.existsSync(fullPath);
+      emitFileChange(projectId, relativePath, exists ? (eventType === 'rename' ? 'created' : 'modified') : 'deleted');
+
+      if (filename.endsWith('.html')) {
+        triggerImport(projectId);
+      }
     });
     watchersList.push(watcher);
   } catch (_) {}

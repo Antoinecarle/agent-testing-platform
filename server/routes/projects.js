@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
 // POST /api/projects — create project (solo or orchestra)
 router.post('/', async (req, res) => {
   try {
-    const { name, description, agent_name, mode, team_config } = req.body;
+    const { name, description, agent_name, mode, team_config, project_type } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
 
     const projectId = crypto.randomUUID();
@@ -43,7 +43,7 @@ router.post('/', async (req, res) => {
       ? team_config.orchestrator
       : (agent_name || '');
 
-    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId, req.user.userId);
+    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId, req.user.userId, project_type || 'html');
     const project = await db.getProject(projectId);
     res.status(201).json(project);
   } catch (err) {
@@ -115,7 +115,7 @@ router.get('/:id', async (req, res) => {
 // PUT /api/projects/:id — update project
 router.put('/:id', async (req, res) => {
   try {
-    const { name, description, agent_name, status } = req.body;
+    const { name, description, agent_name, status, project_type } = req.body;
     const existing = await db.getProject(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Project not found' });
     if (existing.user_id && existing.user_id !== req.user.userId) {
@@ -127,7 +127,10 @@ router.put('/:id', async (req, res) => {
       name || existing.name,
       description !== undefined ? description : existing.description,
       agent_name !== undefined ? agent_name : existing.agent_name,
-      status || existing.status
+      status || existing.status,
+      undefined,
+      undefined,
+      project_type !== undefined ? project_type : existing.project_type
     );
 
     res.json(await db.getProject(req.params.id));

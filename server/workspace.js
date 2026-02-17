@@ -281,34 +281,93 @@ Do NOT reference any previous iteration. Create a completely fresh design from s
   // Inject root authority at the top
   const rootAuthority = getRootAuthority();
 
-  const content = `${rootAuthority ? rootAuthority + '\n\n---\n\n' : ''}# ${project.name}
+  // Determine project type
+  const projectType = project.project_type || 'html';
+  const isFullstack = projectType === 'fullstack';
 
-## Context
+  // Detect existing workspace files for incremental editing
+  const SKIP_FILES = new Set(['CLAUDE.md', 'node_modules', '.branch-context.json', '.git']);
+  const existingFiles = [];
+  try {
+    const wsFiles = fs.readdirSync(wsDir).filter(f => !f.startsWith('.') && !SKIP_FILES.has(f));
+    for (const f of wsFiles) {
+      const fp = path.join(wsDir, f);
+      try {
+        const stat = fs.statSync(fp);
+        if (stat.isFile()) existingFiles.push(f);
+        else if (stat.isDirectory() && f !== 'node_modules') {
+          const subFiles = fs.readdirSync(fp).filter(sf => !sf.startsWith('.'));
+          existingFiles.push(`${f}/ (${subFiles.length} files)`);
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
 
-You are working inside the **Agent Testing Platform** — a worktree-based system for testing and iterating on AI design agents.
+  const hasExistingCode = existingFiles.length > 0 && existingFiles.some(f =>
+    f === 'index.html' || f === 'package.json' ||
+    f.endsWith('.js') || f.endsWith('.jsx') || f.endsWith('.ts') || f.endsWith('.tsx') ||
+    f.endsWith('.css') || f.endsWith('.html') || f.startsWith('src/')
+  );
 
-- **Project**: ${project.name}
-- **Primary Agent**: ${agentName || '(none assigned)'}
-- **Description**: ${project.description || 'N/A'}
-- **Total Iterations**: ${iterations.length}
+  // Build the incremental editing section
+  let editingMode = '';
+  if (hasExistingCode) {
+    editingMode = `## INCREMENTAL EDITING MODE — CRITICAL
 
-## Current Worktree
+**This workspace already has existing code.** When the user asks you to modify, update, or change something:
 
-\`\`\`
-${treeText}\`\`\`
+1. **READ the existing files FIRST** — use the Read tool to understand what's already there
+2. **EDIT existing files** — use the Edit tool to make targeted changes
+3. **DO NOT regenerate the entire file** from scratch unless the user explicitly asks for a complete rewrite
+4. **Preserve existing code** — only change what the user asked for
 
-${latest ? `**Latest iteration**: ${latest.title || 'V' + latest.version} (agent: ${latest.agent_name})` : ''}
+### Existing workspace files:
+${existingFiles.map(f => `- \`${f}\``).join('\n')}
 
-${branchSection}
-## What You Should Do
+### When to use Edit vs Write:
+- **Edit**: When modifying a section, fixing a bug, adding a feature, updating styles
+- **Write**: Only when creating a NEW file that doesn't exist yet
+- **NEVER** use Write to overwrite an existing file unless doing a full rewrite
 
-${agentDesc
-  ? `You are the **${agentName}** agent: ${agentDesc}
+This preserves the user's work and avoids unnecessary regeneration.
+`;
+  }
 
-Your job is to **create and iterate on web interfaces** following your agent specialization above. Each time you generate a new version, save it as a single \`index.html\` file in the current directory.`
-  : `You are here to **create and iterate on web interfaces**. Each time you generate a new version, save it as a single \`index.html\` file in the current directory.`}
+  // Generate project-type-specific instructions
+  let projectInstructions = '';
+  if (isFullstack) {
+    projectInstructions = `## Fullstack Project Mode
 
-**IMPORTANT**: Follow your Agent Instructions (below) for the style, type of interface, and design patterns. Do NOT default to generic "landing pages" — build what your agent specialization requires.
+This is a **fullstack project** — you can create a complete application with multiple files, dependencies, and a dev server.
+
+### Project Structure
+You are free to use any framework and structure. Common patterns:
+- **React/Vite**: \`npm create vite@latest . -- --template react\`, then build in \`src/\`
+- **Next.js**: \`npx create-next-app@latest .\`
+- **Express + static**: \`npm init -y\`, add Express server + HTML/CSS/JS
+- **Vanilla**: Just HTML + CSS + JS files with any bundler
+
+### How It Works
+1. **Create your project structure** — \`package.json\`, source files, config, etc.
+2. **Install dependencies** — run \`npm install\` as needed
+3. **Develop normally** — the platform watches ALL file changes in real-time
+4. **For preview**: The platform detects \`index.html\` changes for iteration snapshots. Keep an \`index.html\` at the root OR configure your build to output one.
+
+### Rules
+- You CAN create any files: \`.js\`, \`.jsx\`, \`.ts\`, \`.tsx\`, \`.css\`, \`.json\`, \`.env\`, etc.
+- You CAN run \`npm install\`, \`npm run dev\`, \`npm run build\`, etc.
+- You CAN use any framework, library, or tool
+- You SHOULD create a proper \`package.json\` with scripts
+- For images, prefer CDN URLs (Unsplash, etc.) or SVG over local files
+
+### Dev Server
+If you start a dev server (e.g., \`npm run dev\`), note:
+- The server runs inside the workspace terminal
+- Port will be automatically available
+- Keep the terminal running for live development
+`;
+  } else {
+    projectInstructions = `## HTML Project Mode
 
 ### HOW TO CREATE AN ITERATION — READ THIS FIRST
 
@@ -336,7 +395,6 @@ The platform has an automatic file watcher that detects \`index.html\` changes a
 \`\`\`bash
 node /app/server/cli/register-iteration.js
 \`\`\`
-This auto-detects the projectId from your current directory and triggers the save pipeline. This is the ONLY platform command you should run.
 
 ### Output Rules
 
@@ -347,27 +405,54 @@ This auto-detects the projectId from your current directory and triggers the sav
 - Each time you generate a new version, **overwrite** \`./index.html\` — the platform handles versioning automatically
 
 #### Multiple versions in parallel (when using teams/multiple agents)
-- If you are generating **multiple versions at the same time** (e.g., V1, V2, V3, V4 via parallel agents), each version MUST go in its own subdirectory:
+- If you are generating **multiple versions at the same time**, each version MUST go in its own subdirectory:
   - \`./version-1/index.html\`
   - \`./version-2/index.html\`
-  - \`./version-3/index.html\`
   - etc.
-- The platform watcher detects subdirectory-based versions automatically
-- Each subdirectory MUST contain a file named \`index.html\` (not any other name)
 
 #### General rules
-- The filename MUST always be \`index.html\` (whether at root or in a version subdirectory)
-- **NEVER use filenames** like \`version-1.html\`, \`v2.html\`, \`landing.html\` — always use \`index.html\` inside a directory
+- The filename MUST always be \`index.html\`
 - Do NOT take screenshots or generate images — just write the HTML code
 
 #### Images — CRITICAL
-- **NEVER reference local image files** like \`src="images/hero.png"\` — they don't exist and will show broken
-- For images, use ONLY these approaches:
-  1. **Unsplash URLs**: \`src="https://images.unsplash.com/photo-xxx?w=800&h=600&fit=crop"\`
-  2. **Inline SVG placeholders**: Create decorative SVGs directly in the HTML
-  3. **CSS gradients/patterns**: Use CSS for decorative backgrounds
-  4. **Data URIs**: For small icons, use inline base64 data URIs
+- **NEVER reference local image files** — they don't exist and will show broken
+- For images, use ONLY: Unsplash URLs, inline SVG, CSS gradients, or data URIs
 - The HTML file must be **100% self-contained** — no external local assets
+`;
+  }
+
+  const content = `${rootAuthority ? rootAuthority + '\n\n---\n\n' : ''}# ${project.name}
+
+## Context
+
+You are working inside the **Agent Testing Platform** — a worktree-based system for testing and iterating on AI agents.
+
+- **Project**: ${project.name}
+- **Primary Agent**: ${agentName || '(none assigned)'}
+- **Description**: ${project.description || 'N/A'}
+- **Project Type**: ${isFullstack ? 'Fullstack (multi-file project)' : 'HTML (single-file iterations)'}
+- **Total Iterations**: ${iterations.length}
+
+## Current Worktree
+
+\`\`\`
+${treeText}\`\`\`
+
+${latest ? `**Latest iteration**: ${latest.title || 'V' + latest.version} (agent: ${latest.agent_name})` : ''}
+
+${branchSection}
+${editingMode}
+## What You Should Do
+
+${agentDesc
+  ? `You are the **${agentName}** agent: ${agentDesc}
+
+Your job is to **create and iterate on ${isFullstack ? 'applications' : 'web interfaces'}** following your agent specialization above.`
+  : `You are here to **create and iterate on ${isFullstack ? 'applications' : 'web interfaces'}**.`}
+
+**IMPORTANT**: Follow your Agent Instructions (below) for the style, type of interface, and design patterns. Do NOT default to generic "landing pages" — build what your agent specialization requires.
+
+${projectInstructions}
 
 ### Quality Standards
 
@@ -412,10 +497,8 @@ ${workers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Availabl
 
 1. **You coordinate** — break down the user's request into sub-tasks
 2. **Delegate specialized work** to the appropriate team member agents
-3. **Synthesize results** — combine outputs into the final \`index.html\`
-4. **Each agent writes to its own version subdirectory** when doing parallel work:
-   - You write to \`./index.html\` (the final combined version)
-   - Sub-agents can write to \`./version-{N}/index.html\` for drafts
+3. **Synthesize results** — combine outputs into the final deliverable
+4. **Each agent writes to its own version subdirectory** when doing parallel work
 5. **Quality control** — review sub-agent outputs before finalizing
 `;
   })() : ''}
