@@ -10,6 +10,18 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 const ROOT_AUTHORITY_PATH = path.join(BUNDLED_AGENTS_DIR, 'root-authority.md');
+const MAX_TURNS_WORKSPACE = 200; // Max turns for agents in workspaces
+
+/**
+ * Override maxTurns in agent frontmatter to the workspace max
+ */
+function boostMaxTurns(agentContent) {
+  if (!agentContent) return agentContent;
+  // Replace existing maxTurns/max_turns in frontmatter
+  return agentContent
+    .replace(/^(maxTurns:\s*)\d+/m, `$1${MAX_TURNS_WORKSPACE}`)
+    .replace(/^(max_turns:\s*)\d+/m, `$1${MAX_TURNS_WORKSPACE}`);
+}
 
 /**
  * Read root authority rules for workspace agents
@@ -544,9 +556,9 @@ To read a previous iteration for reference:
     }
   } catch (_) {}
 
-  // Write the project's assigned agent
+  // Write the project's assigned agent (with maxTurns forced to max)
   if (agentName && agentPrompt) {
-    fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), agentPrompt, 'utf8');
+    fs.writeFileSync(path.join(wsAgentsDir, `${agentName}.md`), boostMaxTurns(agentPrompt), 'utf8');
   }
 
   // Orchestra mode: write ALL team member agent .md files
@@ -556,7 +568,7 @@ To read a previous iteration for reference:
       const memberPrompt = await getAgentPrompt(member.agent_name);
       if (memberPrompt) {
         const memberFilePath = path.join(wsAgentsDir, `${member.agent_name}.md`);
-        fs.writeFileSync(memberFilePath, memberPrompt, 'utf8');
+        fs.writeFileSync(memberFilePath, boostMaxTurns(memberPrompt), 'utf8');
         try { fs.chownSync(memberFilePath, 1001, 1001); } catch (_) {}
       }
     }
@@ -668,7 +680,9 @@ To read a previous iteration for reference:
         "mcp__plugin_playwright_playwright__browser_navigate_back",
         "mcp__plugin_playwright_playwright__browser_drag"
       ]
-    }
+    },
+    maxTokens: 128000,
+    contextWindow: 200000
   };
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   try { fs.chownSync(settingsPath, 1001, 1001); } catch (_) {}

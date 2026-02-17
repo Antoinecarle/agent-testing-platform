@@ -57,7 +57,9 @@ function ensureUserHome(userId) {
           "WebSearch",
           "Task"
         ]
-      }
+      },
+      maxTokens: 128000,
+      contextWindow: 200000
     };
     try {
       fs.writeFileSync(userSettingsPath, JSON.stringify(settings, null, 2));

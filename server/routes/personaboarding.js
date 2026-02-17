@@ -793,7 +793,7 @@ router.post('/complete', async (req, res) => {
       `model: ${model || 'sonnet'}`,
       `category: persona`,
       `tools: ${toolsFormatted}`,
-      `maxTurns: 15`,
+      `maxTurns: 200`,
       `permissionMode: ${permissionMode}`,
     ];
     const frontMatter = `---\n${fmParts.join('\n')}\n---\n\n`;
