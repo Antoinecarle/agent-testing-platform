@@ -169,6 +169,21 @@ router.delete('/llm-keys/:provider', async (req, res) => {
   }
 });
 
+// POST /api/wallet/llm-keys/:provider/activate — set provider as active
+router.post('/llm-keys/:provider/activate', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    const result = await db.setActiveUserLlmKey(req.user.userId, provider);
+    if (!result) {
+      return res.status(404).json({ error: `No key found for provider: ${provider}` });
+    }
+    res.json({ ok: true, active: result });
+  } catch (err) {
+    console.error('[Wallet] Activate provider error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST /api/wallet/llm-keys/:provider/test — test a key without saving
 router.post('/llm-keys/:provider/test', async (req, res) => {
   try {

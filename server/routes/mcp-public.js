@@ -2181,6 +2181,15 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
     }
     .provider-tab:hover { color: var(--text); }
     .provider-tab.active { background: var(--bg-card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .provider-tab.is-active-provider::after {
+      content: '\\2713'; margin-left: 6px; font-size: 11px; color: #22c55e;
+    }
+    .provider-tab.has-key { position: relative; }
+    .provider-tab.has-key::before {
+      content: ''; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--text-dim);
+    }
+    .provider-tab.has-key.is-active-provider::before { background: #22c55e; }
     .provider-form { padding: 0 28px 28px; }
     .provider-field { margin-bottom: 14px; }
     .provider-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
@@ -3001,9 +3010,9 @@ data = response.json()
         </div>
         <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Use your own API key to power this agent with your preferred model. Your key is encrypted and never shared.</p>
         <div class="provider-tabs" id="provider-tabs">
-          <button class="provider-tab active" onclick="selectProvider('openai')">OpenAI</button>
-          <button class="provider-tab" onclick="selectProvider('anthropic')">Anthropic</button>
-          <button class="provider-tab" onclick="selectProvider('google')">Google Gemini</button>
+          <button class="provider-tab active" data-provider="openai" onclick="selectProvider('openai')">OpenAI</button>
+          <button class="provider-tab" data-provider="anthropic" onclick="selectProvider('anthropic')">Anthropic</button>
+          <button class="provider-tab" data-provider="google" onclick="selectProvider('google')">Google Gemini</button>
         </div>
         <div class="provider-form" id="provider-form">
           <div class="provider-field">
@@ -3020,6 +3029,7 @@ data = response.json()
           <div class="provider-actions">
             <button class="btn-primary" onclick="saveProvider()" id="btn-save-provider">Save Key</button>
             <button class="btn-outline" onclick="testProvider()" id="btn-test-provider">Test Key</button>
+            <button class="btn-outline" onclick="activateProvider()" id="btn-activate-provider" style="display:none">Set as Active</button>
             <button class="btn-outline danger" onclick="removeProvider()" id="btn-remove-provider" style="display:none">Remove</button>
           </div>
           <div class="provider-status" id="provider-status" style="display:none"></div>
@@ -3750,6 +3760,15 @@ data = response.json()
       const cfg = providerConfigs[currentProvider];
       if (!cfg) return;
       const existing = userLlmKeys[currentProvider];
+      const activeKey = Object.values(userLlmKeys).find(k => k.is_active);
+
+      // Update tab indicators
+      document.querySelectorAll('.provider-tab').forEach(tab => {
+        const p = tab.dataset.provider;
+        tab.classList.remove('has-key', 'is-active-provider');
+        if (userLlmKeys[p]) tab.classList.add('has-key');
+        if (activeKey && activeKey.provider === p) tab.classList.add('is-active-provider');
+      });
 
       // Update model dropdown
       const sel = document.getElementById('provider-model-select');
@@ -3772,12 +3791,16 @@ data = response.json()
       const removeBtn = document.getElementById('btn-remove-provider');
       removeBtn.style.display = existing ? '' : 'none';
 
+      // Show/hide activate button: visible when key exists but is NOT the active one
+      const activateBtn = document.getElementById('btn-activate-provider');
+      const isCurrentActive = activeKey && activeKey.provider === currentProvider;
+      activateBtn.style.display = (existing && !isCurrentActive) ? '' : 'none';
+
       // Show active badge
       const badge = document.getElementById('active-provider-badge');
-      const activeKey = Object.values(userLlmKeys).find(k => k.is_active);
       if (activeKey) {
         const pName = providerConfigs[activeKey.provider]?.name || activeKey.provider;
-        badge.textContent = 'Active: ' + pName;
+        badge.textContent = 'Active: ' + pName + ' (' + activeKey.model + ')';
         badge.style.display = '';
       } else {
         badge.style.display = 'none';
@@ -3789,11 +3812,15 @@ data = response.json()
         status.style.display = '';
         status.className = 'provider-status error';
         status.textContent = 'Last error: ' + existing.last_error;
-      } else if (existing) {
+      } else if (existing && isCurrentActive) {
         status.style.display = '';
         status.className = 'provider-status success';
         const usedAt = existing.last_used_at ? new Date(existing.last_used_at).toLocaleString() : 'never';
-        status.textContent = 'Key saved. Model: ' + existing.model + '. Last used: ' + usedAt;
+        status.textContent = 'Active provider. Model: ' + existing.model + '. Last used: ' + usedAt;
+      } else if (existing) {
+        status.style.display = '';
+        status.className = 'provider-status info';
+        status.textContent = 'Key saved (inactive). Model: ' + existing.model + '. Click "Set as Active" to use this provider.';
       } else {
         status.style.display = 'none';
       }
@@ -3892,6 +3919,19 @@ data = response.json()
       } catch (err) {
         showProviderStatus(err.message || 'Remove failed', 'error');
       }
+    }
+
+    async function activateProvider() {
+      const btn = document.getElementById('btn-activate-provider');
+      btn.disabled = true; btn.textContent = 'Activating...';
+      try {
+        await mcpApi('/api/wallet/llm-keys/' + currentProvider + '/activate', { method: 'POST' });
+        showProviderStatus(providerConfigs[currentProvider]?.name + ' is now the active provider!', 'success');
+        await loadProviderKeys();
+      } catch (err) {
+        showProviderStatus(err.message || 'Activation failed', 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Set as Active';
     }
 
     function showProviderStatus(msg, type) {

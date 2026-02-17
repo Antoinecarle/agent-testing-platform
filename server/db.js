@@ -1957,6 +1957,10 @@ async function getOrgResourceCounts(orgId) {
 // ===================== USER LLM KEYS =====================
 
 async function upsertUserLlmKey(userId, provider, encryptedKey, model, displayName) {
+  // Deactivate all other providers — saved provider becomes the active one
+  await supabase.from('user_llm_keys').update({ is_active: false })
+    .eq('user_id', userId).neq('provider', provider);
+
   const { data: existing } = await supabase.from('user_llm_keys')
     .select('id').eq('user_id', userId).eq('provider', provider).single();
   if (existing) {
@@ -1965,11 +1969,23 @@ async function upsertUserLlmKey(userId, provider, encryptedKey, model, displayNa
       is_active: true, last_error: '', updated_at: new Date().toISOString(),
     }).eq('id', existing.id);
   } else {
+    // Deactivate existing keys before insert
+    await supabase.from('user_llm_keys').update({ is_active: false })
+      .eq('user_id', userId);
     await supabase.from('user_llm_keys').insert({
       user_id: userId, provider, encrypted_key: encryptedKey,
       model, display_name: displayName || '',
     });
   }
+}
+
+async function setActiveUserLlmKey(userId, provider) {
+  // Deactivate all, then activate the chosen one
+  await supabase.from('user_llm_keys').update({ is_active: false }).eq('user_id', userId);
+  const { data } = await supabase.from('user_llm_keys').update({
+    is_active: true, updated_at: new Date().toISOString(),
+  }).eq('user_id', userId).eq('provider', provider).select('id, provider, model').single();
+  return data || null;
 }
 
 async function getUserLlmKeys(userId) {
@@ -2187,7 +2203,7 @@ module.exports = {
   // Audit
   insertAuditLog,
   // User LLM Keys
-  upsertUserLlmKey, getUserLlmKeys, getUserLlmKey, getActiveUserLlmKey,
+  upsertUserLlmKey, getUserLlmKeys, getUserLlmKey, getActiveUserLlmKey, setActiveUserLlmKey,
   deleteUserLlmKey, updateUserLlmKeyLastUsed, updateUserLlmKeyError,
   // MCP Agent Tools
   createMcpAgentTool, getMcpAgentTools, getMcpAgentTool,
