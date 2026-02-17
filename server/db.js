@@ -1954,6 +1954,58 @@ async function getOrgResourceCounts(orgId) {
   };
 }
 
+// ===================== USER LLM KEYS =====================
+
+async function upsertUserLlmKey(userId, provider, encryptedKey, model, displayName) {
+  const { data: existing } = await supabase.from('user_llm_keys')
+    .select('id').eq('user_id', userId).eq('provider', provider).single();
+  if (existing) {
+    await supabase.from('user_llm_keys').update({
+      encrypted_key: encryptedKey, model, display_name: displayName || '',
+      is_active: true, last_error: '', updated_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+  } else {
+    await supabase.from('user_llm_keys').insert({
+      user_id: userId, provider, encrypted_key: encryptedKey,
+      model, display_name: displayName || '',
+    });
+  }
+}
+
+async function getUserLlmKeys(userId) {
+  const { data } = await supabase.from('user_llm_keys')
+    .select('id, user_id, provider, model, display_name, is_active, last_used_at, last_error, created_at, updated_at')
+    .eq('user_id', userId).order('updated_at', { ascending: false });
+  return data || [];
+}
+
+async function getUserLlmKey(userId, provider) {
+  const { data } = await supabase.from('user_llm_keys')
+    .select('*').eq('user_id', userId).eq('provider', provider).single();
+  return data || null;
+}
+
+async function getActiveUserLlmKey(userId) {
+  const { data } = await supabase.from('user_llm_keys')
+    .select('*').eq('user_id', userId).eq('is_active', true)
+    .order('updated_at', { ascending: false }).limit(1).single();
+  return data || null;
+}
+
+async function deleteUserLlmKey(userId, provider) {
+  await supabase.from('user_llm_keys').delete().eq('user_id', userId).eq('provider', provider);
+}
+
+async function updateUserLlmKeyLastUsed(keyId) {
+  await supabase.from('user_llm_keys').update({ last_used_at: new Date().toISOString() }).eq('id', keyId);
+}
+
+async function updateUserLlmKeyError(keyId, errorMessage) {
+  await supabase.from('user_llm_keys').update({
+    last_error: errorMessage || '', updated_at: new Date().toISOString(),
+  }).eq('id', keyId);
+}
+
 // ===================== AUDIT LOGS =====================
 
 async function insertAuditLog(userId, action, resource, resourceId, details, ipAddress) {
@@ -2072,4 +2124,7 @@ module.exports = {
   recordUsage, getUsage, getOrgResourceCounts,
   // Audit
   insertAuditLog,
+  // User LLM Keys
+  upsertUserLlmKey, getUserLlmKeys, getUserLlmKey, getActiveUserLlmKey,
+  deleteUserLlmKey, updateUserLlmKeyLastUsed, updateUserLlmKeyError,
 };

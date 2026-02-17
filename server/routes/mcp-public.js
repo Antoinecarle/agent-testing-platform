@@ -2,6 +2,8 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const { generateEmbedding } = require('../lib/embeddings');
+const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
+const { callLLMProvider, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 
 const router = express.Router();
 
@@ -64,6 +66,8 @@ router.get('/:slug/sse', async (req, res) => {
       agentName: deployment.agent_name,
       slug: deployment.slug,
       apiKeyId: keyRecord.id,
+      keySource,
+      userId: keySource === 'marketplace' ? keyRecord.user_id : null,
     });
 
     // Send endpoint event (first event per MCP SSE spec) — use absolute URL
@@ -110,7 +114,11 @@ async function handleStreamablePost(req, res, slug) {
   }
   const keyHash = hashApiKey(apiKey);
   let keyRecord = await db.getApiKeyByHash(keyHash);
-  if (!keyRecord) keyRecord = await db.getUserApiTokenByHash(keyHash);
+  let keySource = 'deployment';
+  if (!keyRecord) {
+    keyRecord = await db.getUserApiTokenByHash(keyHash);
+    keySource = 'marketplace';
+  }
   if (!keyRecord) {
     return res.status(401).json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid API key' } });
   }
@@ -121,10 +129,11 @@ async function handleStreamablePost(req, res, slug) {
   }
   console.log(`[MCP Streamable] ${deployment.slug} method=${msg.method} id=${msg.id}`);
 
+  const sessionUserId = keySource === 'marketplace' ? keyRecord.user_id : null;
   const session = {
     res: null, deploymentId: deployment.id,
     agentName: deployment.agent_name, slug: deployment.slug,
-    apiKeyId: keyRecord.id,
+    apiKeyId: keyRecord.id, keySource, userId: sessionUserId,
   };
 
   // Handle notifications (no id) — respond 202
@@ -140,6 +149,7 @@ async function handleStreamablePost(req, res, slug) {
     streamableSessions.set(sessionId, {
       deploymentId: deployment.id, agentName: deployment.agent_name,
       slug: deployment.slug, apiKeyId: keyRecord.id,
+      keySource, userId: sessionUserId,
     });
   }
 
@@ -423,32 +433,64 @@ async function handleChatTool(id, args, session) {
   if (args.context) messages.push({ role: 'user', content: args.context });
   messages.push({ role: 'user', content: args.message });
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'OpenAI not configured' } };
+  // BYOK resolution: try user's configured LLM key first, fallback to server OpenAI
+  let provider = 'openai';
+  let apiKey = process.env.OPENAI_API_KEY;
+  let model = 'gpt-5-mini-2025-08-07';
+  let userLlmKeyId = null;
+  let usingByok = false;
 
-  const model = 'gpt-5-mini-2025-08-07';
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-    body: JSON.stringify({ model, messages, max_completion_tokens: 4096 }),
-  });
-
-  const result = await response.json();
-  const durationMs = Date.now() - startTime;
-
-  if (result.error) {
-    await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', result.error.message);
-    return { jsonrpc: '2.0', id, error: { code: -32603, message: result.error.message } };
+  if (session.userId) {
+    try {
+      const userKey = await db.getActiveUserLlmKey(session.userId);
+      if (userKey && userKey.encrypted_key) {
+        provider = userKey.provider;
+        apiKey = decryptApiKey(userKey.encrypted_key);
+        model = userKey.model;
+        userLlmKeyId = userKey.id;
+        usingByok = true;
+      }
+    } catch (err) {
+      console.warn('[MCP Chat] BYOK resolution failed, using server key:', err.message);
+    }
   }
 
-  const usage = result.usage || {};
-  const inputTokens = usage.prompt_tokens || 0;
-  const outputTokens = usage.completion_tokens || 0;
+  if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available. Configure your own key or contact the platform admin.' } };
+
+  let llmResult;
+  try {
+    llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens: 4096 });
+  } catch (err) {
+    // If user key failed, try fallback to server key
+    if (usingByok && process.env.OPENAI_API_KEY) {
+      console.warn(`[MCP Chat] BYOK ${provider} failed: ${err.message}, falling back to server OpenAI`);
+      if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
+      try {
+        provider = 'openai';
+        model = 'gpt-5-mini-2025-08-07';
+        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, model, messages, { maxTokens: 4096 });
+        usingByok = false;
+      } catch (fallbackErr) {
+        const durationMs = Date.now() - startTime;
+        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', fallbackErr.message);
+        return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+      }
+    } else {
+      const durationMs = Date.now() - startTime;
+      await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', err.message);
+      if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
+      return { jsonrpc: '2.0', id, error: { code: -32603, message: err.message } };
+    }
+  }
+
+  const durationMs = Date.now() - startTime;
+  const { text, inputTokens, outputTokens } = llmResult;
+
+  if (usingByok && userLlmKeyId) await db.updateUserLlmKeyLastUsed(userLlmKeyId);
   await db.logTokenUsage(session.deploymentId, session.agentName, model, inputTokens, outputTokens, 'mcp-chat', '', durationMs, 'success', '');
   await db.incrementDeploymentStats(session.deploymentId, inputTokens, outputTokens);
   await db.updateApiKeyLastUsed(session.apiKeyId);
 
-  const text = result.choices?.[0]?.message?.content || '';
   return {
     jsonrpc: '2.0', id,
     result: {
@@ -486,7 +528,7 @@ async function handleInfoTool(id, session) {
   };
 }
 
-// Validate API key middleware
+// Validate API key middleware — accepts both gru_ (deployment) and guru_ (marketplace) keys
 async function validateApiKey(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -494,14 +536,27 @@ async function validateApiKey(req, res, next) {
   }
   const apiKey = authHeader.substring(7);
   const keyHash = hashApiKey(apiKey);
-  const keyRecord = await db.getApiKeyByHash(keyHash);
+  let keyRecord = await db.getApiKeyByHash(keyHash);
+  if (keyRecord) {
+    await db.updateApiKeyLastUsed(keyRecord.id);
+    req.deploymentId = keyRecord.deployment_id;
+    req.apiKeyId = keyRecord.id;
+    req.byokUserId = null;
+    return next();
+  }
+  // Try marketplace user_api_tokens
+  keyRecord = await db.getUserApiTokenByHash(keyHash);
   if (!keyRecord) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
-  // Update last used
-  await db.updateApiKeyLastUsed(keyRecord.id);
-  req.deploymentId = keyRecord.deployment_id;
   req.apiKeyId = keyRecord.id;
+  req.byokUserId = keyRecord.user_id;
+  // Resolve deployment from slug in URL
+  const slug = req.params.slug;
+  if (slug) {
+    const deployment = await db.getDeploymentBySlug(slug);
+    if (deployment) req.deploymentId = deployment.id;
+  }
   next();
 }
 
@@ -621,52 +676,65 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
       ...messages,
     ];
 
-    // Forward to OpenAI (using the agent's configured model or default)
-    const selectedModel = model || 'gpt-5-mini-2025-08-07';
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return res.status(503).json({ error: 'OpenAI API key not configured on server' });
+    // BYOK resolution for REST endpoint
+    let selectedProvider = 'openai';
+    let selectedApiKey = process.env.OPENAI_API_KEY;
+    let selectedModel = model || 'gpt-5-mini-2025-08-07';
+    let restUserLlmKeyId = null;
+    let restUsingByok = false;
+
+    if (req.byokUserId) {
+      try {
+        const userKey = await db.getActiveUserLlmKey(req.byokUserId);
+        if (userKey && userKey.encrypted_key) {
+          selectedProvider = userKey.provider;
+          selectedApiKey = decryptApiKey(userKey.encrypted_key);
+          selectedModel = model || userKey.model;
+          restUserLlmKeyId = userKey.id;
+          restUsingByok = true;
+        }
+      } catch (err) {
+        console.warn('[MCP REST Chat] BYOK resolution failed:', err.message);
+      }
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: fullMessages,
-        max_completion_tokens: 4096,
-      }),
-    });
+    if (!selectedApiKey) {
+      return res.status(503).json({ error: 'No LLM API key available. Configure your own key or contact the platform admin.' });
+    }
 
-    const result = await response.json();
+    let llmResult;
+    try {
+      llmResult = await callLLMProvider(selectedProvider, selectedApiKey, selectedModel, fullMessages, { maxTokens: 4096 });
+    } catch (err) {
+      if (restUsingByok && process.env.OPENAI_API_KEY) {
+        console.warn(`[MCP REST Chat] BYOK ${selectedProvider} failed: ${err.message}, falling back`);
+        if (restUserLlmKeyId) await db.updateUserLlmKeyError(restUserLlmKeyId, err.message);
+        selectedProvider = 'openai';
+        selectedModel = model || 'gpt-5-mini-2025-08-07';
+        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, selectedModel, fullMessages, { maxTokens: 4096 });
+        restUsingByok = false;
+      } else {
+        const durationMs = Date.now() - startTime;
+        await db.logTokenUsage(deployment.id, deployment.agent_name, selectedModel, 0, 0, 'chat', req.ip, durationMs, 'error', err.message);
+        if (restUserLlmKeyId) await db.updateUserLlmKeyError(restUserLlmKeyId, err.message);
+        return res.status(502).json({ error: err.message });
+      }
+    }
+
     const durationMs = Date.now() - startTime;
+    const { text: responseText, inputTokens, outputTokens } = llmResult;
 
-    if (result.error) {
-      await db.logTokenUsage(deployment.id, deployment.agent_name, selectedModel, 0, 0, 'chat', req.ip, durationMs, 'error', result.error.message);
-      return res.status(502).json({ error: result.error.message });
-    }
-
-    const usage = result.usage || {};
-    const inputTokens = usage.prompt_tokens || 0;
-    const outputTokens = usage.completion_tokens || 0;
-
-    // Log usage
+    if (restUsingByok && restUserLlmKeyId) await db.updateUserLlmKeyLastUsed(restUserLlmKeyId);
     await db.logTokenUsage(deployment.id, deployment.agent_name, selectedModel, inputTokens, outputTokens, 'chat', req.ip, durationMs, 'success', '');
     await db.incrementDeploymentStats(deployment.id, inputTokens, outputTokens);
 
     res.json({
-      id: result.id,
+      id: crypto.randomUUID(),
       object: 'response',
       model: selectedModel,
       agent: deployment.agent_name,
-      output: result.choices?.map(c => ({
-        type: 'message',
-        role: c.message?.role || 'assistant',
-        content: [{ type: 'output_text', text: c.message?.content || '' }],
-      })) || [],
+      provider: selectedProvider,
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: responseText }] }],
       usage: { input_tokens: inputTokens, output_tokens: outputTokens },
     });
   } catch (err) {
@@ -1924,6 +1992,53 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       display: flex; align-items: center; gap: 6px;
     }
 
+    /* ===== PROVIDER SETTINGS (BYOK) ===== */
+    .provider-section { padding: 60px 0; }
+    .provider-tabs {
+      display: flex; gap: 4px; padding: 4px; background: var(--bg);
+      border-radius: 10px; border: 1px solid var(--border); margin-bottom: 20px;
+    }
+    .provider-tab {
+      flex: 1; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      transition: all 0.2s; text-align: center;
+    }
+    .provider-tab:hover { color: var(--text); }
+    .provider-tab.active { background: var(--bg-card); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .provider-form { padding: 0 28px 28px; }
+    .provider-field { margin-bottom: 14px; }
+    .provider-field label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+    .provider-field input, .provider-field select {
+      width: 100%; padding: 10px 14px; border-radius: 8px; font-size: 14px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      font-family: 'JetBrains Mono', monospace; transition: border-color 0.2s;
+    }
+    .provider-field input:focus, .provider-field select:focus { border-color: var(--primary); outline: none; }
+    .provider-field select { cursor: pointer; }
+    .provider-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .provider-actions .btn-primary {
+      padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      background: var(--primary); color: #fff; border: none; cursor: pointer; transition: all 0.2s;
+    }
+    .provider-actions .btn-primary:hover { opacity: 0.9; }
+    .provider-actions .btn-primary:disabled { opacity: 0.5; cursor: default; }
+    .provider-actions .btn-outline {
+      padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      background: none; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    }
+    .provider-actions .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .provider-actions .btn-outline.danger:hover { border-color: var(--error); color: var(--error); }
+    .provider-status {
+      margin-top: 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    }
+    .provider-status.success { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: var(--success); }
+    .provider-status.error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--error); }
+    .provider-status.info { background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15); color: var(--primary); }
+    .provider-badge {
+      padding: 4px 12px; border-radius: 100px; font-size: 11px; font-weight: 700;
+      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: var(--success);
+    }
+
     /* ===== REQUEST LOGS TABLE ===== */
     .logs-section { padding: 60px 0; }
     .logs-card {
@@ -2699,6 +2814,40 @@ data = response.json()
     </div>
   </section>
 
+  <!-- LLM PROVIDER SETTINGS (BYOK) — only visible when authed + purchased -->
+  <section class="provider-section" id="provider-section" style="display:none">
+    <div class="container">
+      <div class="apikeys-card">
+        <div class="apikeys-header">
+          <h3>&#x2699; LLM Provider Settings</h3>
+          <span class="provider-badge" id="active-provider-badge" style="display:none"></span>
+        </div>
+        <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Use your own API key to power this agent with your preferred model. Your key is encrypted and never shared.</p>
+        <div class="provider-tabs" id="provider-tabs">
+          <button class="provider-tab active" onclick="selectProvider('openai')">OpenAI</button>
+          <button class="provider-tab" onclick="selectProvider('anthropic')">Anthropic</button>
+          <button class="provider-tab" onclick="selectProvider('google')">Google Gemini</button>
+        </div>
+        <div class="provider-form" id="provider-form">
+          <div class="provider-field">
+            <label>API Key</label>
+            <input type="password" id="provider-key-input" placeholder="sk-..." autocomplete="off" />
+          </div>
+          <div class="provider-field">
+            <label>Model</label>
+            <select id="provider-model-select"></select>
+          </div>
+          <div class="provider-actions">
+            <button class="btn-primary" onclick="saveProvider()" id="btn-save-provider">Save Key</button>
+            <button class="btn-outline" onclick="testProvider()" id="btn-test-provider">Test Key</button>
+            <button class="btn-outline danger" onclick="removeProvider()" id="btn-remove-provider" style="display:none">Remove</button>
+          </div>
+          <div class="provider-status" id="provider-status" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- PRICING TIERS (kept for reference) -->
   <section class="section" id="pricing">
     <div class="container">
@@ -3370,8 +3519,164 @@ data = response.json()
     }
 
     // ---- Init on page load ----
+    // ---- LLM Provider Settings (BYOK) ----
+    let currentProvider = 'openai';
+    let providerConfigs = {};
+    let userLlmKeys = {};
+
+    async function loadProviderConfigs() {
+      try {
+        providerConfigs = await mcpApi('/api/wallet/llm-providers');
+      } catch (_) {
+        providerConfigs = {
+          openai: { name: 'OpenAI', models: [{ id: 'gpt-5-mini-2025-08-07', name: 'GPT-5 Mini', default: true }] },
+          anthropic: { name: 'Anthropic', models: [{ id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', default: true }] },
+          google: { name: 'Google Gemini', models: [{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', default: true }] },
+        };
+      }
+    }
+
+    async function loadProviderKeys() {
+      try {
+        const keys = await mcpApi('/api/wallet/llm-keys');
+        userLlmKeys = {};
+        (keys || []).forEach(k => { userLlmKeys[k.provider] = k; });
+        updateProviderUI();
+      } catch (err) {
+        console.warn('Failed to load LLM keys:', err);
+      }
+    }
+
+    function selectProvider(provider) {
+      currentProvider = provider;
+      document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
+      const tabs = document.querySelectorAll('.provider-tab');
+      const providers = ['openai', 'anthropic', 'google'];
+      const idx = providers.indexOf(provider);
+      if (idx >= 0 && tabs[idx]) tabs[idx].classList.add('active');
+      updateProviderUI();
+    }
+
+    function updateProviderUI() {
+      const section = document.getElementById('provider-section');
+      if (!authToken || !hasPurchased) { section.style.display = 'none'; return; }
+      section.style.display = '';
+
+      const cfg = providerConfigs[currentProvider];
+      if (!cfg) return;
+      const existing = userLlmKeys[currentProvider];
+
+      // Update model dropdown
+      const sel = document.getElementById('provider-model-select');
+      sel.innerHTML = '';
+      (cfg.models || []).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name + (m.default ? ' (Default)' : '');
+        if (existing && existing.model === m.id) opt.selected = true;
+        else if (!existing && m.default) opt.selected = true;
+        sel.appendChild(opt);
+      });
+
+      // Update key input
+      const input = document.getElementById('provider-key-input');
+      input.value = '';
+      input.placeholder = existing ? '********** (key saved)' : (cfg.keyPrefix || '') + '...';
+
+      // Show/hide remove button
+      const removeBtn = document.getElementById('btn-remove-provider');
+      removeBtn.style.display = existing ? '' : 'none';
+
+      // Show active badge
+      const badge = document.getElementById('active-provider-badge');
+      const activeKey = Object.values(userLlmKeys).find(k => k.is_active);
+      if (activeKey) {
+        const pName = providerConfigs[activeKey.provider]?.name || activeKey.provider;
+        badge.textContent = 'Active: ' + pName;
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+
+      // Show status
+      const status = document.getElementById('provider-status');
+      if (existing && existing.last_error) {
+        status.style.display = '';
+        status.className = 'provider-status error';
+        status.textContent = 'Last error: ' + existing.last_error;
+      } else if (existing) {
+        status.style.display = '';
+        status.className = 'provider-status success';
+        const usedAt = existing.last_used_at ? new Date(existing.last_used_at).toLocaleString() : 'never';
+        status.textContent = 'Key saved. Model: ' + existing.model + '. Last used: ' + usedAt;
+      } else {
+        status.style.display = 'none';
+      }
+    }
+
+    async function saveProvider() {
+      const btn = document.getElementById('btn-save-provider');
+      const apiKey = document.getElementById('provider-key-input').value.trim();
+      const model = document.getElementById('provider-model-select').value;
+      if (!apiKey) {
+        showProviderStatus('Enter an API key', 'error');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try {
+        await mcpApi('/api/wallet/llm-keys/' + currentProvider, {
+          method: 'PUT',
+          body: JSON.stringify({ apiKey, model }),
+        });
+        showProviderStatus('Key saved successfully!', 'success');
+        await loadProviderKeys();
+      } catch (err) {
+        showProviderStatus(err.message || 'Save failed', 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Save Key';
+    }
+
+    async function testProvider() {
+      const btn = document.getElementById('btn-test-provider');
+      let apiKey = document.getElementById('provider-key-input').value.trim();
+      const model = document.getElementById('provider-model-select').value;
+      if (!apiKey) {
+        showProviderStatus('Enter an API key to test', 'error');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Testing...';
+      try {
+        const result = await mcpApi('/api/wallet/llm-keys/' + currentProvider + '/test', {
+          method: 'POST',
+          body: JSON.stringify({ apiKey, model }),
+        });
+        showProviderStatus('Key works! Response: "' + (result.response || 'OK') + '"', 'success');
+      } catch (err) {
+        showProviderStatus('Test failed: ' + (err.message || 'Unknown error'), 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Test Key';
+    }
+
+    async function removeProvider() {
+      if (!confirm('Remove your ' + (providerConfigs[currentProvider]?.name || currentProvider) + ' API key?')) return;
+      try {
+        await mcpApi('/api/wallet/llm-keys/' + currentProvider, { method: 'DELETE' });
+        showProviderStatus('Key removed', 'info');
+        await loadProviderKeys();
+      } catch (err) {
+        showProviderStatus(err.message || 'Remove failed', 'error');
+      }
+    }
+
+    function showProviderStatus(msg, type) {
+      const el = document.getElementById('provider-status');
+      el.style.display = '';
+      el.className = 'provider-status ' + type;
+      el.textContent = msg;
+    }
+
     async function initAuthState() {
-      if (!authToken) { updateNavUI(); updateAccessUI(); updateApiKeysUI(); return; }
+      if (!authToken) { updateNavUI(); updateAccessUI(); updateApiKeysUI(); updateProviderUI(); return; }
       try {
         // Verify token and get user info
         const user = await mcpApi('/api/user/me');
@@ -3386,8 +3691,11 @@ data = response.json()
         updateAccessUI();
         if (hasPurchased) {
           await loadApiKeys();
+          await loadProviderConfigs();
+          await loadProviderKeys();
         }
         updateApiKeysUI();
+        updateProviderUI();
       } catch (err) {
         // Token expired or invalid
         console.warn('Auth check failed:', err.message);
@@ -3396,6 +3704,7 @@ data = response.json()
         updateNavUI();
         updateAccessUI();
         updateApiKeysUI();
+        updateProviderUI();
       }
     }
 

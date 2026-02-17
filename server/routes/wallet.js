@@ -1,5 +1,7 @@
 const express = require('express');
 const db = require('../db');
+const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
+const { testProviderKey, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 
 const router = express.Router();
 
@@ -94,6 +96,80 @@ router.delete('/tokens/:tokenId', async (req, res) => {
   } catch (err) {
     console.error('[Wallet] Revoke token error:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ===================== LLM KEYS (BYOK) =====================
+
+// GET /api/wallet/llm-keys — list user's configured LLM keys (metadata only, no encrypted_key)
+router.get('/llm-keys', async (req, res) => {
+  try {
+    const keys = await db.getUserLlmKeys(req.user.userId);
+    res.json(keys);
+  } catch (err) {
+    console.error('[Wallet] LLM keys list error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/wallet/llm-providers — list available providers and their models
+router.get('/llm-providers', async (req, res) => {
+  res.json(PROVIDER_CONFIGS);
+});
+
+// PUT /api/wallet/llm-keys/:provider — save/update an LLM key
+router.put('/llm-keys/:provider', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!PROVIDER_CONFIGS[provider]) {
+      return res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    }
+    const { apiKey, model, displayName } = req.body;
+    if (!apiKey || !model) {
+      return res.status(400).json({ error: 'apiKey and model are required' });
+    }
+    // Validate model is in provider's list
+    const validModels = PROVIDER_CONFIGS[provider].models.map(m => m.id);
+    if (!validModels.includes(model)) {
+      return res.status(400).json({ error: `Invalid model for ${provider}. Valid: ${validModels.join(', ')}` });
+    }
+    const encrypted = encryptApiKey(apiKey);
+    await db.upsertUserLlmKey(req.user.userId, provider, encrypted, model, displayName || '');
+    res.json({ ok: true, provider, model });
+  } catch (err) {
+    console.error('[Wallet] LLM key save error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/wallet/llm-keys/:provider — remove an LLM key
+router.delete('/llm-keys/:provider', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    await db.deleteUserLlmKey(req.user.userId, provider);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Wallet] LLM key delete error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/wallet/llm-keys/:provider/test — test a key without saving
+router.post('/llm-keys/:provider/test', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!PROVIDER_CONFIGS[provider]) {
+      return res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    }
+    const { apiKey, model } = req.body;
+    if (!apiKey || !model) {
+      return res.status(400).json({ error: 'apiKey and model are required' });
+    }
+    const result = await testProviderKey(provider, apiKey, model);
+    res.json(result);
+  } catch (err) {
+    console.error('[Wallet] LLM key test error:', err.message);
+    res.status(400).json({ error: err.message || 'Key test failed' });
   }
 });
 
