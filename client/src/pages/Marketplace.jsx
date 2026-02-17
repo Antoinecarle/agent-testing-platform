@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Download, Star, ChevronRight, User, Package, Eye,
-  ArrowUpDown, LayoutGrid, Loader2, GitFork
+  ArrowUpDown, LayoutGrid, Loader2, GitFork, Coins, ShieldCheck, Sparkles, Wallet
 } from 'lucide-react';
 import { api, getToken } from '../api';
 
@@ -47,6 +47,45 @@ function AgentCard({ agent, onFork, onDownload, navigate }) {
         overflow: 'hidden',
         position: 'relative',
       }}>
+        {/* Price badge overlay */}
+        {agent.is_premium && agent.price > 0 && (
+          <div style={{
+            position: 'absolute', top: '8px', right: '8px', zIndex: 2,
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '4px 10px', borderRadius: '100px',
+            background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(139,92,246,0.4)',
+            fontSize: '11px', fontWeight: '700', color: t.violet,
+          }}>
+            <Coins size={12} />
+            {agent.price} credits
+          </div>
+        )}
+        {agent.is_premium && agent.price === 0 && (
+          <div style={{
+            position: 'absolute', top: '8px', right: '8px', zIndex: 2,
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '4px 10px', borderRadius: '100px',
+            background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(8px)',
+            border: `1px solid ${t.success}40`,
+            fontSize: '11px', fontWeight: '700', color: t.success,
+          }}>
+            <Sparkles size={12} />
+            Free
+          </div>
+        )}
+        {agent.token_symbol && (
+          <div style={{
+            position: 'absolute', top: '8px', left: '8px', zIndex: 2,
+            padding: '3px 8px', borderRadius: '100px',
+            background: 'rgba(15,15,15,0.85)', backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(34,197,94,0.3)',
+            fontSize: '10px', fontWeight: '800', color: '#4ade80',
+            fontFamily: t.mono, letterSpacing: '0.05em',
+          }}>
+            {agent.token_symbol}
+          </div>
+        )}
         {agent.screenshot_path ? (
           <img src={agent.screenshot_path + '?t=1'} alt={agent.name}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -132,16 +171,30 @@ function AgentCard({ agent, onFork, onDownload, navigate }) {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); onFork(agent.name); }}
-            style={{
-              backgroundColor: t.violetM, color: t.violet, border: `1px solid ${t.violet}40`,
-              borderRadius: '4px', padding: '6px 10px', fontSize: '11px', fontWeight: '600',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
-            }}
-          >
-            <GitFork size={13} /> Fork
-          </button>
+          {agent.is_premium && agent.price > 0 ? (
+            <button
+              onClick={() => navigate(`/marketplace/${agent.name}`)}
+              style={{
+                backgroundColor: t.violet, color: '#fff', border: 'none',
+                borderRadius: '4px', padding: '6px 10px', fontSize: '11px', fontWeight: '600',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                boxShadow: `0 0 12px ${t.violetG}`,
+              }}
+            >
+              <ShieldCheck size={13} /> Purchase
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onFork(agent.name); }}
+              style={{
+                backgroundColor: t.violetM, color: t.violet, border: `1px solid ${t.violet}40`,
+                borderRadius: '4px', padding: '6px 10px', fontSize: '11px', fontWeight: '600',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+              }}
+            >
+              <GitFork size={13} /> Fork
+            </button>
+          )}
           <button
             onClick={() => navigate(`/marketplace/${agent.name}`)}
             style={{
@@ -166,6 +219,8 @@ export default function Marketplace() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('popular');
+  const [priceFilter, setPriceFilter] = useState('all'); // 'all' | 'free' | 'premium'
+  const [walletBalance, setWalletBalance] = useState(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -174,12 +229,14 @@ export default function Marketplace() {
       if (search) params.set('search', search);
       if (selectedCategory !== 'all') params.set('category', selectedCategory);
 
-      const [agentData, catData] = await Promise.all([
+      const [agentData, catData, walletData] = await Promise.all([
         api(`/api/marketplace?${params.toString()}`),
         api('/api/categories'),
+        api('/api/wallet').catch(() => null),
       ]);
       setAgents(agentData || []);
       setCategories(catData || []);
+      if (walletData) setWalletBalance(walletData.balance);
     } catch (err) {
       console.error('Marketplace fetch error:', err);
     } finally {
@@ -191,6 +248,12 @@ export default function Marketplace() {
     const timeout = setTimeout(fetchData, 300);
     return () => clearTimeout(timeout);
   }, [search, selectedCategory, sortBy]);
+
+  const filteredAgents = agents.filter(a => {
+    if (priceFilter === 'free') return !a.is_premium || a.price === 0;
+    if (priceFilter === 'premium') return a.is_premium && a.price > 0;
+    return true;
+  });
 
   const handleFork = async (agentName) => {
     const newName = window.prompt('Name for your forked agent (leave empty for auto-name):');
@@ -239,9 +302,28 @@ export default function Marketplace() {
           <h1 style={{ fontSize: '32px', fontWeight: '700', letterSpacing: '-0.02em', marginBottom: '12px' }}>
             Agent Marketplace
           </h1>
-          <p style={{ fontSize: '14px', color: t.ts, marginBottom: '24px' }}>
-            Browse, fork, and explore AI agents for your projects
+          <p style={{ fontSize: '14px', color: t.ts, marginBottom: '16px' }}>
+            Browse, purchase, and deploy AI agents with their own tokens
           </p>
+          {walletBalance !== null && (
+            <div
+              onClick={() => navigate('/wallet')}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                padding: '6px 16px', borderRadius: '100px', cursor: 'pointer',
+                background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)',
+                marginBottom: '20px', transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.violet; e.currentTarget.style.background = 'rgba(139,92,246,0.15)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'; e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; }}
+            >
+              <Wallet size={14} style={{ color: t.violet }} />
+              <span style={{ fontSize: '13px', fontWeight: '700', color: t.violet, fontFamily: t.mono }}>
+                {walletBalance.toLocaleString()}
+              </span>
+              <span style={{ fontSize: '11px', color: t.ts }}>credits</span>
+            </div>
+          )}
           <div style={{ position: 'relative', maxWidth: '500px', margin: '0 auto' }}>
             <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: t.tm }} />
             <input
@@ -289,7 +371,21 @@ export default function Marketplace() {
             ))}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '4px', background: t.surfaceEl, borderRadius: '6px', padding: '3px' }}>
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'free', label: 'Free' },
+                { key: 'premium', label: 'Premium' },
+              ].map(f => (
+                <button key={f.key} onClick={() => setPriceFilter(f.key)} style={{
+                  padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '600',
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: priceFilter === f.key ? t.violet : 'transparent',
+                  color: priceFilter === f.key ? '#fff' : t.ts,
+                }}>{f.label}</button>
+              ))}
+            </div>
             <ArrowUpDown size={14} style={{ color: t.tm }} />
             <select
               style={{
@@ -308,7 +404,7 @@ export default function Marketplace() {
         </div>
 
         {/* Grid */}
-        {agents.length === 0 && !loading ? (
+        {filteredAgents.length === 0 && !loading ? (
           <div style={{ textAlign: 'center', padding: '80px 0', color: t.tm }}>
             <LayoutGrid size={48} strokeWidth={1} style={{ marginBottom: '16px', opacity: 0.5 }} />
             <p style={{ margin: 0 }}>No agents found matching your criteria.</p>
@@ -318,10 +414,10 @@ export default function Marketplace() {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: '24px',
-            opacity: loading && agents.length === 0 ? 0.5 : 1,
+            opacity: loading && filteredAgents.length === 0 ? 0.5 : 1,
             transition: 'opacity 0.2s ease',
           }}>
-            {agents.map(agent => (
+            {filteredAgents.map(agent => (
               <AgentCard
                 key={agent.name}
                 agent={agent}

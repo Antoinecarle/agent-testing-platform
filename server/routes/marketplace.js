@@ -27,16 +27,17 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/marketplace/:name — agent detail + showcases
+// GET /api/marketplace/:name — agent detail + showcases + purchase status
 router.get('/:name', async (req, res) => {
   try {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const [showcases, projectCount, projects] = await Promise.all([
+    const [showcases, projectCount, projects, purchaseCount] = await Promise.all([
       db.getShowcasesByAgent(req.params.name),
       db.getAgentProjectCount(req.params.name),
       db.getProjectsByAgent(req.params.name),
+      db.getAgentPurchaseCount(req.params.name),
     ]);
 
     // Get creator info
@@ -44,6 +45,16 @@ router.get('/:name', async (req, res) => {
     if (agent.created_by) {
       const user = await db.getUserById(agent.created_by);
       if (user) creator = { id: user.id, email: user.email, display_name: user.display_name };
+    }
+
+    // Check if current user has purchased this agent
+    let userPurchased = false;
+    let userTokens = [];
+    if (req.user?.userId) {
+      userPurchased = await db.hasUserPurchased(req.user.userId, req.params.name);
+      if (userPurchased) {
+        userTokens = await db.getUserApiTokensByAgent(req.user.userId, req.params.name);
+      }
     }
 
     // Get iterations for all projects of this agent (for iteration browser)
@@ -57,13 +68,53 @@ router.get('/:name', async (req, res) => {
     res.json({
       ...agent,
       project_count: projectCount,
+      purchase_count: purchaseCount,
       showcases,
       projects: projectsList,
       iterations_by_project: iterationsByProject,
       creator,
+      user_purchased: userPurchased,
+      user_tokens: userTokens,
     });
   } catch (err) {
     console.error('[Marketplace] Detail error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/marketplace/:name/purchase — purchase an agent
+router.post('/:name/purchase', async (req, res) => {
+  try {
+    const result = await db.purchaseAgent(req.user.userId, req.params.name);
+    res.json(result);
+  } catch (err) {
+    console.error('[Marketplace] Purchase error:', err.message);
+    if (err.message === 'Agent not found') return res.status(404).json({ error: err.message });
+    if (err.message === 'Agent is not for sale') return res.status(400).json({ error: err.message });
+    if (err.message === 'Agent already purchased') return res.status(409).json({ error: err.message });
+    if (err.message === 'Insufficient credits') return res.status(402).json({ error: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/marketplace/:name/pricing — update agent pricing (creator/admin only)
+router.put('/:name/pricing', async (req, res) => {
+  try {
+    const agent = await db.getAgent(req.params.name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const isCreator = agent.created_by && agent.created_by === req.user.userId;
+    const isAdmin = req.user.role === 'admin';
+    if (!isCreator && !isAdmin) {
+      return res.status(403).json({ error: 'Only the agent creator or admin can set pricing' });
+    }
+
+    const { price, is_premium, documentation, token_symbol } = req.body;
+    await db.updateAgentPricing(req.params.name, price, is_premium, documentation, token_symbol);
+    const updated = await db.getAgent(req.params.name);
+    res.json(updated);
+  } catch (err) {
+    console.error('[Marketplace] Pricing error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

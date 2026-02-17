@@ -264,6 +264,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const marketplaceRoutes = require('./routes/marketplace');
   app.use('/api/marketplace', verifyToken, marketplaceRoutes);
 
+  const walletRoutes = require('./routes/wallet');
+  app.use('/api/wallet', verifyToken, walletRoutes);
+
   const agentTeamsRoutes = require('./routes/agent-teams');
   app.use('/api/agent-teams', verifyToken, agentTeamsRoutes);
 

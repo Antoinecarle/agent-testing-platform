@@ -61,6 +61,7 @@ export default function Layout() {
           <NavLink to="/agents/teams" style={({ isActive }) => linkStyle(isActive)}>Teams</NavLink>
           <NavLink to="/skills" style={({ isActive }) => linkStyle(isActive)}>Skills</NavLink>
           <NavLink to="/knowledge" style={({ isActive }) => linkStyle(isActive || location.pathname.startsWith('/knowledge'))}>Knowledge</NavLink>
+          <NavLink to="/wallet" style={({ isActive }) => linkStyle(isActive)}>Wallet</NavLink>
           <NavLink to="/agents/stats" style={({ isActive }) => linkStyle(isActive)}>Stats</NavLink>
           <NavLink to="/sessions" style={({ isActive }) => linkStyle(isActive)}>Sessions</NavLink>
         </div>
@@ -146,6 +147,7 @@ export default function Layout() {
           <NavLink to="/agents/teams" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Teams</NavLink>
           <NavLink to="/skills" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Skills</NavLink>
           <NavLink to="/knowledge" style={({ isActive }) => ({ ...linkStyle(isActive || location.pathname.startsWith('/knowledge')), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Knowledge</NavLink>
+          <NavLink to="/wallet" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Wallet</NavLink>
           <NavLink to="/agents/stats" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Stats</NavLink>
           <NavLink to="/sessions" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Sessions</NavLink>
           <NavLink to="/settings" style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '15px', padding: '12px 16px' })} onClick={() => setMobileMenuOpen(false)}>Settings</NavLink>

@@ -868,6 +868,152 @@ async function countShowcases(agentName) {
   return count || 0;
 }
 
+// ===================== WALLET & PURCHASES =====================
+
+async function getUserWallet(userId) {
+  const { data } = await supabase.from('user_wallets').select('*').eq('user_id', userId).single();
+  return data || null;
+}
+
+async function getOrCreateWallet(userId) {
+  let wallet = await getUserWallet(userId);
+  if (!wallet) {
+    const { data } = await supabase.from('user_wallets').insert({
+      user_id: userId, balance: 1000, total_deposited: 1000,
+    }).select().single();
+    // Also log the welcome bonus
+    await supabase.from('wallet_transactions').insert({
+      user_id: userId, type: 'bonus', amount: 1000,
+      description: 'Welcome bonus credits',
+    });
+    wallet = data;
+  }
+  return wallet;
+}
+
+async function depositCredits(userId, amount, description) {
+  const wallet = await getOrCreateWallet(userId);
+  const newBalance = wallet.balance + amount;
+  await supabase.from('user_wallets').update({
+    balance: newBalance,
+    total_deposited: wallet.total_deposited + amount,
+    updated_at: new Date().toISOString(),
+  }).eq('user_id', userId);
+
+  await supabase.from('wallet_transactions').insert({
+    user_id: userId, type: 'deposit', amount,
+    description: description || 'Credit deposit',
+  });
+
+  return { ...wallet, balance: newBalance };
+}
+
+async function purchaseAgent(userId, agentName) {
+  const agent = await getAgent(agentName);
+  if (!agent) throw new Error('Agent not found');
+  if (!agent.is_premium || agent.price <= 0) throw new Error('Agent is not for sale');
+
+  // Check if already purchased
+  const { data: existing } = await supabase.from('agent_purchases')
+    .select('id').eq('user_id', userId).eq('agent_name', agentName).single();
+  if (existing) throw new Error('Agent already purchased');
+
+  // Check wallet balance
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.balance < agent.price) throw new Error('Insufficient credits');
+
+  // Deduct credits
+  const newBalance = wallet.balance - agent.price;
+  await supabase.from('user_wallets').update({
+    balance: newBalance,
+    total_spent: wallet.total_spent + agent.price,
+    updated_at: new Date().toISOString(),
+  }).eq('user_id', userId);
+
+  // Record transaction
+  await supabase.from('wallet_transactions').insert({
+    user_id: userId, type: 'purchase', amount: -agent.price,
+    description: `Purchased agent: ${agentName}`,
+    reference_id: agentName,
+  });
+
+  // Create purchase record
+  await supabase.from('agent_purchases').insert({
+    user_id: userId, agent_name: agentName, price_paid: agent.price,
+  });
+
+  // Generate API token
+  const token = await generateAgentToken(userId, agentName);
+
+  return { purchase: true, balance: newBalance, token };
+}
+
+async function getUserPurchases(userId) {
+  const { data } = await supabase.from('agent_purchases')
+    .select('*').eq('user_id', userId).order('purchased_at', { ascending: false });
+  return data || [];
+}
+
+async function hasUserPurchased(userId, agentName) {
+  const { data } = await supabase.from('agent_purchases')
+    .select('id').eq('user_id', userId).eq('agent_name', agentName).single();
+  return !!data;
+}
+
+async function generateAgentToken(userId, agentName) {
+  const rawToken = `guru_${crypto.randomBytes(32).toString('hex')}`;
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const tokenPrefix = rawToken.substring(0, 12);
+
+  await supabase.from('user_api_tokens').insert({
+    user_id: userId, agent_name: agentName,
+    token_hash: tokenHash, token_prefix: tokenPrefix,
+    name: 'Default',
+  });
+
+  return { token: rawToken, prefix: tokenPrefix };
+}
+
+async function getUserApiTokens(userId) {
+  const { data } = await supabase.from('user_api_tokens')
+    .select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function getUserApiTokensByAgent(userId, agentName) {
+  const { data } = await supabase.from('user_api_tokens')
+    .select('*').eq('user_id', userId).eq('agent_name', agentName)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function revokeApiToken(tokenId, userId) {
+  await supabase.from('user_api_tokens').update({ is_active: false }).eq('id', tokenId).eq('user_id', userId);
+}
+
+async function getWalletTransactions(userId, limit = 50) {
+  const { data } = await supabase.from('wallet_transactions')
+    .select('*').eq('user_id', userId)
+    .order('created_at', { ascending: false }).limit(limit);
+  return data || [];
+}
+
+async function updateAgentPricing(agentName, price, isPremium, documentation, tokenSymbol) {
+  await supabase.from('agents').update({
+    price: price || 0,
+    is_premium: isPremium || false,
+    documentation: documentation || '',
+    token_symbol: tokenSymbol || '',
+    updated_at: now(),
+  }).eq('name', agentName);
+}
+
+async function getAgentPurchaseCount(agentName) {
+  const { count } = await supabase.from('agent_purchases')
+    .select('*', { count: 'exact', head: true }).eq('agent_name', agentName);
+  return count || 0;
+}
+
 // ===================== AGENT CONVERSATIONS =====================
 
 async function createAgentConversation(userId, name, agentType) {
@@ -1864,6 +2010,11 @@ module.exports = {
   getMarketplaceAgents, incrementAgentDownloads, incrementAgentForks,
   createShowcase, getShowcasesByAgent, getShowcase, deleteShowcase,
   reorderShowcases, countShowcases,
+  // Wallet & Purchases
+  getUserWallet, getOrCreateWallet, depositCredits, purchaseAgent,
+  getUserPurchases, hasUserPurchased, generateAgentToken,
+  getUserApiTokens, getUserApiTokensByAgent, revokeApiToken,
+  getWalletTransactions, updateAgentPricing, getAgentPurchaseCount,
   // Agent Conversations
   createAgentConversation, getAgentConversation, getUserAgentConversations,
   updateAgentConversation, deleteAgentConversation,
