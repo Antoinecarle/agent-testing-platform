@@ -1176,6 +1176,237 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       .chat-fab { bottom: 16px; right: 16px; width: 52px; height: 52px; font-size: 22px; }
     }
 
+    /* ===== AUTH NAV ===== */
+    .nav-auth { display: flex; align-items: center; gap: 10px; }
+    .nav-wallet-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 600;
+      background: linear-gradient(135deg, ${color}18 0%, ${color}08 100%);
+      color: var(--primary); border: 1px solid ${color}33;
+      cursor: pointer; transition: all 0.2s;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .nav-wallet-badge:hover { border-color: var(--primary); background: ${color}22; }
+    .nav-user-badge {
+      display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+      border-radius: 100px; background: var(--bg-card); border: 1px solid var(--border);
+      font-size: 12px; color: var(--text-muted); cursor: default;
+    }
+    .nav-user-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--success);
+      box-shadow: 0 0 6px rgba(34,197,94,0.4);
+    }
+    .btn-signin {
+      padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      background: transparent; color: var(--text); border: 1px solid var(--border);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .btn-signin:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-logout {
+      padding: 6px 12px; border-radius: 6px; font-size: 11px;
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .btn-logout:hover { border-color: var(--error); color: var(--error); }
+
+    /* ===== LOGIN MODAL ===== */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 2000;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-card {
+      width: 420px; max-width: 95vw; border-radius: 20px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 60px ${color}08;
+      animation: modalIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      overflow: hidden;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .modal-header {
+      padding: 28px 28px 0; display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .modal-header h2 { font-size: 22px; font-weight: 700; }
+    .modal-header p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+    .modal-close {
+      background: none; border: none; color: var(--text-dim); font-size: 20px;
+      cursor: pointer; padding: 4px 8px; border-radius: 8px; transition: all 0.2s;
+    }
+    .modal-close:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .modal-body { padding: 24px 28px 28px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block; font-size: 12px; font-weight: 600; color: var(--text-muted);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .form-input {
+      width: 100%; padding: 12px 16px; border-radius: 10px; font-size: 14px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      outline: none; font-family: inherit; transition: all 0.2s;
+    }
+    .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px ${color}15; }
+    .form-input::placeholder { color: var(--text-dim); }
+    .form-error {
+      margin-top: 6px; font-size: 12px; color: var(--error); display: none;
+    }
+    .form-submit {
+      width: 100%; padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      background: var(--primary); color: #fff; border: none; cursor: pointer;
+      transition: all 0.2s; margin-top: 8px;
+    }
+    .form-submit:hover { opacity: 0.9; box-shadow: 0 0 20px ${color}33; }
+    .form-submit:disabled { opacity: 0.5; cursor: default; }
+    .form-switch {
+      text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted);
+    }
+    .form-switch a {
+      color: var(--primary); cursor: pointer; text-decoration: none; font-weight: 500;
+    }
+    .form-switch a:hover { text-decoration: underline; }
+
+    /* ===== ACCESS / PURCHASE SECTION ===== */
+    .access-section { padding: 80px 0; position: relative; }
+    .access-section::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse 80% 50% at 50% 50%, ${color}08 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .access-card {
+      max-width: 720px; margin: 0 auto; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 20px; overflow: hidden;
+      position: relative;
+    }
+    .access-card.purchased { border-color: var(--success); box-shadow: 0 0 40px rgba(34,197,94,0.1); }
+    .access-header {
+      padding: 36px 36px 0; text-align: center;
+    }
+    .access-header h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .access-header p { font-size: 15px; color: var(--text-muted); }
+    .access-price-row {
+      display: flex; align-items: center; justify-content: center; gap: 16px;
+      padding: 28px 36px; border-bottom: 1px solid var(--border);
+    }
+    .access-price {
+      font-size: 48px; font-weight: 800; font-family: 'JetBrains Mono', monospace;
+      color: var(--primary);
+    }
+    .access-price span { font-size: 16px; font-weight: 400; color: var(--text-muted); }
+    .access-features {
+      padding: 28px 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .access-feature {
+      display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-muted);
+    }
+    .access-feature-icon { color: var(--primary); font-size: 16px; }
+    .access-actions {
+      padding: 20px 36px 32px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    .btn-purchase {
+      width: 100%; max-width: 400px; padding: 16px; border-radius: 12px;
+      font-size: 16px; font-weight: 700; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all 0.3s;
+      background: linear-gradient(135deg, var(--primary) 0%, #a78bfa 100%);
+      color: #fff; box-shadow: 0 4px 24px ${color}33;
+    }
+    .btn-purchase:hover { box-shadow: 0 8px 40px ${color}55; transform: translateY(-2px); }
+    .btn-purchase:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
+    .btn-purchase.purchased-btn {
+      background: linear-gradient(135deg, var(--success), #22c55ecc);
+      box-shadow: 0 4px 24px rgba(34,197,94,0.3);
+    }
+    .access-balance {
+      font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 6px;
+    }
+    .access-balance strong { color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+    /* ===== API KEYS SECTION ===== */
+    .apikeys-section { padding: 60px 0; }
+    .apikeys-card {
+      max-width: 820px; margin: 0 auto; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    }
+    .apikeys-header {
+      padding: 28px 28px 0; display: flex; justify-content: space-between;
+      align-items: center; flex-wrap: wrap; gap: 12px;
+    }
+    .apikeys-header h3 { font-size: 20px; font-weight: 700; }
+    .btn-generate {
+      padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      background: var(--primary); color: #fff; border: none; cursor: pointer;
+      transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+    }
+    .btn-generate:hover { opacity: 0.9; box-shadow: 0 0 16px ${color}33; }
+    .btn-generate:disabled { opacity: 0.5; cursor: default; }
+    .apikeys-list { padding: 20px 28px 28px; }
+    .apikey-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border);
+      margin-bottom: 8px; transition: all 0.2s;
+    }
+    .apikey-row:hover { border-color: var(--border-light); }
+    .apikey-info { flex: 1; min-width: 0; }
+    .apikey-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .apikey-prefix {
+      font-size: 12px; font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim); display: flex; align-items: center; gap: 6px;
+    }
+    .apikey-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .apikey-btn {
+      padding: 6px 10px; border-radius: 6px; font-size: 11px;
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .apikey-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .apikey-btn.danger:hover { border-color: var(--error); color: var(--error); }
+    .apikeys-empty {
+      text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 14px;
+    }
+    .new-token-banner {
+      margin: 16px 28px; padding: 16px; border-radius: 12px;
+      background: linear-gradient(135deg, rgba(34,197,94,0.1), rgba(34,197,94,0.05));
+      border: 1px solid rgba(34,197,94,0.3);
+    }
+    .new-token-banner p { font-size: 12px; color: var(--success); margin-bottom: 8px; font-weight: 600; }
+    .new-token-value {
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      background: var(--bg); border: 1px solid rgba(34,197,94,0.2); border-radius: 8px;
+    }
+    .new-token-value code {
+      flex: 1; font-size: 12px; font-family: 'JetBrains Mono', monospace;
+      color: var(--success); word-break: break-all;
+    }
+    .new-token-value button {
+      padding: 4px 10px; border-radius: 6px; font-size: 11px;
+      background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3);
+      color: var(--success); cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+    }
+    .new-token-value button:hover { background: rgba(34,197,94,0.25); }
+    .new-token-warning {
+      margin-top: 10px; font-size: 11px; color: var(--warning);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    /* ===== TOAST ===== */
+    .mcp-toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 3000; padding: 12px 24px; border-radius: 12px;
+      display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500;
+      backdrop-filter: blur(12px); animation: toastIn 0.3s ease;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .mcp-toast.success { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: var(--success); }
+    .mcp-toast.error { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: var(--error); }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
     /* ===== RESPONSIVE ===== */
     @media (max-width: 768px) {
       .hero { padding: 120px 0 60px; }
@@ -1186,6 +1417,11 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       .skills-grid { grid-template-columns: 1fr; }
       .nav-links { display: none; }
       .agent-profile-header { flex-direction: column; }
+      .access-features { grid-template-columns: 1fr; }
+      .nav-user-badge { display: none; }
+      .access-card { margin: 0 -8px; }
+      .apikeys-card { margin: 0 -8px; }
+      .apikey-row { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
@@ -1204,9 +1440,56 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
         <a href="#skills">Skills</a>
         <a href="#setup">Setup</a>
       </div>
-      <button class="btn-primary" onclick="toggleChat()">&#x1f4ac; Chat Now</button>
+      <div class="nav-auth" id="nav-auth">
+        <button class="btn-primary" onclick="toggleChat()" style="margin-right:4px">&#x1f4ac; Chat Now</button>
+        <!-- Logged out state -->
+        <button class="btn-signin" id="nav-signin" onclick="openLogin()">Sign In</button>
+        <!-- Logged in state (hidden by default) -->
+        <div id="nav-logged" style="display:none;align-items:center;gap:10px">
+          <div class="nav-wallet-badge" id="nav-wallet" onclick="scrollToAccess()" title="Your balance">
+            &#x1fa99; <span id="nav-balance">0</span> credits
+          </div>
+          <span class="nav-user-badge" id="nav-user"><span class="nav-user-dot"></span><span id="nav-email"></span></span>
+          <button class="btn-logout" onclick="doLogout()">Logout</button>
+        </div>
+      </div>
     </div>
   </nav>
+
+  <!-- LOGIN MODAL -->
+  <div class="modal-overlay" id="login-modal" style="display:none" onclick="if(event.target===this)closeLogin()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="modal-title">Sign In</h2>
+          <p id="modal-subtitle">Access your wallet and API keys</p>
+        </div>
+        <button class="modal-close" onclick="closeLogin()">&#x2715;</button>
+      </div>
+      <div class="modal-body">
+        <form id="login-form" onsubmit="handleAuth(event)">
+          <div class="form-group" id="fg-name" style="display:none">
+            <label class="form-label">Display Name</label>
+            <input class="form-input" type="text" id="auth-name" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" type="email" id="auth-email" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" type="password" id="auth-password" placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;" required>
+          </div>
+          <div class="form-error" id="auth-error"></div>
+          <button class="form-submit" type="submit" id="auth-submit">Sign In</button>
+          <div class="form-switch">
+            <span id="auth-switch-text">Don't have an account?</span>
+            <a id="auth-switch-link" onclick="toggleAuthMode()">Create one</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <!-- HERO -->
   <section class="hero">
@@ -1597,12 +1880,66 @@ data = response.json()
     </div>
   </section>
 
-  <!-- PRICING -->
+  <!-- ACCESS / PURCHASE -->
+  <section class="access-section" id="access">
+    <div class="container">
+      <div class="section-header">
+        <h2>Get Access</h2>
+        <p>Purchase this agent to unlock API access and generate your own tokens</p>
+      </div>
+      <div class="access-card" id="access-card">
+        <div class="access-header">
+          <h2>${agentName}</h2>
+          <p>Full API access with unlimited key generation</p>
+        </div>
+        <div class="access-price-row">
+          <div class="access-price" id="access-price">${agent.is_premium && agent.price > 0 ? `${agent.price} <span>credits</span>` : 'Free <span>tier</span>'}</div>
+        </div>
+        <div class="access-features">
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> REST API with Bearer auth</div>
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> ${formatTokens(promptTokens + totalSkillTokens)} tokens of knowledge</div>
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> ${safeSkills.length} specialized skills</div>
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> Unlimited API key generation</div>
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> Real-time usage analytics</div>
+          <div class="access-feature"><span class="access-feature-icon">&#x2713;</span> OpenAI-compatible format</div>
+        </div>
+        <div class="access-actions" id="access-actions">
+          <!-- Dynamic: changes based on auth/purchase state -->
+          <button class="btn-purchase" id="btn-access" onclick="handleAccess()">
+            &#x1f512; Sign in to get access
+          </button>
+          <div class="access-balance" id="access-balance" style="display:none">
+            &#x1fa99; Your balance: <strong id="access-balance-val">0</strong> credits
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API KEYS (only visible when purchased) -->
+  <section class="apikeys-section" id="apikeys-section" style="display:none">
+    <div class="container">
+      <div class="apikeys-card">
+        <div class="apikeys-header">
+          <h3>&#x1f511; Your API Keys</h3>
+          <button class="btn-generate" id="btn-gen-key" onclick="generateKey()">
+            + Generate New Key
+          </button>
+        </div>
+        <div id="new-token-banner" style="display:none"></div>
+        <div class="apikeys-list" id="apikeys-list">
+          <div class="apikeys-empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING TIERS (kept for reference) -->
   <section class="section" id="pricing">
     <div class="container">
       <div class="section-header">
-        <h2>Pricing</h2>
-        <p>Scale with your usage</p>
+        <h2>Usage Tiers</h2>
+        <p>Scale with your needs</p>
       </div>
       <div class="pricing-grid">
         <div class="pricing-card${deployment.tier === 'starter' ? ' featured' : ''}">
@@ -1615,7 +1952,7 @@ data = response.json()
             <li>Basic analytics</li>
             <li>Community support</li>
           </ul>
-          <button class="btn-primary" style="width:100%; justify-content:center;">Current Plan</button>
+          <button class="btn-primary" style="width:100%; justify-content:center;" ${deployment.tier === 'starter' ? 'disabled' : ''}>Current Plan</button>
         </div>
         <div class="pricing-card${deployment.tier === 'professional' ? ' featured' : ''}">
           <div class="tier-name">Professional</div>
@@ -1915,6 +2252,322 @@ data = response.json()
       document.getElementById('ic-send').disabled = false;
       input.focus();
     }
+
+    // ========== AUTH & PURCHASE SYSTEM ==========
+    const AGENT_NAME = '${escapeHtml(agent.name)}';
+    const AGENT_PRICE = ${agent.price || 0};
+    const AGENT_IS_PREMIUM = ${agent.is_premium ? 'true' : 'false'};
+    let authToken = localStorage.getItem('guru_token');
+    let authUser = null;
+    let walletBalance = 0;
+    let hasPurchased = false;
+    let userTokens = [];
+    let authMode = 'login'; // 'login' or 'register'
+    let newlyGeneratedToken = null;
+
+    // Toast helper
+    function showToast(msg, type) {
+      const existing = document.querySelector('.mcp-toast');
+      if (existing) existing.remove();
+      const t = document.createElement('div');
+      t.className = 'mcp-toast ' + type;
+      t.innerHTML = (type === 'success' ? '&#x2713; ' : '&#x26a0; ') + msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3500);
+    }
+
+    // API helper
+    async function mcpApi(endpoint, opts = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+      const res = await fetch(endpoint, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    // ---- Login/Register Modal ----
+    function openLogin() {
+      authMode = 'login';
+      updateAuthModal();
+      document.getElementById('login-modal').style.display = 'flex';
+      document.getElementById('auth-email').focus();
+    }
+    function closeLogin() {
+      document.getElementById('login-modal').style.display = 'none';
+      document.getElementById('auth-error').style.display = 'none';
+    }
+    function toggleAuthMode() {
+      authMode = authMode === 'login' ? 'register' : 'login';
+      updateAuthModal();
+    }
+    function updateAuthModal() {
+      document.getElementById('modal-title').textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+      document.getElementById('modal-subtitle').textContent = authMode === 'login' ? 'Access your wallet and API keys' : 'Join GURU to purchase agents';
+      document.getElementById('fg-name').style.display = authMode === 'register' ? 'block' : 'none';
+      document.getElementById('auth-submit').textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+      document.getElementById('auth-switch-text').textContent = authMode === 'login' ? "Don't have an account? " : 'Already have an account? ';
+      document.getElementById('auth-switch-link').textContent = authMode === 'login' ? 'Create one' : 'Sign in';
+      document.getElementById('auth-error').style.display = 'none';
+    }
+
+    async function handleAuth(e) {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const name = document.getElementById('auth-name').value.trim();
+      const errEl = document.getElementById('auth-error');
+      const submitBtn = document.getElementById('auth-submit');
+
+      if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.style.display = 'block'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = authMode === 'login' ? 'Signing in...' : 'Creating account...';
+
+      try {
+        const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+        const body = authMode === 'login' ? { email, password } : { email, password, displayName: name || email.split('@')[0] };
+        const data = await mcpApi(endpoint, { method: 'POST', body: JSON.stringify(body) });
+
+        authToken = data.token;
+        authUser = data.user || { email };
+        localStorage.setItem('guru_token', authToken);
+        closeLogin();
+        showToast('Welcome! You are now signed in.', 'success');
+        initAuthState();
+      } catch (err) {
+        errEl.textContent = err.message || 'Authentication failed';
+        errEl.style.display = 'block';
+      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+    }
+
+    function doLogout() {
+      authToken = null;
+      authUser = null;
+      walletBalance = 0;
+      hasPurchased = false;
+      userTokens = [];
+      localStorage.removeItem('guru_token');
+      updateNavUI();
+      updateAccessUI();
+      updateApiKeysUI();
+      showToast('Logged out', 'success');
+    }
+
+    // ---- Nav UI Update ----
+    function updateNavUI() {
+      const signinBtn = document.getElementById('nav-signin');
+      const loggedDiv = document.getElementById('nav-logged');
+      if (authToken && authUser) {
+        signinBtn.style.display = 'none';
+        loggedDiv.style.display = 'flex';
+        document.getElementById('nav-balance').textContent = walletBalance.toLocaleString();
+        document.getElementById('nav-email').textContent = authUser.displayName || authUser.email || '';
+      } else {
+        signinBtn.style.display = '';
+        loggedDiv.style.display = 'none';
+      }
+    }
+
+    // ---- Access / Purchase UI ----
+    function updateAccessUI() {
+      const btn = document.getElementById('btn-access');
+      const balDiv = document.getElementById('access-balance');
+      const card = document.getElementById('access-card');
+
+      if (!authToken) {
+        btn.innerHTML = '&#x1f512; Sign in to get access';
+        btn.disabled = false;
+        btn.className = 'btn-purchase';
+        balDiv.style.display = 'none';
+        card.classList.remove('purchased');
+        return;
+      }
+
+      balDiv.style.display = 'flex';
+      document.getElementById('access-balance-val').textContent = walletBalance.toLocaleString();
+
+      if (hasPurchased) {
+        btn.innerHTML = '&#x2713; Access Granted — Scroll to API Keys';
+        btn.className = 'btn-purchase purchased-btn';
+        btn.disabled = false;
+        card.classList.add('purchased');
+      } else if (AGENT_IS_PREMIUM && AGENT_PRICE > 0) {
+        if (walletBalance >= AGENT_PRICE) {
+          btn.innerHTML = '&#x1fa99; Purchase for ' + AGENT_PRICE + ' credits';
+          btn.className = 'btn-purchase';
+          btn.disabled = false;
+        } else {
+          btn.innerHTML = '&#x26a0; Insufficient credits (' + AGENT_PRICE + ' needed)';
+          btn.className = 'btn-purchase';
+          btn.disabled = true;
+        }
+        card.classList.remove('purchased');
+      } else {
+        // Free agent — auto-grant access
+        btn.innerHTML = '&#x2713; Free Access — Generate API Key below';
+        btn.className = 'btn-purchase purchased-btn';
+        btn.disabled = false;
+        hasPurchased = true;
+        card.classList.add('purchased');
+      }
+    }
+
+    async function handleAccess() {
+      if (!authToken) { openLogin(); return; }
+      if (hasPurchased) {
+        document.getElementById('apikeys-section').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      // Purchase
+      const btn = document.getElementById('btn-access');
+      btn.disabled = true;
+      btn.innerHTML = '&#x23F3; Processing...';
+      try {
+        const result = await mcpApi('/api/marketplace/' + AGENT_NAME + '/purchase', { method: 'POST' });
+        hasPurchased = true;
+        walletBalance = result.balance || walletBalance - AGENT_PRICE;
+        if (result.token && result.token.token) {
+          newlyGeneratedToken = result.token.token;
+        }
+        showToast('Agent purchased successfully!', 'success');
+        updateNavUI();
+        updateAccessUI();
+        loadApiKeys();
+        document.getElementById('apikeys-section').style.display = '';
+        setTimeout(() => {
+          document.getElementById('apikeys-section').scrollIntoView({ behavior: 'smooth' });
+        }, 300);
+      } catch (err) {
+        showToast(err.message || 'Purchase failed', 'error');
+        btn.disabled = false;
+        updateAccessUI();
+      }
+    }
+
+    function scrollToAccess() {
+      document.getElementById('access').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // ---- API Keys UI ----
+    async function loadApiKeys() {
+      try {
+        userTokens = await mcpApi('/api/wallet/tokens');
+        // Filter tokens for this agent
+        userTokens = userTokens.filter(t => t.agent_name === AGENT_NAME && t.is_active !== false);
+        updateApiKeysUI();
+      } catch (err) {
+        console.warn('Failed to load tokens:', err);
+      }
+    }
+
+    function updateApiKeysUI() {
+      const section = document.getElementById('apikeys-section');
+      if (!authToken || (!hasPurchased && AGENT_IS_PREMIUM && AGENT_PRICE > 0)) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
+
+      const list = document.getElementById('apikeys-list');
+      const banner = document.getElementById('new-token-banner');
+
+      // Show newly generated token banner
+      if (newlyGeneratedToken) {
+        banner.style.display = '';
+        banner.innerHTML = '<div class="new-token-banner"><p>&#x1f389; New API Key Generated — Copy it now!</p><div class="new-token-value"><code>' + newlyGeneratedToken + '</code><button onclick="copyToken(this, \\'' + newlyGeneratedToken + '\\')">Copy</button></div><div class="new-token-warning">&#x26a0; This key will only be shown once. Store it securely.</div></div>';
+      } else {
+        banner.style.display = 'none';
+      }
+
+      if (userTokens.length === 0) {
+        list.innerHTML = '<div class="apikeys-empty">No API keys yet. Click "Generate New Key" to create one.</div>';
+        return;
+      }
+
+      let html = '';
+      for (const tk of userTokens) {
+        const created = new Date(tk.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        html += '<div class="apikey-row">';
+        html += '<div class="apikey-info">';
+        html += '<div class="apikey-name">' + (tk.name || 'API Key') + '</div>';
+        html += '<div class="apikey-prefix">' + (tk.token_prefix || 'guru_***') + '&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022; <span style="color:var(--text-dim);font-size:10px">Created ' + created + '</span></div>';
+        html += '</div>';
+        html += '<div class="apikey-actions">';
+        html += '<button class="apikey-btn danger" onclick="revokeKey(\\'' + tk.id + '\\')">Revoke</button>';
+        html += '</div>';
+        html += '</div>';
+      }
+      list.innerHTML = html;
+    }
+
+    async function generateKey() {
+      const btn = document.getElementById('btn-gen-key');
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      try {
+        const result = await mcpApi('/api/wallet/tokens/' + AGENT_NAME + '/generate', { method: 'POST' });
+        newlyGeneratedToken = result.token;
+        showToast('API key generated!', 'success');
+        await loadApiKeys();
+      } catch (err) {
+        showToast(err.message || 'Failed to generate key', 'error');
+      }
+      btn.disabled = false;
+      btn.innerHTML = '+ Generate New Key';
+    }
+
+    async function revokeKey(tokenId) {
+      if (!confirm('Revoke this API key? This cannot be undone.')) return;
+      try {
+        await mcpApi('/api/wallet/tokens/' + tokenId, { method: 'DELETE' });
+        showToast('API key revoked', 'success');
+        await loadApiKeys();
+      } catch (err) {
+        showToast(err.message || 'Failed to revoke key', 'error');
+      }
+    }
+
+    function copyToken(btn, token) {
+      navigator.clipboard.writeText(token).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      });
+    }
+
+    // ---- Init on page load ----
+    async function initAuthState() {
+      if (!authToken) { updateNavUI(); updateAccessUI(); updateApiKeysUI(); return; }
+      try {
+        // Verify token and get user info
+        const user = await mcpApi('/api/user/me');
+        authUser = user;
+        // Get wallet
+        const wallet = await mcpApi('/api/wallet');
+        walletBalance = wallet.balance || 0;
+        // Check purchase status for this agent
+        const purchases = await mcpApi('/api/wallet/purchases');
+        hasPurchased = purchases.some(p => p.agent_name === AGENT_NAME);
+        updateNavUI();
+        updateAccessUI();
+        if (hasPurchased) {
+          await loadApiKeys();
+        }
+        updateApiKeysUI();
+      } catch (err) {
+        // Token expired or invalid
+        console.warn('Auth check failed:', err.message);
+        authToken = null;
+        localStorage.removeItem('guru_token');
+        updateNavUI();
+        updateAccessUI();
+        updateApiKeysUI();
+      }
+    }
+
+    // Run on page load
+    initAuthState();
   </script>
 </body>
 </html>`;
