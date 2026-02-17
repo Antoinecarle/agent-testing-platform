@@ -47,13 +47,15 @@ router.get('/:slug/sse', async (req, res) => {
 
     const sessionId = crypto.randomUUID();
 
-    // Set SSE headers
+    // Set SSE headers — disable proxy buffering for Railway/nginx
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
     });
+    res.flushHeaders();
 
     // Store session
     mcpSessions.set(sessionId, {
@@ -69,10 +71,12 @@ router.get('/:slug/sse', async (req, res) => {
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const messagesUrl = `${proto}://${host}/mcp/${deployment.slug}/messages?sessionId=${sessionId}`;
     res.write(`event: endpoint\ndata: ${messagesUrl}\n\n`);
+    if (res.flush) res.flush();
+    console.log(`[MCP SSE] Session ${sessionId} opened for ${deployment.slug} (key: ${keySource})`);
 
     // Keepalive
     const keepalive = setInterval(() => {
-      try { res.write(':keepalive\n\n'); }
+      try { res.write(':keepalive\n\n'); if (res.flush) res.flush(); }
       catch (_) { clearInterval(keepalive); mcpSessions.delete(sessionId); }
     }, 30000);
 
@@ -92,10 +96,12 @@ router.post('/:slug/messages', async (req, res) => {
   const sessionId = req.query.sessionId;
   const session = mcpSessions.get(sessionId);
   if (!session) {
+    console.log(`[MCP Messages] Session not found: ${sessionId}, active sessions: ${mcpSessions.size}`);
     return res.status(404).json({ error: 'Session not found. Re-open the SSE connection.' });
   }
 
   const msg = req.body;
+  console.log(`[MCP Messages] ${session.slug} method=${msg?.method} id=${msg?.id}`);
   if (!msg || !msg.jsonrpc) {
     return res.status(400).json({ error: 'Invalid JSON-RPC message' });
   }
@@ -108,6 +114,7 @@ router.post('/:slug/messages', async (req, res) => {
     const response = await handleMcpMessage(msg, session);
     if (response) {
       session.res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+      if (session.res.flush) session.res.flush();
     }
   } catch (err) {
     console.error('[MCP Messages] Error:', err.message);
@@ -116,7 +123,10 @@ router.post('/:slug/messages', async (req, res) => {
         jsonrpc: '2.0', id: msg.id,
         error: { code: -32603, message: err.message },
       };
-      try { session.res.write(`event: message\ndata: ${JSON.stringify(errResp)}\n\n`); } catch (_) {}
+      try {
+        session.res.write(`event: message\ndata: ${JSON.stringify(errResp)}\n\n`);
+        if (session.res.flush) session.res.flush();
+      } catch (_) {}
     }
   }
 });
