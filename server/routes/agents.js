@@ -1105,23 +1105,35 @@ Given an agent's full context (prompt, skills, knowledge), you must create a set
 4. Include pre_processors that give tools REAL capabilities (fetching URLs, analyzing HTML, scoring)
 5. Cover ALL the agent's capabilities — every skill should map to 1+ tools
 
-## PRE-PROCESSORS (CRITICAL — gives tools real capabilities)
+## SYSTEM TOOLS (ALREADY EXIST — DO NOT RECREATE)
+The following tools are automatically available to every agent. Do NOT generate tools that duplicate them:
+- "fetch_web" — fetches a URL and returns full SEO analysis (score, title, meta, headings, schema, OG, images, links). Returns structured JSON, no LLM.
+- "fetch_sitemap" — fetches and parses sitemap.xml, discovers all indexed pages. Returns structured JSON, no LLM.
+- "fetch_multi_urls" — fetches up to 10 URLs in parallel with per-page SEO scores and comparative summary. Returns structured JSON, no LLM.
+
+Your generated tools should COMPLEMENT these system tools by providing EXPERT ANALYSIS on top of the raw data.
+For example: the caller can use fetch_web first to get raw data, then pass it to your specialized tools for deep expert analysis.
+Your tools with a URL parameter should STILL use pre_processors — so they work standalone too, without needing fetch_web first.
+
+## PRE-PROCESSORS (gives tools real capabilities)
 Pre-processors run server-side BEFORE the LLM call. They fetch real data and inject it into context.
 Available processors:
-- {"type": "fetch_url", "param": "url"} — fetches a URL, stores HTML. The param is the input_schema param name containing the URL.
+- {"type": "fetch_url", "param": "url"} — fetches a URL, stores HTML. The "param" is the input_schema param name containing the URL.
 - {"type": "html_analysis"} — extracts SEO data (title, meta, headings, schema, OG, images, links, word count) from fetched HTML. Writes {{__html_analysis__}}
 - {"type": "seo_score"} — scores the page 0-100 with real breakdown. Requires html_analysis first. Writes {{__seo_score__}}
 - {"type": "check_existing"} — checks what SEO elements exist vs missing. Requires html_analysis. Writes {{__existing_elements__}}
 - {"type": "extract_text"} — extracts visible page text for content analysis. Writes {{__page_text__}}
+- {"type": "crawl_sitemap", "param": "url"} — fetches sitemap.xml and extracts all URLs. Writes {{__sitemap_summary__}}
+- {"type": "fetch_multi", "param": "urls"} — fetches multiple URLs in parallel with analysis. Writes {{__multi_summary__}}
 
 Chain them: ["fetch_url", "html_analysis", "seo_score", "check_existing"] = full pipeline.
-ALWAYS use fetch_url + html_analysis + relevant processors for ANY tool that takes a URL parameter.
+Use pre_processors for ANY tool that takes a URL parameter.
 
 ## context_template RULES
 - Injected into the LLM system prompt ALONGSIDE the agent's base prompt
 - MUST contain relevant skill/knowledge content INLINED — not references
 - Use {{param}} for caller-provided values, {{#if param}}...{{/if}} for optionals
-- Use {{__html_analysis__}}, {{__seo_score__}}, {{__existing_elements__}}, {{__page_text__}} for processor output
+- Use {{__html_analysis__}}, {{__seo_score__}}, {{__existing_elements__}}, {{__page_text__}}, {{__sitemap_summary__}}, {{__multi_summary__}} for processor output
 - The goal: LLM has ALL context (skills + real page data) to produce expert output
 
 ## TOOL NAMING
@@ -1140,7 +1152,7 @@ Each tool:
   "output_instructions": "How the output should be formatted"
 }
 
-Generate 5-12 tools. Include "chat" as last for freeform queries. Tools that analyze URLs MUST use pre_processors.`;
+Generate 5-12 tools. Include "chat" as last for freeform queries. Tools with URL params MUST use pre_processors.`;
 
     const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
 
