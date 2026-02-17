@@ -812,6 +812,12 @@ async function incrementAgentDownloads(name) {
   await supabase.from('agents').update({ download_count: (agent.download_count || 0) + 1 }).eq('name', name);
 }
 
+async function incrementAgentForks(name) {
+  const agent = await getAgent(name);
+  if (!agent) return;
+  await supabase.from('agents').update({ fork_count: (agent.fork_count || 0) + 1 }).eq('name', name);
+}
+
 async function createShowcase(id, agentName, projectId, iterationId, title, description, sortOrder) {
   await supabase.from('agent_showcases').insert({
     id, agent_name: agentName, project_id: projectId, iteration_id: iterationId,
@@ -1855,7 +1861,7 @@ module.exports = {
   createTeamRun, getTeamRun, getTeamRuns, getTeamRunsByProject,
   updateTeamRunStatus, addTeamRunLog, getTeamRunLogs,
   // Marketplace / Showcases
-  getMarketplaceAgents, incrementAgentDownloads,
+  getMarketplaceAgents, incrementAgentDownloads, incrementAgentForks,
   createShowcase, getShowcasesByAgent, getShowcase, deleteShowcase,
   reorderShowcases, countShowcases,
   // Agent Conversations

@@ -4,6 +4,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
 
+const { syncCustomAgentsFromDB } = require('./agents');
+
 const router = express.Router();
 
 const BUNDLED_AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
@@ -80,6 +82,66 @@ router.get('/:name/download', async (req, res) => {
     res.send(content);
   } catch (err) {
     console.error('[Marketplace] Download error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/marketplace/:name/fork — fork an agent to your account
+router.post('/:name/fork', async (req, res) => {
+  try {
+    const source = await db.getAgent(req.params.name);
+    if (!source) return res.status(404).json({ error: 'Agent not found' });
+
+    // Generate fork name: original-name-fork or original-name-fork-2, etc.
+    let forkName = req.body.new_name;
+    if (!forkName) {
+      forkName = `${source.name}-fork`;
+      let suffix = 1;
+      while (await db.getAgent(forkName)) {
+        suffix++;
+        forkName = `${source.name}-fork-${suffix}`;
+      }
+    } else {
+      // Sanitize user-provided name
+      forkName = forkName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      const existing = await db.getAgent(forkName);
+      if (existing) return res.status(409).json({ error: 'An agent with that name already exists' });
+    }
+
+    // Copy all fields to new agent
+    const fullPrompt = source.full_prompt || '';
+    const promptPreview = fullPrompt.substring(0, 500);
+    await db.createAgentManual(
+      forkName,
+      source.description || '',
+      source.model || '',
+      source.category || 'uncategorized',
+      promptPreview,
+      fullPrompt,
+      source.tools || '',
+      source.max_turns || 0,
+      source.memory || '',
+      source.permission_mode || '',
+      req.user?.userId
+    );
+
+    // Set forked_from on the new agent
+    await db.supabase.from('agents').update({ forked_from: source.name }).eq('name', forkName);
+
+    // Increment fork count on the original
+    await db.incrementAgentForks(req.params.name);
+
+    // Write .md file to disk
+    if (!fs.existsSync(BUNDLED_AGENTS_DIR)) fs.mkdirSync(BUNDLED_AGENTS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(BUNDLED_AGENTS_DIR, `${forkName}.md`), fullPrompt, 'utf-8');
+
+    // Sync to user homes
+    try { await syncCustomAgentsFromDB(); } catch (_) {}
+
+    const created = await db.getAgent(forkName);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('[Marketplace] Fork error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

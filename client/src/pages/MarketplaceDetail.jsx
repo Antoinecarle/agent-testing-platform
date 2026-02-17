@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Download, Star, ChevronRight, ChevronLeft, X, Plus, Trash2,
   ArrowUp, ArrowDown, Eye, ChevronDown, ChevronUp, User, Package, Play, Code,
-  Share2, RefreshCcw, Monitor, Smartphone, Tablet
+  Share2, RefreshCcw, Monitor, Smartphone, Tablet, GitFork
 } from 'lucide-react';
 import { api, getToken } from '../api';
 
@@ -239,6 +239,26 @@ export default function MarketplaceDetail() {
 
   const isCreator = agent && user && (agent.created_by === user.id || user.role === 'admin');
 
+  const [forking, setForking] = useState(false);
+
+  const handleFork = async () => {
+    const newName = window.prompt('Name for your forked agent (leave empty for auto-name):');
+    if (newName === null) return;
+    setForking(true);
+    try {
+      const body = newName.trim() ? { new_name: newName.trim() } : {};
+      const forked = await api(`/api/marketplace/${encodeURIComponent(name)}/fork`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      navigate(`/agents/${forked.name}/edit`);
+    } catch (err) {
+      alert(err.message || 'Fork failed');
+    } finally {
+      setForking(false);
+    }
+  };
+
   const handleDownload = async () => {
     try {
       const token = getToken();
@@ -402,9 +422,19 @@ export default function MarketplaceDetail() {
               }}>{agent.model || 'unknown'}</span>
             </div>
 
-            <p style={{ fontSize: '15px', lineHeight: '1.6', color: t.ts, marginBottom: '24px', maxWidth: '700px' }}>
+            <p style={{ fontSize: '15px', lineHeight: '1.6', color: t.ts, marginBottom: agent.forked_from ? '12px' : '24px', maxWidth: '700px' }}>
               {agent.description}
             </p>
+
+            {agent.forked_from && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '24px' }}>
+                <GitFork size={13} style={{ color: t.tm }} />
+                <span style={{ fontSize: '12px', color: t.tm }}>Forked from</span>
+                <Link to={`/marketplace/${agent.forked_from}`} style={{ fontSize: '12px', color: t.violet, textDecoration: 'none', fontWeight: '600' }}>
+                  {agent.forked_from.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                </Link>
+              </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -437,20 +467,28 @@ export default function MarketplaceDetail() {
               <div style={{ width: '1px', height: '24px', background: t.border }} />
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Download size={14} style={{ color: t.tm }} />
-                <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{agent.download_count || 0}</span>
-                <span style={{ fontSize: '12px', color: t.tm }}>Downloads</span>
+                <GitFork size={14} style={{ color: t.tm }} />
+                <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{agent.fork_count || 0}</span>
+                <span style={{ fontSize: '12px', color: t.tm }}>Forks</span>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button onClick={handleDownload} style={{
+            <button onClick={handleFork} disabled={forking} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               padding: '10px 24px', borderRadius: '4px', fontSize: '14px', fontWeight: '600',
-              cursor: 'pointer', background: t.tp, color: t.bg, border: 'none',
+              cursor: forking ? 'wait' : 'pointer', background: t.violet, color: '#fff', border: 'none',
+              opacity: forking ? 0.7 : 1,
             }}>
-              <Download size={16} /> Download Agent
+              <GitFork size={16} /> {forking ? 'Forking...' : 'Fork Agent'}
+            </button>
+            <button onClick={handleDownload} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              padding: '8px 24px', borderRadius: '4px', fontSize: '12px', fontWeight: '600',
+              cursor: 'pointer', background: 'transparent', color: t.ts, border: `1px solid ${t.borderS}`,
+            }}>
+              <Download size={14} /> Download .md
             </button>
             {isCreator && (
               <button onClick={() => setMgmtOpen(!mgmtOpen)} style={{

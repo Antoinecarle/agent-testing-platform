@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Download, Star, ChevronRight, User, Package, Eye,
-  ArrowUpDown, LayoutGrid, Loader2
+  ArrowUpDown, LayoutGrid, Loader2, GitFork
 } from 'lucide-react';
 import { api, getToken } from '../api';
 
@@ -15,7 +15,7 @@ const t = {
   mono: '"JetBrains Mono","Fira Code",monospace',
 };
 
-function AgentCard({ agent, onDownload, navigate }) {
+function AgentCard({ agent, onFork, onDownload, navigate }) {
   const [hovered, setHovered] = useState(false);
 
   const formatName = (str) =>
@@ -113,8 +113,8 @@ function AgentCard({ agent, onDownload, navigate }) {
         }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: t.ts }}>
-              <Download size={12} color={t.tm} />
-              <span>{agent.download_count || 0}</span>
+              <GitFork size={12} color={t.tm} />
+              <span>{agent.fork_count || 0}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: t.ts }}>
               <Package size={12} color={t.tm} />
@@ -133,14 +133,14 @@ function AgentCard({ agent, onDownload, navigate }) {
 
         <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
           <button
-            onClick={(e) => { e.stopPropagation(); onDownload(agent.name); }}
+            onClick={(e) => { e.stopPropagation(); onFork(agent.name); }}
             style={{
-              backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
+              backgroundColor: t.violetM, color: t.violet, border: `1px solid ${t.violet}40`,
               borderRadius: '4px', padding: '6px 10px', fontSize: '11px', fontWeight: '600',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
             }}
           >
-            <Download size={13} /> Download
+            <GitFork size={13} /> Fork
           </button>
           <button
             onClick={() => navigate(`/marketplace/${agent.name}`)}
@@ -192,6 +192,22 @@ export default function Marketplace() {
     return () => clearTimeout(timeout);
   }, [search, selectedCategory, sortBy]);
 
+  const handleFork = async (agentName) => {
+    const newName = window.prompt('Name for your forked agent (leave empty for auto-name):');
+    if (newName === null) return; // cancelled
+    try {
+      const body = newName.trim() ? { new_name: newName.trim() } : {};
+      const forked = await api(`/api/marketplace/${encodeURIComponent(agentName)}/fork`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      fetchData();
+      navigate(`/agents/${forked.name}/edit`);
+    } catch (err) {
+      alert(err.message || 'Fork failed');
+    }
+  };
+
   const handleDownload = async (agentName) => {
     try {
       const token = getToken();
@@ -206,7 +222,6 @@ export default function Marketplace() {
       a.download = `${agentName}.md`;
       a.click();
       URL.revokeObjectURL(url);
-      // Refresh to update download count
       fetchData();
     } catch (err) {
       console.error('Download error:', err);
@@ -225,7 +240,7 @@ export default function Marketplace() {
             Agent Marketplace
           </h1>
           <p style={{ fontSize: '14px', color: t.ts, marginBottom: '24px' }}>
-            Browse, download, and explore AI agents for your projects
+            Browse, fork, and explore AI agents for your projects
           </p>
           <div style={{ position: 'relative', maxWidth: '500px', margin: '0 auto' }}>
             <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: t.tm }} />
@@ -310,6 +325,7 @@ export default function Marketplace() {
               <AgentCard
                 key={agent.name}
                 agent={agent}
+                onFork={handleFork}
                 onDownload={handleDownload}
                 navigate={navigate}
               />
