@@ -2030,6 +2030,7 @@ async function createMcpAgentTool(agentName, toolData) {
     input_schema: toolData.input_schema,
     context_template: toolData.context_template || null,
     output_instructions: toolData.output_instructions || null,
+    pre_processors: toolData.pre_processors || [],
     is_active: toolData.is_active !== false,
     sort_order: toolData.sort_order || 0,
     created_at: now(),
@@ -2062,6 +2063,7 @@ async function updateMcpAgentTool(id, fields) {
   if (fields.input_schema !== undefined) update.input_schema = fields.input_schema;
   if (fields.context_template !== undefined) update.context_template = fields.context_template;
   if (fields.output_instructions !== undefined) update.output_instructions = fields.output_instructions;
+  if (fields.pre_processors !== undefined) update.pre_processors = fields.pre_processors;
   if (fields.is_active !== undefined) update.is_active = fields.is_active;
   if (fields.sort_order !== undefined) update.sort_order = fields.sort_order;
   await supabase.from('mcp_agent_tools').update(update).eq('id', id);

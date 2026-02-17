@@ -943,7 +943,7 @@ router.post('/:name/mcp-tools', async (req, res) => {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const { tool_name, description, input_schema, context_template, output_instructions, sort_order } = req.body;
+    const { tool_name, description, input_schema, context_template, output_instructions, pre_processors, sort_order } = req.body;
     if (!tool_name || !description) {
       return res.status(400).json({ error: 'tool_name and description are required' });
     }
@@ -954,6 +954,7 @@ router.post('/:name/mcp-tools', async (req, res) => {
       input_schema: input_schema || { type: 'object', properties: {} },
       context_template: context_template || null,
       output_instructions: output_instructions || null,
+      pre_processors: pre_processors || [],
       sort_order: sort_order || 0,
     });
     res.status(201).json(tool);
@@ -1101,34 +1102,45 @@ Given an agent's full context (prompt, skills, knowledge), you must create a set
 1. Replace the generic "chat" tool with purpose-built operations
 2. Have structured input parameters (JSON Schema) that force callers to provide proper context
 3. Include context_template strings that inject the agent's deep knowledge into every call
-4. Cover ALL the agent's capabilities — every skill should map to 1+ tools
+4. Include pre_processors that give tools REAL capabilities (fetching URLs, analyzing HTML, scoring)
+5. Cover ALL the agent's capabilities — every skill should map to 1+ tools
 
-## CRITICAL RULES FOR context_template
-- The context_template is injected into the LLM system prompt ALONGSIDE the agent's base prompt
-- It MUST contain the relevant skill/knowledge content INLINED — not references
-- Use {{param}} placeholders for caller-provided dynamic values
-- Use {{#if param}}...{{/if}} for optional sections
-- Use {{__html_analysis__}} to auto-extract SEO data from HTML params (for params containing HTML)
-- Use {{__json_parse:param__}} for JSON analysis
-- The goal: when a tool is called, the LLM has ALL the context it needs to produce expert-level output
+## PRE-PROCESSORS (CRITICAL — gives tools real capabilities)
+Pre-processors run server-side BEFORE the LLM call. They fetch real data and inject it into context.
+Available processors:
+- {"type": "fetch_url", "param": "url"} — fetches a URL, stores HTML. The param is the input_schema param name containing the URL.
+- {"type": "html_analysis"} — extracts SEO data (title, meta, headings, schema, OG, images, links, word count) from fetched HTML. Writes {{__html_analysis__}}
+- {"type": "seo_score"} — scores the page 0-100 with real breakdown. Requires html_analysis first. Writes {{__seo_score__}}
+- {"type": "check_existing"} — checks what SEO elements exist vs missing. Requires html_analysis. Writes {{__existing_elements__}}
+- {"type": "extract_text"} — extracts visible page text for content analysis. Writes {{__page_text__}}
+
+Chain them: ["fetch_url", "html_analysis", "seo_score", "check_existing"] = full pipeline.
+ALWAYS use fetch_url + html_analysis + relevant processors for ANY tool that takes a URL parameter.
+
+## context_template RULES
+- Injected into the LLM system prompt ALONGSIDE the agent's base prompt
+- MUST contain relevant skill/knowledge content INLINED — not references
+- Use {{param}} for caller-provided values, {{#if param}}...{{/if}} for optionals
+- Use {{__html_analysis__}}, {{__seo_score__}}, {{__existing_elements__}}, {{__page_text__}} for processor output
+- The goal: LLM has ALL context (skills + real page data) to produce expert output
 
 ## TOOL NAMING
 - snake_case only (e.g. audit_site, generate_schema)
 - Clear, action-oriented names
 
 ## OUTPUT FORMAT
-Return a JSON object with a "tools" key containing an array of tool objects:
-{"tools": [
-  {
-    "tool_name": "snake_case_name",
-    "description": "What this tool does — shown to Claude when listing tools (max 200 chars)",
-    "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
-    "context_template": "The full context template with {{placeholders}} and inlined knowledge",
-    "output_instructions": "How the output should be formatted"
-  }
-]}
+Return a JSON object: {"tools": [tool1, tool2, ...]}
+Each tool:
+{
+  "tool_name": "snake_case_name",
+  "description": "What this tool does (max 200 chars)",
+  "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
+  "pre_processors": [{"type": "fetch_url", "param": "url"}, {"type": "html_analysis"}, ...],
+  "context_template": "Template with {{params}} and {{__processor_output__}} and inlined knowledge",
+  "output_instructions": "How the output should be formatted"
+}
 
-Generate 5-12 tools depending on the agent's breadth. Include a general "chat" tool as last for freeform queries. Every tool MUST have a rich context_template that inlines the relevant skills/knowledge.`;
+Generate 5-12 tools. Include "chat" as last for freeform queries. Tools that analyze URLs MUST use pre_processors.`;
 
     const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
 
@@ -1197,6 +1209,7 @@ Generate 5-12 tools depending on the agent's breadth. Include a general "chat" t
         input_schema: t.input_schema || { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] },
         context_template: t.context_template || null,
         output_instructions: t.output_instructions || null,
+        pre_processors: t.pre_processors || [],
         sort_order: t.tool_name === 'chat' ? 99 : i,
       });
       savedTools.push(saved);

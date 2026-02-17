@@ -5,6 +5,7 @@ const { generateEmbedding } = require('../lib/embeddings');
 const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
 const { callLLMProvider, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 const { formatToolsForMcp, buildEnrichedContext, getDefaultTools } = require('../lib/mcp-agent-tools');
+const { runProcessors, injectProcessorData } = require('../lib/mcp-processors');
 
 const router = express.Router();
 
@@ -544,15 +545,45 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     }
   } catch (_) {}
 
-  // 2. Build enriched context from tool definition + args
+  // 2. Run pre-processors (fetch URLs, analyze HTML, score SEO, etc.)
+  let processorData = {};
+  if (toolDef.pre_processors && Array.isArray(toolDef.pre_processors) && toolDef.pre_processors.length > 0) {
+    console.log(`[MCP Specialized] Running ${toolDef.pre_processors.length} pre-processors: ${toolDef.pre_processors.map(p => p.type).join(', ')}`);
+    processorData = await runProcessors(toolDef.pre_processors, args);
+    console.log(`[MCP Specialized] Processor data keys: ${Object.keys(processorData).join(', ')}`);
+  }
+
+  // 3. Build enriched context from tool definition + args
   const enriched = buildEnrichedContext(toolDef, args);
 
-  // 3. Inject enriched context into system prompt
+  // 4. Inject processor data into the context template
+  if (enriched.contextAddition && Object.keys(processorData).length > 0) {
+    enriched.contextAddition = injectProcessorData(enriched.contextAddition, processorData);
+  }
+
+  // Also inject any processor data that wasn't referenced in templates as auto-sections
+  for (const [key, value] of Object.entries(processorData)) {
+    if (typeof value === 'string' && value.length > 10 && !key.endsWith('__error__') && key !== '__fetched_html__' && key !== '__html_info__' && key !== '__seo_score_data__') {
+      // Only inject formatted outputs, skip raw data and errors
+      const placeholder = `{{${key}}}`;
+      if (!enriched.contextAddition.includes(key)) {
+        enriched.contextAddition += `\n\n${value}`;
+      }
+    }
+  }
+
+  // Inject fetched HTML into user message if available (truncated for context)
+  if (processorData.__fetched_html__ && !args.page_content && !args.html_content) {
+    const truncatedHtml = processorData.__fetched_html__.slice(0, 15000);
+    enriched.userMessage += `\n\n### Fetched Page HTML (${processorData.__fetched_url__ || 'unknown'})\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`;
+  }
+
+  // 5. Inject enriched context into system prompt
   if (enriched.contextAddition) {
     systemPrompt += enriched.contextAddition;
   }
 
-  // 4. Inject knowledge base (RAG) using the user message as query
+  // 6. Inject knowledge base (RAG) using the user message as query
   try {
     const agentKBs = await db.getAgentKnowledgeBases(session.agentName);
     if (agentKBs?.length > 0) {
@@ -575,7 +606,7 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     console.warn('[MCP Specialized] Knowledge injection failed:', err.message);
   }
 
-  // 5. Build messages
+  // 7. Build messages
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: enriched.userMessage },
@@ -583,12 +614,12 @@ async function handleSpecializedTool(id, toolDef, args, session) {
 
   console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars`);
 
-  // 6. Resolve LLM provider (creator's BYOK or server key)
+  // 8. Resolve LLM provider (creator's BYOK or server key)
   let { provider, apiKey, model, userLlmKeyId, usingByok } = await resolveByokProvider(session.deploymentId);
 
   if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available.' } };
 
-  // 7. Call LLM with higher token limit for specialized tools
+  // 9. Call LLM with higher token limit for specialized tools
   let llmResult;
   const maxTokens = 8192; // Specialized tools need more output space
   try {
