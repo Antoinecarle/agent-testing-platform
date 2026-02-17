@@ -603,6 +603,20 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     ].join('\n') + '\n');
   });
 
+  // .well-known endpoints for MCP OAuth discovery (return 404 JSON — no OAuth needed)
+  app.get('/.well-known/oauth-authorization-server', (req, res) => {
+    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
+  });
+  app.get('/.well-known/oauth-authorization-server/*', (req, res) => {
+    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
+  });
+  app.get('/.well-known/oauth-protected-resource', (req, res) => {
+    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
+  });
+  app.get('/.well-known/oauth-protected-resource/*', (req, res) => {
+    res.status(404).json({ error: 'OAuth not supported. Use API key authentication.' });
+  });
+
   // Serve static frontend
   const distPath = path.join(__dirname, '..', 'client', 'dist');
   app.use(express.static(distPath));
