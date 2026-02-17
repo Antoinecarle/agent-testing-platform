@@ -991,6 +991,11 @@ async function revokeApiToken(tokenId, userId) {
   await supabase.from('user_api_tokens').update({ is_active: false }).eq('id', tokenId).eq('user_id', userId);
 }
 
+async function getUserApiTokenByHash(tokenHash) {
+  const { data } = await supabase.from('user_api_tokens').select('*').eq('token_hash', tokenHash).eq('is_active', true).single();
+  return data || null;
+}
+
 async function getWalletTransactions(userId, limit = 50) {
   const { data } = await supabase.from('wallet_transactions')
     .select('*').eq('user_id', userId)
@@ -2013,7 +2018,7 @@ module.exports = {
   // Wallet & Purchases
   getUserWallet, getOrCreateWallet, depositCredits, purchaseAgent,
   getUserPurchases, hasUserPurchased, generateAgentToken,
-  getUserApiTokens, getUserApiTokensByAgent, revokeApiToken,
+  getUserApiTokens, getUserApiTokensByAgent, revokeApiToken, getUserApiTokenByHash,
   getWalletTransactions, updateAgentPricing, getAgentPurchaseCount,
   // Agent Conversations
   createAgentConversation, getAgentConversation, getUserAgentConversations,

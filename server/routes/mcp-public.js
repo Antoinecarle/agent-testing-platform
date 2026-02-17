@@ -28,13 +28,19 @@ router.get('/:slug/sse', async (req, res) => {
       return res.status(404).json({ error: 'MCP not found or inactive' });
     }
 
-    // Auth via query param or header
+    // Auth via query param or header — accepts both gru_ (deployment) and guru_ (marketplace) keys
     const apiKey = req.query.key || (req.headers.authorization || '').replace('Bearer ', '');
     if (!apiKey) {
       return res.status(401).json({ error: 'API key required. Pass ?key=YOUR_KEY or Authorization: Bearer YOUR_KEY' });
     }
     const keyHash = hashApiKey(apiKey);
-    const keyRecord = await db.getApiKeyByHash(keyHash);
+    let keyRecord = await db.getApiKeyByHash(keyHash);
+    let keySource = 'deployment';
+    if (!keyRecord) {
+      // Try marketplace user_api_tokens
+      keyRecord = await db.getUserApiTokenByHash(keyHash);
+      keySource = 'marketplace';
+    }
     if (!keyRecord) {
       return res.status(401).json({ error: 'Invalid API key' });
     }
@@ -58,8 +64,10 @@ router.get('/:slug/sse', async (req, res) => {
       apiKeyId: keyRecord.id,
     });
 
-    // Send endpoint event (first event per MCP SSE spec)
-    const messagesUrl = `/mcp/${deployment.slug}/messages?sessionId=${sessionId}`;
+    // Send endpoint event (first event per MCP SSE spec) — use absolute URL
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const messagesUrl = `${proto}://${host}/mcp/${deployment.slug}/messages?sessionId=${sessionId}`;
     res.write(`event: endpoint\ndata: ${messagesUrl}\n\n`);
 
     // Keepalive
@@ -2270,41 +2278,85 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
   <section class="section" id="setup">
     <div class="container">
       <div class="section-header">
-        <h2>Quick Setup</h2>
-        <p>Start using ${agentName} MCP in under 30 seconds</p>
+        <h2>Install MCP Server</h2>
+        <p>Connect ${agentName} to Claude Code in 3 steps</p>
       </div>
+
+      <!-- Steps -->
+      <div style="display:flex;gap:20px;margin-bottom:32px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px;padding:20px;border-radius:12px;background:var(--card-bg);border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0" id="step1-badge">1</div>
+            <div style="font-weight:600;font-size:14px;color:var(--text)">Get API Key</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.6" id="step1-desc">
+            Sign in and generate an API key in the <a href="#access" style="color:${color}" onclick="event.preventDefault();scrollToAccess()">Access section</a> below.
+          </div>
+        </div>
+        <div style="flex:1;min-width:200px;padding:20px;border-radius:12px;background:var(--card-bg);border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--text-dim);flex-shrink:0">2</div>
+            <div style="font-weight:600;font-size:14px;color:var(--text)">Copy Config</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.6">
+            Copy the MCP config JSON below and add it to your <code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px">.mcp.json</code> file.
+          </div>
+        </div>
+        <div style="flex:1;min-width:200px;padding:20px;border-radius:12px;background:var(--card-bg);border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--text-dim);flex-shrink:0">3</div>
+            <div style="font-weight:600;font-size:14px;color:var(--text)">Use in Claude</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.6">
+            Restart Claude Code. The agent's tools (<code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px">chat</code>, <code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px">get_agent_info</code>) are now available.
+          </div>
+        </div>
+      </div>
+
+      <!-- MCP Config block -->
       <div class="setup-block">
         <div class="setup-tabs">
-          <button class="setup-tab active" onclick="switchTab(this, 'mcp')">Claude MCP</button>
+          <button class="setup-tab active" onclick="switchTab(this, 'mcp')">Claude MCP Config</button>
           <button class="setup-tab" onclick="switchTab(this, 'curl')">cURL</button>
           <button class="setup-tab" onclick="switchTab(this, 'node')">Node.js</button>
           <button class="setup-tab" onclick="switchTab(this, 'python')">Python</button>
         </div>
         <div class="setup-content">
           <div id="tab-mcp" class="tab-panel">
-            <div style="padding:0 0 16px;font-size:13px;color:var(--text-muted);line-height:1.7">
-              Add this to your <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px">.mcp.json</code> or Claude Code settings:
+            <!-- Dynamic key status banner -->
+            <div id="mcp-key-status" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;font-size:13px;display:none"></div>
+
+            <div style="padding:0 0 12px;font-size:13px;color:var(--text-muted);line-height:1.7">
+              Add this to your <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px">.mcp.json</code> file at the root of your project:
             </div>
-            <div class="code-block">
-              <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <div class="code-block" id="mcp-config-block">
+              <button class="copy-btn" onclick="copyMcpConfig()">Copy</button>
 {
   <span class="string">"mcpServers"</span>: {
     <span class="string">"${deployment.slug}"</span>: {
       <span class="string">"type"</span>: <span class="string">"sse"</span>,
-      <span class="string">"url"</span>: <span class="string">"${getBaseUrl()}/mcp/${deployment.slug}/sse?key=YOUR_API_KEY"</span>
+      <span class="string">"url"</span>: <span class="string">"${getBaseUrl()}/mcp/${deployment.slug}/sse?key=<span id="mcp-key-placeholder">YOUR_API_KEY</span>"</span>
     }
   }
 }
             </div>
+
             <div style="margin-top:16px;padding:16px;border-radius:10px;background:rgba(139,92,246,0.08);border:1px solid ${color}22">
-              <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:8px">&#x1f4a1; Available Tools</div>
-              <div style="font-size:13px;color:var(--text-muted);line-height:1.7">
-                <strong style="color:var(--text)">chat</strong> — Send messages to ${agentName} with full context (prompt + skills)<br>
-                <strong style="color:var(--text)">get_agent_info</strong> — Get agent capabilities, skills list, and token counts
+              <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:10px">Available Tools</div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:180px;padding:10px 14px;border-radius:8px;background:var(--bg);border:1px solid var(--border)">
+                  <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px"><code style="font-size:13px;color:${color}">chat</code></div>
+                  <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Send messages to ${agentName} with full context (system prompt + skills)</div>
+                </div>
+                <div style="flex:1;min-width:180px;padding:10px 14px;border-radius:8px;background:var(--bg);border:1px solid var(--border)">
+                  <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px"><code style="font-size:13px;color:${color}">get_agent_info</code></div>
+                  <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Get agent capabilities, skills list, and token usage stats</div>
+                </div>
               </div>
             </div>
-            <div style="margin-top:12px;font-size:12px;color:var(--text-dim)">
-              &#x1f511; Replace <code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px">YOUR_API_KEY</code> with a key from the <a href="#access" style="color:var(--primary)">Access section</a> below.
+
+            <div id="mcp-no-key-hint" style="margin-top:12px;font-size:12px;color:var(--text-dim)">
+              &#x1f511; Replace <code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px">YOUR_API_KEY</code> with a key from the <a href="#access" style="color:${color}" onclick="event.preventDefault();scrollToAccess()">Access section</a> below.
             </div>
           </div>
           <div id="tab-curl" class="tab-panel" style="display:none">
@@ -2312,7 +2364,7 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
               <button class="copy-btn" onclick="copyCode(this)">Copy</button>
 <span class="comment"># Chat with ${agentName} MCP</span>
 curl -X POST ${getBaseUrl()}/mcp/${deployment.slug}/api/chat \\
-  -H <span class="string">"Authorization: Bearer YOUR_API_KEY"</span> \\
+  -H <span class="string">"Authorization: Bearer <span class="mcp-key-inject">YOUR_API_KEY</span>"</span> \\
   -H <span class="string">"Content-Type: application/json"</span> \\
   -d <span class="string">'{
     "messages": [
@@ -2327,7 +2379,7 @@ curl -X POST ${getBaseUrl()}/mcp/${deployment.slug}/api/chat \\
 <span class="keyword">const</span> response = <span class="keyword">await</span> fetch(<span class="string">'${getBaseUrl()}/mcp/${deployment.slug}/api/chat'</span>, {
   method: <span class="string">'POST'</span>,
   headers: {
-    <span class="string">'Authorization'</span>: <span class="string">\`Bearer \${API_KEY}\`</span>,
+    <span class="string">'Authorization'</span>: <span class="string">\`Bearer <span class="mcp-key-inject">YOUR_API_KEY</span>\`</span>,
     <span class="string">'Content-Type'</span>: <span class="string">'application/json'</span>,
   },
   body: JSON.stringify({
@@ -2347,7 +2399,7 @@ console.log(data.output[0].content[0].text);
 response = requests.post(
     <span class="string">"${getBaseUrl()}/mcp/${deployment.slug}/api/chat"</span>,
     headers={
-        <span class="string">"Authorization"</span>: <span class="string">f"Bearer {API_KEY}"</span>,
+        <span class="string">"Authorization"</span>: <span class="string">f"Bearer <span class="mcp-key-inject">YOUR_API_KEY</span>"</span>,
         <span class="string">"Content-Type"</span>: <span class="string">"application/json"</span>,
     },
     json={
@@ -3037,7 +3089,24 @@ data = response.json()
 
       if (userTokens.length === 0) {
         list.innerHTML = '<div class="apikeys-empty">No API keys yet. Click "Generate New Key" to create one.</div>';
+        updateMcpConfigWithKey(null);
         return;
+      }
+      // If we have a newly generated token, inject it; otherwise show hint that keys exist
+      if (newlyGeneratedToken) {
+        updateMcpConfigWithKey(newlyGeneratedToken);
+      } else {
+        // User has keys but we only see prefixes — show a gentle hint
+        const status = document.getElementById('mcp-key-status');
+        const hint = document.getElementById('mcp-no-key-hint');
+        if (status) {
+          status.style.display = '';
+          status.style.background = 'rgba(139,92,246,0.08)';
+          status.style.border = '1px solid rgba(139,92,246,0.15)';
+          status.style.color = 'var(--primary)';
+          status.innerHTML = 'You have ' + userTokens.length + ' API key(s) (' + userTokens.map(t => t.token_prefix + '...').join(', ') + '). Replace <code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px">YOUR_API_KEY</code> in the config with your full key, or generate a new one to auto-fill.';
+        }
+        if (hint) hint.style.display = 'none';
       }
 
       let html = '';
@@ -3065,6 +3134,8 @@ data = response.json()
         newlyGeneratedToken = result.token;
         showToast('API key generated!', 'success');
         await loadApiKeys();
+        // Auto-inject key into MCP config blocks
+        updateMcpConfigWithKey(newlyGeneratedToken);
       } catch (err) {
         showToast(err.message || 'Failed to generate key', 'error');
       }
@@ -3087,6 +3158,55 @@ data = response.json()
       navigator.clipboard.writeText(token).then(() => {
         btn.textContent = 'Copied!';
         setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      });
+    }
+
+    // ---- MCP Config dynamic key injection ----
+    const MCP_BASE_URL = '${getBaseUrl()}';
+    const MCP_SLUG = '${deployment.slug}';
+
+    function updateMcpConfigWithKey(apiKey) {
+      // Update main MCP config placeholder
+      const placeholder = document.getElementById('mcp-key-placeholder');
+      if (placeholder) {
+        placeholder.textContent = apiKey || 'YOUR_API_KEY';
+        placeholder.style.color = apiKey ? '#22c55e' : '';
+        placeholder.style.fontWeight = apiKey ? '700' : '';
+      }
+      // Update all code blocks with mcp-key-inject class
+      document.querySelectorAll('.mcp-key-inject').forEach(el => {
+        el.textContent = apiKey || 'YOUR_API_KEY';
+        if (apiKey) { el.style.color = '#22c55e'; el.style.fontWeight = '700'; }
+      });
+      // Update status banner
+      const status = document.getElementById('mcp-key-status');
+      const hint = document.getElementById('mcp-no-key-hint');
+      if (apiKey) {
+        status.style.display = '';
+        status.style.background = 'rgba(34,197,94,0.08)';
+        status.style.border = '1px solid rgba(34,197,94,0.2)';
+        status.style.color = '#22c55e';
+        status.innerHTML = '&#x2713; API key injected. Copy the config below and paste it into your <code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12px">.mcp.json</code> file — ready to use!';
+        if (hint) hint.style.display = 'none';
+      } else {
+        status.style.display = 'none';
+        if (hint) hint.style.display = '';
+      }
+    }
+
+    function copyMcpConfig() {
+      const key = newlyGeneratedToken || 'YOUR_API_KEY';
+      const config = JSON.stringify({
+        mcpServers: {
+          [MCP_SLUG]: {
+            type: 'sse',
+            url: MCP_BASE_URL + '/mcp/' + MCP_SLUG + '/sse?key=' + key
+          }
+        }
+      }, null, 2);
+      navigator.clipboard.writeText(config).then(() => {
+        const btn = document.querySelector('#mcp-config-block .copy-btn');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
       });
     }
 
