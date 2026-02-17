@@ -1096,14 +1096,15 @@ router.post('/:name/mcp-tools/generate', heavyLimiter, async (req, res) => {
     // 3. Call AI to generate tool definitions
     const { callGPT5 } = require('../lib/agent-analysis');
 
-    const systemPrompt = `You are an MCP tool architect. You design specialized tools for AI agents exposed via the Model Context Protocol (MCP).
+    const systemPrompt = `You are an MCP tool architect. You design specialized, expert-level tools for AI agents exposed via the Model Context Protocol (MCP).
 
 Given an agent's full context (prompt, skills, knowledge), you must create a set of specialized MCP tools that:
 1. Replace the generic "chat" tool with purpose-built operations
 2. Have structured input parameters (JSON Schema) that force callers to provide proper context
-3. Include context_template strings that inject the agent's deep knowledge into every call
-4. Use pre_processors ONLY when relevant (URL fetching, HTML analysis) — many agents don't need them
+3. Include RICH context_template strings that inject the agent's deep knowledge into every call
+4. Use pre_processors when relevant (URL fetching, knowledge injection, design analysis)
 5. Cover ALL the agent's capabilities — every skill should map to 1+ tools
+6. Think in FLOWS not just operations — tools should produce complete, reasoned output, not just raw results
 
 ## AGENT TYPE DETECTION — CRITICAL
 Read the agent's prompt/skills carefully. Determine the agent's domain:
@@ -1114,25 +1115,47 @@ Read the agent's prompt/skills carefully. Determine the agent's domain:
 → Tools should analyze real page data
 
 **CODE/DESIGN agents** (keywords: HTML, CSS, React, frontend, component, landing page, design, generate, create, build):
-→ NO pre_processors needed (agent GENERATES code, doesn't analyze URLs)
-→ Tools should accept design specs and return code
-→ Parameters: style, colors, content, framework, component_type, design_system
-→ context_template: inline design patterns, CSS frameworks, component structures from skills
-→ output_instructions: "Return complete, self-contained HTML/CSS/JS code" or similar
+→ pre_processors: [{"type": "inject_knowledge", "search_fields": [...relevant params...]}]
+→ Tools should accept CONTEXTUAL specs, not just generic names
+→ REQUIRED tool types for design agents:
+  1. **Page generator** — input: brief + page_type + domain → output: complete code + UX rationale + states
+  2. **Component generator** — input: component_name + CONTEXT + states + contains → output: contextual component
+  3. **UX patterns advisor** — input: ui_type (dashboard/kanban/editor/chat...) → output: domain patterns + checklist
+  4. **Interaction layer** — input: interaction types → output: JS/CSS micro-interactions
+  5. **Design critique** — input: HTML code → output: score + issues + fixes
+  6. **Reference analyzer** — input: URL → output: design tokens + layout + patterns (uses fetch_url + analyze_design)
+→ context_template: MUST include UX domain patterns (not just CSS tokens). Include:
+  - Patterns by UI type (node-editor, dashboard, kanban, chat, form, table)
+  - Reference products for each pattern (Figma, n8n, Linear, Notion, Trello, etc.)
+  - Interaction checklists (drag-drop, keyboard nav, undo-redo, etc.)
+  - State design guides (empty, loading, error, disabled, selected, dragging)
+  - Accessibility requirements (focus, ARIA, touch targets, reduced-motion)
+→ output_instructions: MUST request structured JSON with:
+  - code: "Complete HTML/CSS/JS"
+  - ux_rationale: [{decision, reason, reference}] — WHY each design choice was made
+  - states: {empty, loading, error} — HTML for each state
+  - accessibility: {score, features, issues}
+  - For components: also size_variants, state_css
+  - For interactions: also performance_notes, keyboard alternatives
+→ Parameters MUST include "context" field for components (what is this for?), "states" for pages/components
+→ Page tools: include "page_type" enum and "domain" enum
 
 **WRITING/CONTENT agents** (keywords: copywriting, blog, article, content, writer, editorial):
-→ Minimal pre_processors (maybe extract_text for reference content)
+→ pre_processors: [{"type": "inject_knowledge", "search_fields": ["topic", "audience"]}]
 → Tools should accept topic, tone, format and produce text
 → Parameters: topic, audience, tone, word_count, format, keywords
 → context_template: inline writing guidelines, brand voice, templates from skills
+→ output_instructions: request structured JSON with content + seo_metadata + outline
 
 **STRATEGY/CONSULTING agents** (keywords: strategy, plan, recommend, analyze, advise, audit):
-→ Optional pre_processors (fetch_url if they analyze websites)
+→ pre_processors: [{"type": "inject_knowledge", "search_fields": ["context", "goals"]}]
+→ Optional: fetch_url if they analyze websites
 → Tools should accept context and produce structured recommendations
 → Parameters: business_context, goals, constraints, current_situation
 → context_template: inline frameworks, methodologies, checklists from skills
+→ output_instructions: request JSON with recommendations + rationale + action_plan
 
-**OTHER agents** — design tools matching the agent's actual domain. NO SEO pre_processors unless the agent's skills explicitly involve web analysis.
+**OTHER agents** — design tools matching the agent's actual domain. NO SEO pre_processors unless the agent's skills explicitly involve web analysis. Always use inject_knowledge if the agent has knowledge bases.
 
 ## SYSTEM TOOLS (ALREADY EXIST — DO NOT RECREATE)
 Available to every agent. Do NOT duplicate:
@@ -1141,32 +1164,77 @@ Available to every agent. Do NOT duplicate:
 - "fetch_multi_urls" — parallel fetch up to 10 URLs (0 tokens)
 Only reference these for SEO/web analysis agents.
 
-## PRE-PROCESSORS (optional — only for web/SEO tools)
-Run server-side BEFORE the LLM call. Only use when the tool needs to fetch/analyze a URL.
+## PRE-PROCESSORS
+Run server-side BEFORE the LLM call to gather real data or inject knowledge.
+
+### URL/HTML processors (for web/SEO agents):
 - {"type": "fetch_url", "param": "url"} — fetches a URL. Writes __fetched_html__
 - {"type": "html_analysis"} — extracts SEO data from HTML. Writes {{__html_analysis__}}
 - {"type": "seo_score"} — scores page 0-100. Writes {{__seo_score__}}
-- {"type": "check_existing"} — verifies what SEO elements exist (schema, hreflang, robots.txt, llms.txt). Writes {{__existing_elements__}}
+- {"type": "check_existing"} — verifies SEO elements (schema, hreflang, robots.txt, llms.txt). Writes {{__existing_elements__}}
 - {"type": "extract_text"} — extracts visible text. Writes {{__page_text__}}
 - {"type": "crawl_sitemap", "param": "url"} — parses sitemap. Writes {{__sitemap_summary__}}
-- {"type": "fetch_multi", "param": "urls"} — parallel fetch+analyze. Writes {{__multi_summary__}}
+- {"type": "fetch_multi", "param": "urls"} — parallel fetch. Writes {{__multi_summary__}}
 - {"type": "check_robots_txt", "param": "url"} — fetches /robots.txt. Writes {{__robots_txt__}}
 - {"type": "check_llms_txt", "param": "url"} — fetches /llms.txt. Writes {{__llms_txt__}}
-- {"type": "inject_knowledge", "search_fields": ["brief", "page_type", "domain"]} — searches the agent's knowledge bases using the specified fields as query, injects relevant entries as context. Writes {{__knowledge_context__}}. USE THIS for any tool that benefits from the agent's domain knowledge.
-- {"type": "analyze_design"} — extracts UX/design info from fetched HTML: color palette, typography, layout, components, animations, interactions. Writes {{__design_analysis__}}. USE THIS instead of html_analysis for design/code agents analyzing reference sites.
 
-DO NOT use SEO pre_processors (seo_score, check_existing, check_robots_txt, check_llms_txt) for code generation, content writing, or strategy tools.
-DO use inject_knowledge for ANY agent type that has knowledge bases — it injects relevant domain knowledge automatically.
-DO use analyze_design (instead of html_analysis) when tools need to analyze the visual/UX structure of a reference site.
+### Knowledge & design processors (for ALL agent types):
+- {"type": "inject_knowledge", "search_fields": ["field1", "field2"]} — searches the agent's knowledge bases using the specified input fields as search query, injects matching entries into the context. Writes {{__knowledge_context__}}. USE THIS for any tool where domain knowledge improves output quality. search_fields should list the tool's most semantically meaningful params.
+- {"type": "analyze_design"} — extracts UX/design info from fetched HTML: color palette, typography, layout, components, animations, interaction patterns. Writes {{__design_analysis__}}. Use with fetch_url for reference site analysis tools.
+
+### RULES:
+- DO NOT use SEO processors (seo_score, check_existing) for non-SEO tools
+- DO use inject_knowledge for ANY agent type — it injects domain knowledge from the agent's linked knowledge bases
+- DO use analyze_design (instead of html_analysis) for design agents analyzing reference sites
+- For most non-SEO tools: pre_processors = [{"type": "inject_knowledge", "search_fields": [...relevant params...]}]
 
 ## context_template RULES
 - Injected into the LLM system prompt ALONGSIDE the agent's base prompt
 - MUST contain relevant skill/knowledge content INLINED — not references
 - Use {{param}} for caller-provided values, {{#if param}}...{{/if}} for optionals
+- Include {{__knowledge_context__}} placeholder if using inject_knowledge processor
 - For web tools: use {{__html_analysis__}}, {{__seo_score__}}, etc.
-- For code/design tools: inline design patterns, CSS rules, component templates
+- For code/design tools: MUST inline UX patterns, state design guides, interaction checklists, accessibility rules
 - For content tools: inline tone guidelines, structure templates, SEO rules
-- The goal: LLM has ALL context (skills + domain knowledge) to produce expert output
+- The context_template should be LONG (500-2000 chars) and contain REAL domain expertise
+
+## EXAMPLE — HIGH-QUALITY DESIGN TOOL
+{
+  "tool_name": "create_page",
+  "description": "Generate a complete page with UX rationale, interaction map, all states, and accessibility report.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "brief": {"type": "string", "description": "What should this page do?"},
+      "page_type": {"type": "string", "enum": ["dashboard", "editor", "landing", "settings", "form", "list", "kanban", "chat"]},
+      "domain": {"type": "string", "enum": ["ai-platform", "ecommerce", "saas", "fintech"]},
+      "states": {"type": "array", "items": {"type": "string"}, "description": "States to generate: empty, loading, populated, error"}
+    },
+    "required": ["brief", "page_type"]
+  },
+  "pre_processors": [{"type": "inject_knowledge", "search_fields": ["brief", "page_type", "domain"]}],
+  "context_template": "You are a UX-AWARE page architect. You generate complete pages with REASONING, not just code.\\n\\n## PAGE: {{page_type}}\\n## BRIEF: {{brief}}\\n{{#if domain}}## DOMAIN: {{domain}}{{/if}}\\n\\n{{__knowledge_context__}}\\n\\n## UX PATTERNS BY PAGE TYPE\\n### Dashboard: metric cards with sparklines, skeleton loading, time range selector, empty state with onboarding CTA\\n### Kanban: drag cards between columns, WIP limits, quick-add, card collapse/expand\\n### Editor/Node-editor: zoom semantic, port hover preview, rubber-band selection, snap-to-grid, minimap\\n### Chat: message grouping, typing indicators, code block rendering, auto-scroll\\n### Form: progressive disclosure, inline validation, smart defaults, auto-save\\n\\n## STATE DESIGN GUIDE\\n- empty: illustration + title + description + CTA (guide first action)\\n- loading: skeleton > spinner > nothing (shape matches final content)\\n- error: what happened + why + how to fix (specific, not generic)\\n- populated: optimized for data density without overwhelm\\n\\n## RULES\\n- Fitts's Law: interactive targets min 44x44px on touch, 24px on desktop\\n- All interactive elements need hover + focus + active + disabled states\\n- prefers-reduced-motion: respect it\\n- ARIA: labels on icons, roles on custom widgets, live regions for updates",
+  "output_instructions": "Return JSON: {code, ux_rationale: [{decision, reason, reference}], interaction_map: [{trigger, action, duration, type}], states: {empty, loading, error}, accessibility: {score, features, issues}, responsive_notes}"
+}
+
+## EXAMPLE — HIGH-QUALITY COMPONENT TOOL
+{
+  "tool_name": "generate_component",
+  "description": "Generate a CONTEXTUAL component with all states, size variants, and domain-specific patterns.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "component_name": {"type": "string"},
+      "context": {"type": "string", "description": "CRITICAL: What is this component for?"},
+      "contains": {"type": "array", "items": {"type": "string"}, "description": "What goes inside"},
+      "states": {"type": "array", "items": {"type": "string"}, "description": "States: default, selected, dragging, error, disabled, loading"}
+    },
+    "required": ["component_name", "context"]
+  },
+  "pre_processors": [{"type": "inject_knowledge", "search_fields": ["component_name", "context"]}],
+  "context_template": "You are a COMPONENT SPECIALIST. Build contextual, state-aware components.\\n\\n## COMPONENT: {{component_name}}\\n## CONTEXT: {{context}}\\n{{#if contains}}## CONTAINS: {{contains}}{{/if}}\\n{{#if states}}## STATES: {{states}}{{/if}}\\n\\n{{__knowledge_context__}}\\n\\n## STATE DESIGN GUIDE\\n- default: normal appearance\\n- hover: subtle elevation + color shift (150ms)\\n- selected: accent border or tint + indicator\\n- dragging: opacity(0.8) + shadow + scale(1.02)\\n- error: red border + icon + tooltip\\n- disabled: opacity(0.5) + no pointer events\\n- loading: skeleton pulse on content areas",
+  "output_instructions": "Return JSON: {code, variants: {compact, default, expanded}, state_css, usage_example, accessibility: [ARIA attributes], design_decisions: [{decision, reason}]}"
+}
 
 ## TOOL NAMING
 - snake_case only (e.g. create_landing_page, write_blog_post, audit_site)
@@ -1179,13 +1247,13 @@ Each tool:
   "tool_name": "snake_case_name",
   "description": "What this tool does (max 200 chars)",
   "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
-  "pre_processors": [],
-  "context_template": "Template with {{params}} and inlined knowledge from skills",
-  "output_instructions": "Expected output format and structure"
+  "pre_processors": [{"type": "inject_knowledge", "search_fields": [...]}],
+  "context_template": "RICH template (500-2000 chars) with domain patterns, {{params}}, {{__knowledge_context__}}, and expert knowledge",
+  "output_instructions": "Structured JSON format with rationale/reasoning — not just raw output"
 }
 
 Generate 5-12 tools. Include "chat" as last for freeform queries.
-IMPORTANT: pre_processors should be an EMPTY array [] for non-web tools. Only add processors for tools that take a URL and need real data fetching.`;
+CRITICAL: Every tool must have a RICH context_template (not empty/short). Every generative tool must request structured JSON output with reasoning/rationale, not just raw code or text.`;
 
     const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
 
