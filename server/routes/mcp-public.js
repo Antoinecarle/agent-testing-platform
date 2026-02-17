@@ -205,6 +205,61 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
   }
 });
 
+// GET /mcp/:slug/api/logs — Request logs (public, limited data)
+router.get('/:slug/api/logs', async (req, res) => {
+  try {
+    const deployment = await db.getDeploymentBySlug(req.params.slug);
+    if (!deployment) return res.status(404).json({ error: 'Not found' });
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const logs = await db.getTokenUsage(deployment.id, { limit });
+    // Sanitize: remove caller_ip for public
+    const sanitized = (logs || []).map(l => ({
+      id: l.id, created_at: l.created_at, request_type: l.request_type,
+      input_tokens: l.input_tokens, output_tokens: l.output_tokens,
+      total_tokens: l.total_tokens, status: l.status, duration_ms: l.duration_ms,
+      model: l.model,
+    }));
+    res.json(sanitized);
+  } catch (err) {
+    console.error('[MCP Logs] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /mcp/:slug/api/prompt — Get the agent prompt (requires purchase or public if free)
+router.get('/:slug/api/prompt', async (req, res) => {
+  try {
+    const deployment = await db.getDeploymentBySlug(req.params.slug);
+    if (!deployment) return res.status(404).json({ error: 'Not found' });
+    const agent = await db.getAgent(deployment.agent_name);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    // Build the full prompt including skills
+    let fullPrompt = agent.full_prompt || agent.prompt_preview || '';
+    try {
+      const skills = await db.getAgentSkills(deployment.agent_name);
+      if (skills && skills.length > 0) {
+        fullPrompt += '\n\n## Assigned Skills\n\n';
+        for (const skill of skills) {
+          fullPrompt += `### ${skill.name}\n`;
+          if (skill.description) fullPrompt += `${skill.description}\n\n`;
+          if (skill.prompt) fullPrompt += `${skill.prompt}\n\n`;
+        }
+      }
+    } catch (_) {}
+
+    res.json({
+      prompt: fullPrompt,
+      tokens: Math.round(fullPrompt.length / 4),
+      agent_name: agent.name,
+      model: agent.model,
+    });
+  } catch (err) {
+    console.error('[MCP Prompt] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /mcp/:slug/api/info — Public info about the MCP
 router.get('/:slug/api/info', async (req, res) => {
   try {
@@ -1392,6 +1447,113 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       display: flex; align-items: center; gap: 6px;
     }
 
+    /* ===== REQUEST LOGS TABLE ===== */
+    .logs-section { padding: 60px 0; }
+    .logs-card {
+      max-width: 960px; margin: 0 auto; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    }
+    .logs-header {
+      padding: 24px 28px; display: flex; justify-content: space-between;
+      align-items: center; border-bottom: 1px solid var(--border);
+    }
+    .logs-header h3 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .logs-header .log-count {
+      font-size: 11px; padding: 3px 10px; border-radius: 100px;
+      background: var(--primary-light); color: var(--primary); font-weight: 600;
+    }
+    .logs-refresh {
+      padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 5px;
+    }
+    .logs-refresh:hover { border-color: var(--primary); color: var(--primary); }
+    .logs-table-wrap { overflow-x: auto; }
+    .logs-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+    }
+    .logs-table th {
+      padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim);
+      background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .logs-table td {
+      padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-muted); white-space: nowrap;
+    }
+    .logs-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .logs-table .log-time {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim);
+    }
+    .logs-table .log-endpoint {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--primary);
+    }
+    .logs-table .log-tokens {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    }
+    .log-status {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 100px; font-size: 11px; font-weight: 600;
+    }
+    .log-status.ok { background: rgba(34,197,94,0.1); color: var(--success); }
+    .log-status.err { background: rgba(239,68,68,0.1); color: var(--error); }
+    .log-status.limit { background: rgba(234,179,8,0.1); color: var(--warning); }
+    .logs-empty {
+      padding: 48px 20px; text-align: center; color: var(--text-dim); font-size: 14px;
+    }
+    .logs-empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.3; }
+
+    /* ===== PROMPT SECTION ===== */
+    .prompt-section { padding: 60px 0; }
+    .prompt-card {
+      max-width: 960px; margin: 0 auto; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    }
+    .prompt-header {
+      padding: 24px 28px; display: flex; justify-content: space-between;
+      align-items: center; border-bottom: 1px solid var(--border);
+    }
+    .prompt-header h3 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .prompt-header .prompt-tokens {
+      font-size: 11px; padding: 3px 10px; border-radius: 100px;
+      background: rgba(34,197,94,0.1); color: var(--success); font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .prompt-actions { display: flex; gap: 8px; }
+    .prompt-copy-btn {
+      padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600;
+      background: var(--primary); color: #fff; border: none; cursor: pointer;
+      transition: all 0.2s; display: flex; align-items: center; gap: 5px;
+    }
+    .prompt-copy-btn:hover { opacity: 0.9; box-shadow: 0 0 16px ${color}33; }
+    .prompt-body {
+      padding: 0; max-height: 500px; overflow-y: auto; position: relative;
+    }
+    .prompt-body pre {
+      padding: 24px 28px; margin: 0; font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; line-height: 1.8; color: var(--text-muted);
+      white-space: pre-wrap; word-break: break-word;
+      background: rgba(0,0,0,0.2);
+    }
+    .prompt-body::-webkit-scrollbar { width: 6px; }
+    .prompt-body::-webkit-scrollbar-track { background: transparent; }
+    .prompt-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .prompt-fade {
+      position: absolute; bottom: 0; left: 0; right: 0; height: 60px;
+      background: linear-gradient(transparent, var(--bg-card));
+      pointer-events: none;
+    }
+    .prompt-toggle {
+      padding: 12px 28px; text-align: center; border-top: 1px solid var(--border);
+    }
+    .prompt-toggle button {
+      padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .prompt-toggle button:hover { border-color: var(--primary); color: var(--primary); }
+
     /* ===== TOAST ===== */
     .mcp-toast {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -1437,8 +1599,9 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
       <div class="nav-links">
         <a href="#try-chat" style="color:var(--primary);font-weight:600">Try Chat</a>
         <a href="#agent">Agent</a>
-        <a href="#skills">Skills</a>
-        <a href="#setup">Setup</a>
+        <a href="#prompt">Prompt</a>
+        <a href="#logs">Logs</a>
+        <a href="#access">Access</a>
       </div>
       <div class="nav-auth" id="nav-auth">
         <button class="btn-primary" onclick="toggleChat()" style="margin-right:4px">&#x1f4ac; Chat Now</button>
@@ -1615,6 +1778,27 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
     </div>
   </section>
   ` : ''}
+
+  <!-- AGENT PROMPT (copy-paste) -->
+  <section class="prompt-section" id="prompt">
+    <div class="container">
+      <div class="prompt-card">
+        <div class="prompt-header">
+          <h3>&#x1f4cb; Agent Prompt <span class="prompt-tokens" id="prompt-token-count">${formatTokens(promptTokens + totalSkillTokens)} tokens</span></h3>
+          <div class="prompt-actions">
+            <button class="prompt-copy-btn" id="prompt-copy-btn" onclick="copyPrompt()">&#x1f4cb; Copy Prompt</button>
+          </div>
+        </div>
+        <div class="prompt-body" id="prompt-body" style="max-height:300px">
+          <pre id="prompt-content">Loading prompt...</pre>
+          <div class="prompt-fade" id="prompt-fade"></div>
+        </div>
+        <div class="prompt-toggle">
+          <button id="prompt-expand-btn" onclick="togglePrompt()">Show full prompt</button>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- INLINE CHAT SECTION -->
   <section class="chat-section" id="try-chat">
@@ -1875,6 +2059,39 @@ data = response.json()
             <div class="val">${stats.errorCount || 0}</div>
             <div class="lbl">Errors</div>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REQUEST LOGS -->
+  <section class="logs-section" id="logs">
+    <div class="container">
+      <div class="section-header">
+        <h2>Request Log</h2>
+        <p>Recent API requests to this deployment</p>
+      </div>
+      <div class="logs-card">
+        <div class="logs-header">
+          <h3>&#x1f4ca; Requests <span class="log-count" id="log-count">0</span></h3>
+          <button class="logs-refresh" onclick="loadLogs()">&#x21bb; Refresh</button>
+        </div>
+        <div class="logs-table-wrap">
+          <table class="logs-table" id="logs-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Endpoint</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Duration</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="6" class="logs-empty"><div class="logs-empty-icon">&#x1f4ca;</div>Loading logs...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -2566,8 +2783,97 @@ data = response.json()
       }
     }
 
+    // ========== REQUEST LOGS ==========
+    let logsData = [];
+
+    async function loadLogs() {
+      try {
+        const res = await fetch('/mcp/${deployment.slug}/api/logs?limit=50');
+        logsData = await res.json();
+        renderLogs();
+      } catch (err) {
+        console.warn('Failed to load logs:', err);
+      }
+    }
+
+    function renderLogs() {
+      const tbody = document.getElementById('logs-tbody');
+      const countEl = document.getElementById('log-count');
+      countEl.textContent = logsData.length;
+
+      if (!logsData || logsData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="logs-empty"><div class="logs-empty-icon">&#x1f4ca;</div>No requests yet. Try the chat demo or use the API!</td></tr>';
+        return;
+      }
+
+      let html = '';
+      for (const log of logsData) {
+        const date = new Date(log.created_at);
+        const timeStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' +
+                        date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const endpoint = log.request_type || 'chat';
+        const statusClass = log.status === 'success' ? 'ok' : log.status === 'rate_limited' ? 'limit' : 'err';
+        const statusLabel = log.status === 'success' ? 'OK' : log.status === 'rate_limited' ? 'LIMIT' : 'ERR';
+        const duration = log.duration_ms ? (log.duration_ms / 1000).toFixed(1) + 's' : '--';
+
+        html += '<tr>';
+        html += '<td class="log-time">' + timeStr + '</td>';
+        html += '<td class="log-endpoint">' + endpoint + '</td>';
+        html += '<td class="log-tokens">' + (log.input_tokens || 0).toLocaleString() + '</td>';
+        html += '<td class="log-tokens">' + (log.output_tokens || 0).toLocaleString() + '</td>';
+        html += '<td class="log-tokens" style="color:var(--text-dim)">' + duration + '</td>';
+        html += '<td><span class="log-status ' + statusClass + '">' + statusLabel + '</span></td>';
+        html += '</tr>';
+      }
+      tbody.innerHTML = html;
+    }
+
+    // ========== PROMPT VIEWER ==========
+    let promptExpanded = false;
+    let promptText = '';
+
+    async function loadPrompt() {
+      try {
+        const res = await fetch('/mcp/${deployment.slug}/api/prompt');
+        const data = await res.json();
+        promptText = data.prompt || '';
+        const el = document.getElementById('prompt-content');
+        el.textContent = promptText;
+        document.getElementById('prompt-token-count').textContent = (data.tokens || 0).toLocaleString() + ' tokens';
+      } catch (err) {
+        document.getElementById('prompt-content').textContent = 'Failed to load prompt.';
+      }
+    }
+
+    function togglePrompt() {
+      promptExpanded = !promptExpanded;
+      const body = document.getElementById('prompt-body');
+      const btn = document.getElementById('prompt-expand-btn');
+      const fade = document.getElementById('prompt-fade');
+      if (promptExpanded) {
+        body.style.maxHeight = 'none';
+        btn.textContent = 'Collapse prompt';
+        fade.style.display = 'none';
+      } else {
+        body.style.maxHeight = '300px';
+        btn.textContent = 'Show full prompt';
+        fade.style.display = '';
+      }
+    }
+
+    function copyPrompt() {
+      const btn = document.getElementById('prompt-copy-btn');
+      navigator.clipboard.writeText(promptText).then(() => {
+        btn.innerHTML = '&#x2713; Copied!';
+        showToast('Prompt copied to clipboard', 'success');
+        setTimeout(() => { btn.innerHTML = '&#x1f4cb; Copy Prompt'; }, 2000);
+      });
+    }
+
     // Run on page load
     initAuthState();
+    loadLogs();
+    loadPrompt();
   </script>
 </body>
 </html>`;
