@@ -1,0 +1,370 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "GURU - Agent Testing Platform API",
+    "description": "API for managing AI agents, projects, iterations, teams, organizations, and billing.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "GURU Support"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://guru-api-production.up.railway.app",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:4000",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "Agent": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "model": { "type": "string" },
+          "category": { "type": "string" },
+          "rating": { "type": "number" },
+          "source": { "type": "string", "enum": ["filesystem", "manual"] },
+          "project_count": { "type": "integer" },
+          "created_by": { "type": "string" }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "agent_name": { "type": "string" },
+          "status": { "type": "string" },
+          "mode": { "type": "string", "enum": ["solo", "orchestra"] },
+          "project_type": { "type": "string", "enum": ["html", "fullstack"] },
+          "user_id": { "type": "string" },
+          "organization_id": { "type": "string" },
+          "iteration_count": { "type": "integer" }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "plan": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+          "max_projects": { "type": "integer" },
+          "max_agents": { "type": "integer" },
+          "max_members": { "type": "integer" }
+        }
+      },
+      "Plan": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "price": { "type": "number" },
+          "max_projects": { "type": "integer" },
+          "max_agents": { "type": "integer" },
+          "max_members": { "type": "integer" },
+          "max_storage_mb": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "security": [{ "BearerAuth": [] }],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful, returns token + refreshToken" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register new user",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 6 },
+                  "displayName": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Account created" },
+          "409": { "description": "Email already registered" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Refresh access token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["refreshToken"],
+                "properties": {
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "New tokens returned" },
+          "401": { "description": "Invalid refresh token" }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "List user's projects",
+        "responses": {
+          "200": {
+            "description": "Array of projects",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Projects"],
+        "summary": "Create project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "agent_name": { "type": "string" },
+                  "mode": { "type": "string", "enum": ["solo", "orchestra"] },
+                  "project_type": { "type": "string", "enum": ["html", "fullstack"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Project created" }
+        }
+      }
+    },
+    "/api/agents": {
+      "get": {
+        "tags": ["Agents"],
+        "summary": "List agents",
+        "parameters": [
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of agents",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Agent" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Agents"],
+        "summary": "Create agent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+                  "description": { "type": "string" },
+                  "model": { "type": "string" },
+                  "category": { "type": "string" },
+                  "prompt": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Agent created" },
+          "409": { "description": "Agent already exists" }
+        }
+      }
+    },
+    "/api/organizations": {
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List user's organizations",
+        "responses": {
+          "200": {
+            "description": "Array of organizations",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Organization" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Create organization",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "slug"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Organization created" },
+          "409": { "description": "Slug already taken" }
+        }
+      }
+    },
+    "/api/organizations/{id}/invite": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Invite member to organization",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "role": { "type": "string", "enum": ["admin", "member", "viewer"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Member invited or added" },
+          "402": { "description": "Member limit reached" }
+        }
+      }
+    },
+    "/api/billing/plans": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "List available plans",
+        "responses": {
+          "200": {
+            "description": "Array of plans",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Plan" } } } }
+          }
+        }
+      }
+    },
+    "/api/billing/checkout": {
+      "post": {
+        "tags": ["Billing"],
+        "summary": "Create Stripe checkout session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["organization_id", "plan"],
+                "properties": {
+                  "organization_id": { "type": "string", "format": "uuid" },
+                  "plan": { "type": "string", "enum": ["pro", "enterprise"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Checkout session URL" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Liveness check",
+        "security": [],
+        "responses": {
+          "200": { "description": "Service is alive" }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Readiness check (includes DB)",
+        "security": [],
+        "responses": {
+          "200": { "description": "Service is ready" },
+          "503": { "description": "Service not ready" }
+        }
+      }
+    }
+  }
+}

@@ -192,7 +192,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
             : 'custom';
           const result = await api('/api/agent-creator/conversations', {
             method: 'POST',
-            body: JSON.stringify({ name: `Enhance: ${displayName}`, agent_type: detectedType }),
+            body: JSON.stringify({ name: `Enhance: ${displayName}`, agent_type: detectedType, initial_agent: initialAgent.prompt || undefined }),
           });
           const conv = result.conversation;
           setConversations(prev => [conv, ...prev]);

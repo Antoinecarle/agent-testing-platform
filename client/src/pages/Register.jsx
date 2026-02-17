@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { setToken, setUser } from '../api';
+import { setToken, setRefreshToken, setUser } from '../api';
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -23,6 +23,7 @@ export default function Register() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setToken(data.token);
+      if (data.refreshToken) setRefreshToken(data.refreshToken);
       setUser({ userId: data.userId, email: data.email, displayName: data.displayName, role: data.role, claudeConnected: data.claudeConnected });
       navigate('/setup-claude');
     } catch (err) {

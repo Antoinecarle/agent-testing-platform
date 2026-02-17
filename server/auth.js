@@ -2,18 +2,29 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const path = require('path');
 const db = require('./db');
 const { ensureUserHome, isClaudeAuthenticated } = require('./user-home');
+const { validate, loginSchema, registerSchema } = require('./middleware/validate');
+
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 
 const router = express.Router();
 
+// Token configuration
+const ACCESS_TOKEN_EXPIRY = '1h';
+const REFRESH_TOKEN_EXPIRY = '30d';
+
+function generateTokens(payload) {
+  const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  const refreshToken = jwt.sign({ ...payload, type: 'refresh' }, process.env.JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+  return { accessToken, refreshToken };
+}
+
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
-    }
 
     const user = await db.getUserByEmail(email);
     if (!user || !user.password_hash) {
@@ -25,17 +36,15 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    const payload = { userId: user.id, email: user.email, role: user.role };
+    const { accessToken, refreshToken } = generateTokens(payload);
 
     // Check Claude connection status
     const claudeConnected = isClaudeAuthenticated(user.id);
 
     res.json({
-      token,
+      token: accessToken,
+      refreshToken,
       email: user.email,
       role: user.role,
       userId: user.id,
@@ -49,16 +58,9 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', validate(registerSchema), async (req, res) => {
   try {
     const { email, password, displayName } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
 
     const existing = await db.getUserByEmail(email);
     if (existing) {
@@ -67,7 +69,7 @@ router.post('/register', async (req, res) => {
 
     const id = crypto.randomUUID();
     const passwordHash = await bcrypt.hash(password, 10);
-    const homeDir = `/data/users/${id}`;
+    const homeDir = path.join(DATA_DIR, 'users', id);
 
     // Create user in DB
     await db.createUser(id, email, passwordHash, 'user', displayName || '', homeDir);
@@ -75,14 +77,12 @@ router.post('/register', async (req, res) => {
     // Create user home directory with symlinked agents
     ensureUserHome(id);
 
-    const token = jwt.sign(
-      { userId: id, email, role: 'user' },
-      process.env.JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    const payload = { userId: id, email, role: 'user' };
+    const { accessToken, refreshToken } = generateTokens(payload);
 
     res.status(201).json({
-      token,
+      token: accessToken,
+      refreshToken,
       email,
       role: 'user',
       userId: id,
@@ -91,6 +91,44 @@ router.post('/register', async (req, res) => {
     });
   } catch (err) {
     console.error('[Auth] Register error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/refresh — exchange refresh token for new access token
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
+
+    // Verify user still exists and is active
+    const user = await db.getUserById(decoded.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const payload = { userId: user.id, email: user.email, role: user.role };
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(payload);
+
+    res.json({
+      token: accessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (err) {
+    console.error('[Auth] Refresh error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -104,9 +142,16 @@ function verifyToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Don't allow refresh tokens as access tokens
+    if (decoded.type === 'refresh') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+    }
     res.status(401).json({ error: 'Invalid token' });
   }
 }

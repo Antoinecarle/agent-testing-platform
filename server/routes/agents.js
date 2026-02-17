@@ -4,6 +4,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
 const { ensureUserHome, USERS_DIR } = require('../user-home');
+const { validate, createAgentSchema, updateAgentSchema, bulkNamesSchema, bulkCategorizeSchema, importAgentSchema, duplicateAgentSchema, aiGenerateSchema, chatMessageSchema } = require('../middleware/validate');
+const { heavyLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
 
@@ -485,16 +487,13 @@ router.get('/types', (req, res) => {
 });
 
 // POST /api/agents/ai-generate — generate agent config using ChatGPT
-router.post('/ai-generate', async (req, res) => {
+router.post('/ai-generate', heavyLimiter, validate(aiGenerateSchema), async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) {
       return res.status(503).json({ error: 'OpenAI API key not configured' });
     }
 
     const { purpose, style, tools_needed, category } = req.body;
-    if (!purpose) {
-      return res.status(400).json({ error: 'purpose is required' });
-    }
 
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -553,12 +552,9 @@ Response format:
 });
 
 // POST /api/agents/import — import agent from .md file content
-router.post('/import', async (req, res) => {
+router.post('/import', validate(importAgentSchema), async (req, res) => {
   try {
     const { filename, content } = req.body;
-    if (!filename || !content) {
-      return res.status(400).json({ error: 'filename and content are required' });
-    }
 
     const name = filename.replace(/\.md$/, '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
@@ -585,12 +581,9 @@ router.post('/import', async (req, res) => {
 });
 
 // POST /api/agents/bulk/delete — delete multiple agents
-router.post('/bulk/delete', async (req, res) => {
+router.post('/bulk/delete', validate(bulkNamesSchema), async (req, res) => {
   try {
     const { names } = req.body;
-    if (!Array.isArray(names) || names.length === 0) {
-      return res.status(400).json({ error: 'names array is required' });
-    }
     await db.bulkDeleteAgents(names);
     res.json({ ok: true, deleted: names.length });
   } catch (err) {
@@ -600,12 +593,9 @@ router.post('/bulk/delete', async (req, res) => {
 });
 
 // POST /api/agents/bulk/categorize — update category for multiple agents
-router.post('/bulk/categorize', async (req, res) => {
+router.post('/bulk/categorize', validate(bulkCategorizeSchema), async (req, res) => {
   try {
     const { names, category } = req.body;
-    if (!Array.isArray(names) || names.length === 0 || !category) {
-      return res.status(400).json({ error: 'names array and category are required' });
-    }
     await db.bulkUpdateCategory(names, category);
     res.json({ ok: true, updated: names.length });
   } catch (err) {
@@ -649,12 +639,9 @@ router.get('/stats', async (req, res) => {
 const RESERVED_NAMES = ['sync', 'import', 'ai-generate', 'categories', 'stats', 'bulk'];
 
 // POST /api/agents — create agent manually
-router.post('/', async (req, res) => {
+router.post('/', validate(createAgentSchema), async (req, res) => {
   try {
     const { name, description, model, category, prompt, tools, max_turns, memory, permission_mode } = req.body;
-    if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
-      return res.status(400).json({ error: 'Name must be kebab-case (e.g. my-agent)' });
-    }
     if (RESERVED_NAMES.includes(name)) {
       return res.status(400).json({ error: `Name "${name}" is reserved` });
     }
@@ -808,7 +795,7 @@ router.post('/:name/versions/:versionId/revert', async (req, res) => {
 });
 
 // PUT /api/agents/:name — update agent fields
-router.put('/:name', async (req, res) => {
+router.put('/:name', validate(updateAgentSchema), async (req, res) => {
   try {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
@@ -880,15 +867,12 @@ router.patch('/:name/screenshot', async (req, res) => {
 });
 
 // POST /api/agents/:name/duplicate — duplicate an agent
-router.post('/:name/duplicate', async (req, res) => {
+router.post('/:name/duplicate', validate(duplicateAgentSchema), async (req, res) => {
   try {
     const source = await db.getAgent(req.params.name);
     if (!source) return res.status(404).json({ error: 'Source agent not found' });
 
     const { new_name } = req.body;
-    if (!new_name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(new_name)) {
-      return res.status(400).json({ error: 'new_name must be kebab-case (e.g. my-agent-copy)' });
-    }
     const existing = await db.getAgent(new_name);
     if (existing) return res.status(409).json({ error: 'Agent with that name already exists' });
 
@@ -942,15 +926,12 @@ router.delete('/:name', async (req, res) => {
 
 // ==================== TEST CHAT — Simulate MCP chat with full agent context ====================
 
-router.post('/:name/test-chat', async (req, res) => {
+router.post('/:name/test-chat', heavyLimiter, validate(chatMessageSchema), async (req, res) => {
   try {
     const agent = await db.getAgent(req.params.name);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
     const { messages } = req.body;
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'messages array required' });
-    }
 
     // Build rich system prompt: agent prompt + all skills with file content
     let systemPrompt = agent.full_prompt || agent.prompt_preview || '';

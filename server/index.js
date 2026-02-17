@@ -6,7 +6,13 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const { requestLogger, createLogger } = require('./lib/logger');
+const log = createLogger('server');
 const { router: authRouter, verifyToken } = require('./auth');
+const { authLimiter, apiLimiter, heavyLimiter } = require('./middleware/rate-limit');
+const { auditMiddleware, ensureAuditTable } = require('./middleware/audit');
+const { validate, orchestratorSchema } = require('./middleware/validate');
 const agentsRoutes = require('./routes/agents');
 const categoriesRoutes = require('./routes/categories');
 const projectsRoutes = require('./routes/projects');
@@ -156,15 +162,54 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const app = express();
   const server = http.createServer(app);
 
-  const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
-  });
+  // CORS: lock to specific domains (Railway + localhost dev)
+  const ALLOWED_ORIGINS = [
+    process.env.CORS_ORIGIN, // Custom override via env var
+    'https://guru-api-production.up.railway.app',
+    'http://localhost:4000',
+    'http://localhost:5173', // Vite dev server
+  ].filter(Boolean);
 
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  const corsOptions = {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    credentials: true,
+  };
 
-  // Auth routes (no token required)
-  app.use('/api/auth', authRouter);
+  const io = new Server(server, { cors: corsOptions });
+
+  // Security headers
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disabled for iframe previews — can be tightened later
+    crossOriginEmbedderPolicy: false,
+  }));
+  app.use(cors(corsOptions));
+
+  // Stripe webhook must receive raw body (before JSON parser)
+  const billingRoutes = require('./routes/billing');
+  app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), billingRoutes.stripeWebhookHandler);
+
+  app.use(express.json({ limit: '5mb' }));
+
+  // Structured request logging
+  app.use(requestLogger());
+
+  // Global rate limiting
+  app.use('/api/', apiLimiter);
+
+  // Audit trail for write operations
+  app.use('/api/', auditMiddleware);
+
+  // Ensure audit table exists
+  ensureAuditTable();
+
+  // Auth routes (no token required, rate limited)
+  app.use('/api/auth', authLimiter, authRouter);
 
   // No-auth endpoints (must be BEFORE protected /api/projects routes)
   // Save iteration — used by workspace agents via CLI (no token)
@@ -204,6 +249,11 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   app.use('/api/iterations', verifyToken, iterationsRoutes);
   app.use('/api/seed', verifyToken, seedRoutes);
   app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
+
+  const organizationsRoutes = require('./routes/organizations');
+  app.use('/api/organizations', verifyToken, organizationsRoutes);
+
+  app.use('/api/billing', verifyToken, billingRoutes);
 
   const marketplaceRoutes = require('./routes/marketplace');
   app.use('/api/marketplace', verifyToken, marketplaceRoutes);
@@ -453,16 +503,17 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   // --- Orchestrator Endpoint ---
 
   // POST /api/orchestrator/command — runs claude -p with system orchestrator HOME
-  app.post('/api/orchestrator/command', verifyToken, async (req, res) => {
+  app.post('/api/orchestrator/command', verifyToken, heavyLimiter, validate(orchestratorSchema), async (req, res) => {
     try {
       const { prompt } = req.body;
-      if (!prompt) return res.status(400).json({ error: 'Prompt required' });
 
       // Use admin's HOME for system orchestrator (or a dedicated orchestrator home)
       const adminUser = await db.getUserByEmail(process.env.EMAIL || 'admin@vps.local');
       const orchestratorHome = adminUser ? getUserHomePath(adminUser.id) : (process.env.HOME || '/root');
 
-      const result = execSync(`"${CLAUDE_BIN}" -p '${prompt.replace(/'/g, "'\\''")}'`, {
+      // Use execFile instead of execSync to prevent shell injection
+      const { execFileSync } = require('child_process');
+      const result = execFileSync(CLAUDE_BIN, ['-p', prompt], {
         timeout: 120000,
         env: { ...process.env, HOME: orchestratorHome },
         maxBuffer: 1024 * 1024,
@@ -473,6 +524,74 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
       console.error('[Orchestrator] Error:', err.message);
       res.status(500).json({ error: err.stderr?.toString() || err.message || 'Orchestrator error' });
     }
+  });
+
+  // ===================== API DOCS =====================
+
+  const swaggerUi = require('swagger-ui-express');
+  const openApiSpec = require('./openapi.json');
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'GURU API Documentation',
+  }));
+
+  // ===================== HEALTH & MONITORING =====================
+
+  const startTime = Date.now();
+
+  // GET /health — basic liveness check (no auth)
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      uptime: Math.floor((Date.now() - startTime) / 1000),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // GET /ready — readiness check with DB connectivity (no auth)
+  app.get('/ready', async (req, res) => {
+    try {
+      const { data, error } = await db.supabase.from('users').select('id').limit(1);
+      if (error) throw error;
+      res.json({
+        status: 'ready',
+        database: 'connected',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        memory: {
+          rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+          heap_used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+          heap_total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+        },
+      });
+    } catch (err) {
+      res.status(503).json({
+        status: 'not_ready',
+        database: 'disconnected',
+        error: err.message,
+      });
+    }
+  });
+
+  // GET /metrics — basic Prometheus-compatible metrics (no auth)
+  app.get('/metrics', (req, res) => {
+    const mem = process.memoryUsage();
+    const uptimeS = Math.floor((Date.now() - startTime) / 1000);
+    res.set('Content-Type', 'text/plain');
+    res.send([
+      `# HELP process_uptime_seconds Process uptime in seconds`,
+      `# TYPE process_uptime_seconds gauge`,
+      `process_uptime_seconds ${uptimeS}`,
+      `# HELP process_resident_memory_bytes Resident memory size in bytes`,
+      `# TYPE process_resident_memory_bytes gauge`,
+      `process_resident_memory_bytes ${mem.rss}`,
+      `# HELP process_heap_bytes Heap memory in bytes`,
+      `# TYPE process_heap_bytes gauge`,
+      `process_heap_bytes{type="used"} ${mem.heapUsed}`,
+      `process_heap_bytes{type="total"} ${mem.heapTotal}`,
+      `# HELP nodejs_version Node.js version info`,
+      `# TYPE nodejs_version gauge`,
+      `nodejs_version{version="${process.version}"} 1`,
+    ].join('\n') + '\n');
   });
 
   // Serve static frontend

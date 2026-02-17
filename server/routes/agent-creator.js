@@ -370,9 +370,13 @@ router.get('/extraction-modes', (req, res) => {
 // Create a new conversation
 router.post('/conversations', async (req, res) => {
   try {
-    const { name, agent_type } = req.body;
+    const { name, agent_type, initial_agent } = req.body;
     const userId = req.user.userId || req.user.id;
     const conversation = await db.createAgentConversation(userId, name || 'New Agent', agent_type || 'custom');
+    // If editing an existing agent, store it as generated_agent so preview works immediately
+    if (initial_agent) {
+      await db.updateConversationGeneratedAgent(conversation.id, initial_agent, 'complete');
+    }
     res.json({ conversation });
   } catch (err) {
     console.error('[agent-creator] Error creating conversation:', err);

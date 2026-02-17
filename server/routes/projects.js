@@ -1,6 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const { validate, createProjectSchema, updateProjectSchema, forkProjectSchema } = require('../middleware/validate');
+const { resolveOrg, checkPlanLimit } = require('../middleware/rbac');
 
 const router = express.Router();
 
@@ -16,10 +18,9 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/projects — create project (solo or orchestra)
-router.post('/', async (req, res) => {
+router.post('/', resolveOrg, checkPlanLimit('projects'), validate(createProjectSchema), async (req, res) => {
   try {
     const { name, description, agent_name, mode, team_config, project_type } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name required' });
 
     const projectId = crypto.randomUUID();
     let teamId = null;
@@ -43,7 +44,7 @@ router.post('/', async (req, res) => {
       ? team_config.orchestrator
       : (agent_name || '');
 
-    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId, req.user.userId, project_type || 'html');
+    await db.createProject(projectId, name, description, orchestratorAgent, mode || 'solo', teamId, req.user.userId, project_type || 'html', req.organizationId || null);
     const project = await db.getProject(projectId);
     res.status(201).json(project);
   } catch (err) {
@@ -53,11 +54,9 @@ router.post('/', async (req, res) => {
 });
 
 // POST /api/projects/fork — create new project from an existing iteration
-router.post('/fork', async (req, res) => {
+router.post('/fork', validate(forkProjectSchema), async (req, res) => {
   try {
     const { name, description, agent_name, source_project_id, source_iteration_id } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name required' });
-    if (!source_iteration_id) return res.status(400).json({ error: 'source_iteration_id required' });
 
     const sourceIteration = await db.getIteration(source_iteration_id);
     if (!sourceIteration) return res.status(404).json({ error: 'Source iteration not found' });
@@ -113,7 +112,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // PUT /api/projects/:id — update project
-router.put('/:id', async (req, res) => {
+router.put('/:id', validate(updateProjectSchema), async (req, res) => {
   try {
     const { name, description, agent_name, status, project_type } = req.body;
     const existing = await db.getProject(req.params.id);

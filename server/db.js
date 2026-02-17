@@ -274,12 +274,14 @@ async function reorderCategories(orderedIds) {
 
 // ===================== PROJECTS =====================
 
-async function createProject(id, name, description, agentName, mode, teamId, userId, projectType) {
-  await supabase.from('projects').insert({
+async function createProject(id, name, description, agentName, mode, teamId, userId, projectType, organizationId) {
+  const row = {
     id, name, description: description || '', agent_name: agentName || '', status: 'active',
     mode: mode || 'solo', team_id: teamId || null, user_id: userId || null,
     project_type: projectType || 'html',
-  });
+  };
+  if (organizationId) row.organization_id = organizationId;
+  await supabase.from('projects').insert(row);
 }
 
 async function getAllProjects() {
@@ -1579,6 +1581,173 @@ async function getAgentChatMessages(chatId, limit = 50) {
   return data || [];
 }
 
+// ===================== ORGANIZATIONS =====================
+
+async function createOrganization(name, slug, plan, ownerId) {
+  const { data, error } = await supabase.from('organizations').insert({
+    name, slug, plan: plan || 'free',
+  }).select('*').single();
+  if (error) throw new Error(`createOrganization: ${error.message}`);
+  // Add owner as first member
+  await supabase.from('organization_members').insert({
+    organization_id: data.id, user_id: ownerId, role: 'owner',
+  });
+  return data;
+}
+
+async function getOrganization(id) {
+  const { data } = await supabase.from('organizations').select('*').eq('id', id).single();
+  return data || null;
+}
+
+async function getOrganizationBySlug(slug) {
+  const { data } = await supabase.from('organizations').select('*').eq('slug', slug).single();
+  return data || null;
+}
+
+async function getUserOrganizations(userId) {
+  const { data: memberships } = await supabase.from('organization_members').select('organization_id, role').eq('user_id', userId);
+  if (!memberships || memberships.length === 0) return [];
+  const orgIds = memberships.map(m => m.organization_id);
+  const { data: orgs } = await supabase.from('organizations').select('*').in('id', orgIds);
+  const roleMap = {};
+  memberships.forEach(m => { roleMap[m.organization_id] = m.role; });
+  return (orgs || []).map(o => ({ ...o, user_role: roleMap[o.id] }));
+}
+
+async function updateOrganization(id, fields) {
+  const update = {};
+  if (fields.name !== undefined) update.name = fields.name;
+  if (fields.plan !== undefined) update.plan = fields.plan;
+  if (fields.stripe_customer_id !== undefined) update.stripe_customer_id = fields.stripe_customer_id;
+  if (fields.stripe_subscription_id !== undefined) update.stripe_subscription_id = fields.stripe_subscription_id;
+  if (fields.max_projects !== undefined) update.max_projects = fields.max_projects;
+  if (fields.max_agents !== undefined) update.max_agents = fields.max_agents;
+  if (fields.max_members !== undefined) update.max_members = fields.max_members;
+  if (fields.max_storage_mb !== undefined) update.max_storage_mb = fields.max_storage_mb;
+  if (Object.keys(update).length === 0) return;
+  update.updated_at = new Date().toISOString();
+  await supabase.from('organizations').update(update).eq('id', id);
+}
+
+async function deleteOrganization(id) {
+  await supabase.from('organizations').delete().eq('id', id);
+}
+
+async function getOrganizationBySubscriptionId(subscriptionId) {
+  const { data } = await supabase.from('organizations').select('*').eq('stripe_subscription_id', subscriptionId).single();
+  return data || null;
+}
+
+async function getOrganizationMembers(orgId) {
+  const { data: members } = await supabase.from('organization_members').select('*').eq('organization_id', orgId).order('joined_at', { ascending: true });
+  if (!members || members.length === 0) return [];
+  const userIds = members.map(m => m.user_id);
+  const { data: users } = await supabase.from('users').select('id, email, display_name').in('id', userIds);
+  const userMap = {};
+  (users || []).forEach(u => { userMap[u.id] = u; });
+  return members.map(m => ({
+    ...m,
+    email: userMap[m.user_id]?.email || '',
+    display_name: userMap[m.user_id]?.display_name || '',
+  }));
+}
+
+async function addOrganizationMember(orgId, userId, role) {
+  const { data, error } = await supabase.from('organization_members').insert({
+    organization_id: orgId, user_id: userId, role: role || 'member',
+  }).select('*').single();
+  if (error) throw new Error(`addOrganizationMember: ${error.message}`);
+  return data;
+}
+
+async function removeOrganizationMember(orgId, userId) {
+  await supabase.from('organization_members').delete().eq('organization_id', orgId).eq('user_id', userId);
+}
+
+async function updateOrganizationMemberRole(orgId, userId, role) {
+  await supabase.from('organization_members').update({ role }).eq('organization_id', orgId).eq('user_id', userId);
+}
+
+async function getUserOrgRole(orgId, userId) {
+  const { data } = await supabase.from('organization_members').select('role').eq('organization_id', orgId).eq('user_id', userId).single();
+  return data?.role || null;
+}
+
+// Invitations
+async function createInvitation(orgId, email, role, token, invitedBy, expiresAt) {
+  const { data, error } = await supabase.from('organization_invitations').insert({
+    organization_id: orgId, email, role: role || 'member', token, invited_by: invitedBy,
+    expires_at: expiresAt,
+  }).select('*').single();
+  if (error) throw new Error(`createInvitation: ${error.message}`);
+  return data;
+}
+
+async function getInvitationByToken(token) {
+  const { data } = await supabase.from('organization_invitations').select('*').eq('token', token).is('accepted_at', null).single();
+  return data || null;
+}
+
+async function acceptInvitation(id) {
+  await supabase.from('organization_invitations').update({ accepted_at: new Date().toISOString() }).eq('id', id);
+}
+
+// Usage tracking
+async function recordUsage(orgId, metric, increment) {
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const { data: existing } = await supabase.from('usage_records')
+    .select('id, value')
+    .eq('organization_id', orgId)
+    .eq('period', period)
+    .eq('metric', metric)
+    .single();
+
+  if (existing) {
+    await supabase.from('usage_records').update({
+      value: existing.value + (increment || 1),
+      updated_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+  } else {
+    await supabase.from('usage_records').insert({
+      organization_id: orgId, period, metric, value: increment || 1,
+    });
+  }
+}
+
+async function getUsage(orgId, period) {
+  const p = period || new Date().toISOString().slice(0, 7);
+  const { data } = await supabase.from('usage_records').select('metric, value').eq('organization_id', orgId).eq('period', p);
+  const result = {};
+  (data || []).forEach(r => { result[r.metric] = r.value; });
+  return result;
+}
+
+async function getOrgResourceCounts(orgId) {
+  const { count: projectCount } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('organization_id', orgId);
+  const { count: agentCount } = await supabase.from('agents').select('*', { count: 'exact', head: true }).eq('organization_id', orgId);
+  const { count: memberCount } = await supabase.from('organization_members').select('*', { count: 'exact', head: true }).eq('organization_id', orgId);
+  return {
+    projects: projectCount || 0,
+    agents: agentCount || 0,
+    members: memberCount || 0,
+  };
+}
+
+// ===================== AUDIT LOGS =====================
+
+async function insertAuditLog(userId, action, resource, resourceId, details, ipAddress) {
+  await supabase.from('audit_logs').insert({
+    user_id: userId || null,
+    action,
+    resource,
+    resource_id: resourceId || null,
+    details: details || {},
+    ip_address: ipAddress || '',
+    created_at: new Date().toISOString(),
+  });
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -1663,4 +1832,15 @@ module.exports = {
   // Agent Chats
   createAgentChat, getAgentChat, getUserAgentChats, deleteAgentChat,
   createAgentChatMessage, getAgentChatMessages,
+  // Organizations
+  createOrganization, getOrganization, getOrganizationBySlug, getOrganizationBySubscriptionId, getUserOrganizations,
+  updateOrganization, deleteOrganization,
+  getOrganizationMembers, addOrganizationMember, removeOrganizationMember,
+  updateOrganizationMemberRole, getUserOrgRole,
+  // Invitations
+  createInvitation, getInvitationByToken, acceptInvitation,
+  // Usage
+  recordUsage, getUsage, getOrgResourceCounts,
+  // Audit
+  insertAuditLog,
 };
