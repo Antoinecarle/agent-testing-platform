@@ -17,14 +17,14 @@ function now() { return Math.floor(Date.now() / 1000); }
 
 // ===================== AGENTS =====================
 
-async function upsertAgent(name, description, model, category, promptPreview, screenshotPath, rating, fullPrompt, source, tools, maxTurns, memory, permissionMode) {
+async function upsertAgent(name, description, model, category, promptPreview, screenshotPath, rating, fullPrompt, source, tools, maxTurns, memory, permissionMode, createdBy) {
   // Check if exists first
   const { data: existing } = await supabase.from('agents').select('source').eq('name', name).single();
 
   if (existing) {
     // Update - preserve manual source if agent was manually created
     const newSource = (existing.source === 'manual' && (source || 'filesystem') === 'filesystem') ? 'manual' : (source || 'filesystem');
-    await supabase.from('agents').update({
+    const update = {
       description: description || '',
       model: model || '',
       category: category || 'uncategorized',
@@ -36,9 +36,11 @@ async function upsertAgent(name, description, model, category, promptPreview, sc
       memory: memory || '',
       permission_mode: permissionMode || '',
       updated_at: now(),
-    }).eq('name', name);
+    };
+    if (createdBy) update.created_by = createdBy;
+    await supabase.from('agents').update(update).eq('name', name);
   } else {
-    await supabase.from('agents').insert({
+    const row = {
       name,
       description: description || '',
       model: model || '',
@@ -53,7 +55,9 @@ async function upsertAgent(name, description, model, category, promptPreview, sc
       memory: memory || '',
       permission_mode: permissionMode || '',
       updated_at: now(),
-    });
+    };
+    if (createdBy) row.created_by = createdBy;
+    await supabase.from('agents').insert(row);
   }
 }
 

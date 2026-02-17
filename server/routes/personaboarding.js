@@ -810,7 +810,7 @@ router.post('/complete', async (req, res) => {
     await db.upsertAgent(
       agentName, description, model || 'sonnet', 'persona',
       promptPreview, screenshotPath, rating, fullContent, 'manual',
-      toolsList, 15, '', permissionMode
+      toolsList, 15, '', permissionMode, req.user?.userId
     );
 
     // Save profile image URL as agent screenshot (already on Supabase Storage)
