@@ -5,7 +5,7 @@ const { generateEmbedding } = require('../lib/embeddings');
 const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
 const { callLLMProvider, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 const { formatToolsForMcp, buildEnrichedContext, getDefaultTools } = require('../lib/mcp-agent-tools');
-const { runProcessors, injectProcessorData } = require('../lib/mcp-processors');
+const { runProcessors, injectProcessorData, getSystemToolsMcp, getSystemTool, executeSystemTool } = require('../lib/mcp-processors');
 
 const router = express.Router();
 
@@ -358,6 +358,11 @@ async function handleMcpMessage(msg, session) {
         console.warn(`[MCP] Failed to load agent tools for ${session.agentName}:`, err.message);
         agentTools = getDefaultTools(session.agentName);
       }
+
+      // Prepend system tools (fetch_web, fetch_sitemap, fetch_multi_urls) — available to ALL agents
+      const systemTools = getSystemToolsMcp();
+      agentTools = [...systemTools, ...agentTools];
+
       return {
         jsonrpc: '2.0', id,
         result: { tools: agentTools },
@@ -370,6 +375,27 @@ async function handleMcpMessage(msg, session) {
 
       if (toolName === 'get_agent_info') {
         return await handleInfoTool(id, session);
+      }
+
+      // Check SYSTEM TOOLS first — direct response, no LLM needed
+      const systemTool = getSystemTool(toolName);
+      if (systemTool) {
+        try {
+          const resultText = await executeSystemTool(systemTool, toolArgs);
+          // Log usage (0 tokens — no LLM call)
+          await db.logTokenUsage(session.deploymentId, session.agentName, 'system', 0, 0, `mcp-${toolName}`, '', 0, 'success', '');
+          await db.updateApiKeyLastUsed(session.apiKeyId);
+          return {
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: resultText }], isError: false },
+          };
+        } catch (err) {
+          console.error(`[MCP System Tool] ${toolName} error:`, err.message);
+          return {
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }], isError: true },
+          };
+        }
       }
 
       // Check if this is a specialized tool from DB
