@@ -1102,43 +1102,71 @@ Given an agent's full context (prompt, skills, knowledge), you must create a set
 1. Replace the generic "chat" tool with purpose-built operations
 2. Have structured input parameters (JSON Schema) that force callers to provide proper context
 3. Include context_template strings that inject the agent's deep knowledge into every call
-4. Include pre_processors that give tools REAL capabilities (fetching URLs, analyzing HTML, scoring)
+4. Use pre_processors ONLY when relevant (URL fetching, HTML analysis) — many agents don't need them
 5. Cover ALL the agent's capabilities — every skill should map to 1+ tools
 
+## AGENT TYPE DETECTION — CRITICAL
+Read the agent's prompt/skills carefully. Determine the agent's domain:
+
+**WEB/SEO agents** (keywords: SEO, audit, schema, meta, sitemap, crawl, SERP, backlinks, keyword):
+→ Use pre_processors heavily (fetch_url, html_analysis, seo_score, check_existing)
+→ Reference system tools (fetch_web, fetch_sitemap, fetch_multi_urls)
+→ Tools should analyze real page data
+
+**CODE/DESIGN agents** (keywords: HTML, CSS, React, frontend, component, landing page, design, generate, create, build):
+→ NO pre_processors needed (agent GENERATES code, doesn't analyze URLs)
+→ Tools should accept design specs and return code
+→ Parameters: style, colors, content, framework, component_type, design_system
+→ context_template: inline design patterns, CSS frameworks, component structures from skills
+→ output_instructions: "Return complete, self-contained HTML/CSS/JS code" or similar
+
+**WRITING/CONTENT agents** (keywords: copywriting, blog, article, content, writer, editorial):
+→ Minimal pre_processors (maybe extract_text for reference content)
+→ Tools should accept topic, tone, format and produce text
+→ Parameters: topic, audience, tone, word_count, format, keywords
+→ context_template: inline writing guidelines, brand voice, templates from skills
+
+**STRATEGY/CONSULTING agents** (keywords: strategy, plan, recommend, analyze, advise, audit):
+→ Optional pre_processors (fetch_url if they analyze websites)
+→ Tools should accept context and produce structured recommendations
+→ Parameters: business_context, goals, constraints, current_situation
+→ context_template: inline frameworks, methodologies, checklists from skills
+
+**OTHER agents** — design tools matching the agent's actual domain. NO SEO pre_processors unless the agent's skills explicitly involve web analysis.
+
 ## SYSTEM TOOLS (ALREADY EXIST — DO NOT RECREATE)
-The following tools are automatically available to every agent. Do NOT generate tools that duplicate them:
-- "fetch_web" — fetches a URL and returns full SEO analysis (score, title, meta, headings, schema, OG, images, links). Returns structured JSON, no LLM.
-- "fetch_sitemap" — fetches and parses sitemap.xml, discovers all indexed pages. Returns structured JSON, no LLM.
-- "fetch_multi_urls" — fetches up to 10 URLs in parallel with per-page SEO scores and comparative summary. Returns structured JSON, no LLM.
+Available to every agent. Do NOT duplicate:
+- "fetch_web" — fetches URL → full SEO analysis JSON (0 tokens)
+- "fetch_sitemap" — parses sitemap.xml → URL list (0 tokens)
+- "fetch_multi_urls" — parallel fetch up to 10 URLs (0 tokens)
+Only reference these for SEO/web analysis agents.
 
-Your generated tools should COMPLEMENT these system tools by providing EXPERT ANALYSIS on top of the raw data.
-For example: the caller can use fetch_web first to get raw data, then pass it to your specialized tools for deep expert analysis.
-Your tools with a URL parameter should STILL use pre_processors — so they work standalone too, without needing fetch_web first.
+## PRE-PROCESSORS (optional — only for web/SEO tools)
+Run server-side BEFORE the LLM call. Only use when the tool needs to fetch/analyze a URL.
+- {"type": "fetch_url", "param": "url"} — fetches a URL. Writes __fetched_html__
+- {"type": "html_analysis"} — extracts SEO data from HTML. Writes {{__html_analysis__}}
+- {"type": "seo_score"} — scores page 0-100. Writes {{__seo_score__}}
+- {"type": "check_existing"} — verifies what SEO elements exist (schema, hreflang, robots.txt, llms.txt). Writes {{__existing_elements__}}
+- {"type": "extract_text"} — extracts visible text. Writes {{__page_text__}}
+- {"type": "crawl_sitemap", "param": "url"} — parses sitemap. Writes {{__sitemap_summary__}}
+- {"type": "fetch_multi", "param": "urls"} — parallel fetch+analyze. Writes {{__multi_summary__}}
+- {"type": "check_robots_txt", "param": "url"} — fetches /robots.txt. Writes {{__robots_txt__}}
+- {"type": "check_llms_txt", "param": "url"} — fetches /llms.txt. Writes {{__llms_txt__}}
 
-## PRE-PROCESSORS (gives tools real capabilities)
-Pre-processors run server-side BEFORE the LLM call. They fetch real data and inject it into context.
-Available processors:
-- {"type": "fetch_url", "param": "url"} — fetches a URL, stores HTML. The "param" is the input_schema param name containing the URL.
-- {"type": "html_analysis"} — extracts SEO data (title, meta, headings, schema, OG, images, links, word count) from fetched HTML. Writes {{__html_analysis__}}
-- {"type": "seo_score"} — scores the page 0-100 with real breakdown. Requires html_analysis first. Writes {{__seo_score__}}
-- {"type": "check_existing"} — checks what SEO elements exist vs missing. Requires html_analysis. Writes {{__existing_elements__}}
-- {"type": "extract_text"} — extracts visible page text for content analysis. Writes {{__page_text__}}
-- {"type": "crawl_sitemap", "param": "url"} — fetches sitemap.xml and extracts all URLs. Writes {{__sitemap_summary__}}
-- {"type": "fetch_multi", "param": "urls"} — fetches multiple URLs in parallel with analysis. Writes {{__multi_summary__}}
-
-Chain them: ["fetch_url", "html_analysis", "seo_score", "check_existing"] = full pipeline.
-Use pre_processors for ANY tool that takes a URL parameter.
+DO NOT use pre_processors for code generation, content writing, or strategy tools.
 
 ## context_template RULES
 - Injected into the LLM system prompt ALONGSIDE the agent's base prompt
 - MUST contain relevant skill/knowledge content INLINED — not references
 - Use {{param}} for caller-provided values, {{#if param}}...{{/if}} for optionals
-- Use {{__html_analysis__}}, {{__seo_score__}}, {{__existing_elements__}}, {{__page_text__}}, {{__sitemap_summary__}}, {{__multi_summary__}} for processor output
-- The goal: LLM has ALL context (skills + real page data) to produce expert output
+- For web tools: use {{__html_analysis__}}, {{__seo_score__}}, etc.
+- For code/design tools: inline design patterns, CSS rules, component templates
+- For content tools: inline tone guidelines, structure templates, SEO rules
+- The goal: LLM has ALL context (skills + domain knowledge) to produce expert output
 
 ## TOOL NAMING
-- snake_case only (e.g. audit_site, generate_schema)
-- Clear, action-oriented names
+- snake_case only (e.g. create_landing_page, write_blog_post, audit_site)
+- Clear, action-oriented names matching the agent's domain
 
 ## OUTPUT FORMAT
 Return a JSON object: {"tools": [tool1, tool2, ...]}
@@ -1147,12 +1175,13 @@ Each tool:
   "tool_name": "snake_case_name",
   "description": "What this tool does (max 200 chars)",
   "input_schema": { "type": "object", "properties": { ... }, "required": [...] },
-  "pre_processors": [{"type": "fetch_url", "param": "url"}, {"type": "html_analysis"}, ...],
-  "context_template": "Template with {{params}} and {{__processor_output__}} and inlined knowledge",
-  "output_instructions": "How the output should be formatted"
+  "pre_processors": [],
+  "context_template": "Template with {{params}} and inlined knowledge from skills",
+  "output_instructions": "Expected output format and structure"
 }
 
-Generate 5-12 tools. Include "chat" as last for freeform queries. Tools with URL params MUST use pre_processors.`;
+Generate 5-12 tools. Include "chat" as last for freeform queries.
+IMPORTANT: pre_processors should be an EMPTY array [] for non-web tools. Only add processors for tools that take a URL and need real data fetching.`;
 
     const userMessage = `Here is the full agent context. Analyze it and generate specialized MCP tools.\n\n${agentContext}`;
 
