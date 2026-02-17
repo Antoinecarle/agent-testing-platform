@@ -3682,8 +3682,8 @@ data = response.json()
 
     function updateProviderUI() {
       const section = document.getElementById('provider-section');
-      // Only visible to the deployment creator (not purchasers)
-      const isCreator = authUser && authUser.id === DEPLOYMENT_CREATOR_ID;
+      // Visible to the deployment creator OR admins
+      const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
       if (!authToken || !isCreator) { section.style.display = 'none'; return; }
       section.style.display = '';
 
@@ -3859,7 +3859,7 @@ data = response.json()
           await loadApiKeys();
         }
         // Load provider settings for the deployment creator
-        const isCreator = authUser && authUser.id === DEPLOYMENT_CREATOR_ID;
+        const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
         if (isCreator) {
           await loadProviderConfigs();
           await loadProviderKeys();
