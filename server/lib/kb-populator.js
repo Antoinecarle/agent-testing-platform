@@ -342,10 +342,10 @@ async function populateKnowledgeBase(config) {
         kb.id,
         title,
         content,
-        mode === 'scrape_reference' ? 'url' : 'api',
+        mode === 'scrape_reference' ? 'url' : 'manual',
         args.url || '',
         '',
-        { mode, tags, generatedAt: new Date().toISOString() },
+        { mode, tags, source: 'ai-generated', generatedAt: new Date().toISOString() },
         embedding,
         tokenCount
       );
