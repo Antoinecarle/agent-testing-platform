@@ -2313,6 +2313,7 @@ function generateLandingPage(deployment, agent, monthlyUsage, stats, skills, pro
         <a href="#prompt">Prompt</a>
         <a href="#logs">Logs</a>
         <a href="#access">Access</a>
+        <a href="#provider-section" id="nav-provider-link" style="display:none">Settings</a>
       </div>
       <div class="nav-auth" id="nav-auth">
         <button class="btn-primary" onclick="toggleChat()" style="margin-right:4px">&#x1f4ac; Chat Now</button>
@@ -3682,11 +3683,12 @@ data = response.json()
 
     function updateProviderUI() {
       const section = document.getElementById('provider-section');
+      const navLink = document.getElementById('nav-provider-link');
       // Visible to the deployment creator OR admins
       const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
-      console.log('[Provider] updateProviderUI:', { authToken: !!authToken, authUser: authUser ? { id: authUser.id, role: authUser.role, email: authUser.email } : null, DEPLOYMENT_CREATOR_ID, isCreator });
-      if (!authToken || !isCreator) { section.style.display = 'none'; return; }
+      if (!authToken || !isCreator) { section.style.display = 'none'; if (navLink) navLink.style.display = 'none'; return; }
       section.style.display = '';
+      if (navLink) navLink.style.display = '';
 
       const cfg = providerConfigs[currentProvider];
       if (!cfg) return;
@@ -3847,7 +3849,6 @@ data = response.json()
       try {
         // Verify token and get user info
         const user = await mcpApi('/api/user/me');
-        console.log('[initAuthState] user/me response:', JSON.stringify(user));
         authUser = user;
         // Get wallet
         const wallet = await mcpApi('/api/wallet');
@@ -3862,7 +3863,6 @@ data = response.json()
         }
         // Load provider settings for the deployment creator
         const isCreator = authUser && (authUser.id === DEPLOYMENT_CREATOR_ID || authUser.role === 'admin');
-        console.log('[initAuthState] isCreator check:', { userId: authUser?.id, creatorId: DEPLOYMENT_CREATOR_ID, role: authUser?.role, isCreator });
         if (isCreator) {
           await loadProviderConfigs();
           await loadProviderKeys();
@@ -3871,7 +3871,7 @@ data = response.json()
         updateProviderUI();
       } catch (err) {
         // Token expired or invalid
-        console.warn('Auth check failed:', err.message, err);
+        console.warn('Auth check failed:', err.message);
         authToken = null;
         localStorage.removeItem('guru_token');
         updateNavUI();
