@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
-const { testProviderKey, PROVIDER_CONFIGS } = require('../lib/llm-providers');
+const { testProviderKey, fetchProviderModels, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 
 const router = express.Router();
 
@@ -117,6 +117,25 @@ router.get('/llm-providers', async (req, res) => {
   res.json(PROVIDER_CONFIGS);
 });
 
+// POST /api/wallet/llm-keys/:provider/models — fetch available models from provider API
+router.post('/llm-keys/:provider/models', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!PROVIDER_CONFIGS[provider]) {
+      return res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    }
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'apiKey is required' });
+    }
+    const models = await fetchProviderModels(provider, apiKey);
+    res.json({ provider, models });
+  } catch (err) {
+    console.error('[Wallet] Fetch models error:', err.message);
+    res.status(400).json({ error: err.message || 'Failed to fetch models' });
+  }
+});
+
 // PUT /api/wallet/llm-keys/:provider — save/update an LLM key
 router.put('/llm-keys/:provider', async (req, res) => {
   try {
@@ -128,11 +147,7 @@ router.put('/llm-keys/:provider', async (req, res) => {
     if (!apiKey || !model) {
       return res.status(400).json({ error: 'apiKey and model are required' });
     }
-    // Validate model is in provider's list
-    const validModels = PROVIDER_CONFIGS[provider].models.map(m => m.id);
-    if (!validModels.includes(model)) {
-      return res.status(400).json({ error: `Invalid model for ${provider}. Valid: ${validModels.join(', ')}` });
-    }
+    // Model validation: accept any model string (since user can fetch dynamic models)
     const encrypted = encryptApiKey(apiKey);
     await db.upsertUserLlmKey(req.user.userId, provider, encrypted, model, displayName || '');
     res.json({ ok: true, provider, model });

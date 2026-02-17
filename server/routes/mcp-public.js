@@ -3782,6 +3782,47 @@ data = response.json()
       btn.disabled = false; btn.textContent = 'Test Key';
     }
 
+    async function fetchModels() {
+      const btn = document.getElementById('btn-fetch-models');
+      const apiKey = document.getElementById('provider-key-input').value.trim();
+      if (!apiKey) {
+        showProviderStatus('Enter an API key first to fetch available models', 'error');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Fetching...';
+      try {
+        const result = await mcpApi('/api/wallet/llm-keys/' + currentProvider + '/models', {
+          method: 'POST',
+          body: JSON.stringify({ apiKey }),
+        });
+        const models = result.models || [];
+        if (models.length === 0) {
+          showProviderStatus('No models found for this provider', 'error');
+        } else {
+          // Update model dropdown with fetched models
+          const sel = document.getElementById('provider-model-select');
+          const existing = userLlmKeys[currentProvider];
+          sel.innerHTML = '';
+          models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            let label = m.name || m.id;
+            if (m.context_window) label += ' (' + Math.round(m.context_window/1000) + 'K ctx)';
+            if (m.default) label += ' *';
+            opt.textContent = label;
+            if (existing && existing.model === m.id) opt.selected = true;
+            else if (!existing && m.default) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          document.getElementById('model-source-badge').textContent = '(' + models.length + ' models from API)';
+          showProviderStatus('Fetched ' + models.length + ' models from ' + (providerConfigs[currentProvider]?.name || currentProvider), 'success');
+        }
+      } catch (err) {
+        showProviderStatus('Fetch failed: ' + (err.message || 'Unknown error') + ' — using default list', 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Fetch Models';
+    }
+
     async function removeProvider() {
       if (!confirm('Remove your ' + (providerConfigs[currentProvider]?.name || currentProvider) + ' API key?')) return;
       try {
