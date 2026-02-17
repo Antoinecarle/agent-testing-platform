@@ -661,13 +661,17 @@ async function handleSpecializedTool(id, toolDef, args, session) {
 
   if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available.' } };
 
-  // 9. Call LLM — adaptive max tokens based on tool type
-  //    Page/interaction generation needs more tokens than analysis tools
+  // 9. Call LLM — max tokens: DB per-tool override > category defaults
   let llmResult;
-  const highTokenTools = ['create_page']; // Full pages need more room for code + UX metadata
-  const generativeTools = ['interaction_layer', 'create_section_template', 'generate_component'];
-  const maxTokens = highTokenTools.includes(toolDef.tool_name) ? 16384
-    : generativeTools.includes(toolDef.tool_name) ? 8192 : 4096;
+  let maxTokens;
+  if (toolDef.max_tokens && toolDef.max_tokens > 0) {
+    maxTokens = toolDef.max_tokens; // Per-tool DB override
+  } else {
+    const highTokenTools = ['create_page'];
+    const generativeTools = ['interaction_layer', 'create_section_template', 'generate_component'];
+    maxTokens = highTokenTools.includes(toolDef.tool_name) ? 16384
+      : generativeTools.includes(toolDef.tool_name) ? 8192 : 4096;
+  }
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
   } catch (err) {
