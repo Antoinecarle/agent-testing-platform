@@ -193,6 +193,15 @@ function scoreSeo(htmlInfo) {
     issues.push(`Poor semantic HTML (${semanticCount}/5 elements) — use <main>, <nav>, <article>, <section>, <footer>`);
   }
 
+  // Hreflang (0-5)
+  if (htmlInfo.hasHreflang) {
+    breakdown.hreflang = 5;
+    passed.push(`Hreflang tags present (${htmlInfo.hreflangTags.length} languages)`);
+  } else {
+    breakdown.hreflang = 0;
+    // Not an issue for single-language sites, just a bonus
+  }
+
   // Content length (0-10)
   if (htmlInfo.wordCount >= 800) {
     breakdown.content = 10;
@@ -206,8 +215,8 @@ function scoreSeo(htmlInfo) {
   }
 
   const score = Object.values(breakdown).reduce((a, b) => a + b, 0);
-  const maxScore = 100;
-  const normalizedScore = Math.round((score / maxScore) * 100);
+  const maxScore = 105; // Updated: 100 base + 5 hreflang bonus
+  const normalizedScore = Math.min(100, Math.round((score / maxScore) * 100));
 
   return { score: normalizedScore, breakdown, issues, passed };
 }
@@ -236,7 +245,7 @@ function formatSeoScore(scoreData) {
 
   out += '\n#### Score Breakdown\n';
   for (const [key, val] of Object.entries(scoreData.breakdown)) {
-    const maxPerKey = key === 'canonical' || key === 'lang' ? 5 : 10;
+    const maxPerKey = (key === 'canonical' || key === 'lang' || key === 'hreflang') ? 5 : 10;
     out += `- ${key}: ${val}/${maxPerKey}\n`;
   }
 
@@ -359,12 +368,22 @@ const PROCESSORS = {
     out += `**Open Graph tags:** ${info.hasOG ? 'YES' : 'MISSING'}\n`;
     out += `**Twitter Card tags:** ${info.hasTwitter ? 'YES' : 'MISSING'}\n\n`;
 
-    // Schema
+    // Schema — list ALL types found
     if (info.hasSchema) {
-      out += '**Schema markup:** YES (existing)\n';
+      const types = info.schemaTypes || [];
+      out += `**Schema markup:** YES — ${types.length} type(s) found: ${types.join(', ') || 'unknown'}\n`;
       out += '```json\n' + (info.existingSchema || '').slice(0, 3000) + '\n```\n\n';
     } else {
       out += '**Schema markup:** MISSING\n\n';
+    }
+
+    // Hreflang
+    if (info.hasHreflang) {
+      out += `**Hreflang tags:** YES (${info.hreflangTags.length} languages)\n`;
+      for (const h of info.hreflangTags) out += `  - ${h.lang}: ${h.href}\n`;
+      out += '\n';
+    } else {
+      out += '**Hreflang tags:** MISSING\n\n';
     }
 
     // Images
@@ -390,7 +409,21 @@ const PROCESSORS = {
     out += `\n**Meta tags found:** ${existingMeta.join(', ') || 'none'}\n`;
     out += `**Meta tags missing:** ${missingMeta.join(', ') || 'none'}\n`;
 
-    out += '\n---\n**IMPORTANT:** Only recommend changes for elements that are MISSING or inadequate. Do NOT recommend creating things that already exist.\n';
+    // Robots.txt & llms.txt (if processors have run — data comes from check_robots_txt/check_llms_txt)
+    if (data.__robots_txt_exists__ !== undefined) {
+      out += `\n**robots.txt:** ${data.__robots_txt_exists__ ? 'EXISTS' : 'NOT FOUND'}\n`;
+      if (data.__robots_txt_exists__ && data.__robots_txt__) {
+        out += '```\n' + data.__robots_txt__.slice(0, 1500) + '\n```\n';
+      }
+    }
+    if (data.__llms_txt_exists__ !== undefined) {
+      out += `**llms.txt:** ${data.__llms_txt_exists__ ? 'EXISTS' : 'NOT FOUND'}\n`;
+      if (data.__llms_txt_exists__ && data.__llms_txt__) {
+        out += '```\n' + data.__llms_txt__.slice(0, 1500) + '\n```\n';
+      }
+    }
+
+    out += '\n---\n**CRITICAL INSTRUCTION:** You MUST only report based on the DATA ABOVE. If a schema type is listed (e.g. FAQPage, HowTo, BreadcrumbList), it EXISTS — do NOT say it is missing. If hreflang tags are listed, they EXIST. If robots.txt is marked EXISTS, it EXISTS. If llms.txt is marked EXISTS, it EXISTS. NEVER hallucinate missing elements that are shown as present in this report.\n';
 
     data.__existing_elements__ = out;
   },
@@ -633,6 +666,114 @@ const PROCESSORS = {
 
     data.__multi_summary__ = summary;
   },
+
+  /**
+   * check_robots_txt: Fetches /robots.txt from the domain and reports contents.
+   * Config: { "type": "check_robots_txt", "param": "url" }
+   * Writes: __robots_txt__, __robots_txt_exists__
+   */
+  check_robots_txt: async (args, config, data) => {
+    const urlParam = config.param || 'url';
+    let baseUrl = args[urlParam] || data.__fetched_url__;
+    if (!baseUrl) {
+      data.__robots_txt__ = '[No URL available to check robots.txt]';
+      data.__robots_txt_exists__ = false;
+      return;
+    }
+
+    try {
+      const parsed = new URL(baseUrl);
+      const robotsUrl = `${parsed.protocol}//${parsed.host}/robots.txt`;
+      console.log(`[MCP Processor] Fetching robots.txt: ${robotsUrl}`);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(robotsUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GuruMCP/1.0)' },
+        });
+        clearTimeout(timer);
+
+        if (res.ok) {
+          const text = await res.text();
+          // Verify it's actually robots.txt content (not an HTML error page)
+          const isReal = text.includes('User-agent') || text.includes('Sitemap') || text.includes('Disallow') || text.includes('Allow');
+          if (isReal) {
+            data.__robots_txt__ = text.slice(0, 3000);
+            data.__robots_txt_exists__ = true;
+          } else {
+            data.__robots_txt__ = '[robots.txt returned non-standard content]';
+            data.__robots_txt_exists__ = false;
+          }
+        } else {
+          data.__robots_txt__ = `[robots.txt returned HTTP ${res.status}]`;
+          data.__robots_txt_exists__ = false;
+        }
+      } catch (err) {
+        clearTimeout(timer);
+        data.__robots_txt__ = `[Failed to fetch robots.txt: ${err.message}]`;
+        data.__robots_txt_exists__ = false;
+      }
+    } catch {
+      data.__robots_txt__ = '[Invalid URL for robots.txt check]';
+      data.__robots_txt_exists__ = false;
+    }
+  },
+
+  /**
+   * check_llms_txt: Fetches /llms.txt from the domain and reports contents.
+   * Config: { "type": "check_llms_txt", "param": "url" }
+   * Writes: __llms_txt__, __llms_txt_exists__
+   */
+  check_llms_txt: async (args, config, data) => {
+    const urlParam = config.param || 'url';
+    let baseUrl = args[urlParam] || data.__fetched_url__;
+    if (!baseUrl) {
+      data.__llms_txt__ = '[No URL available to check llms.txt]';
+      data.__llms_txt_exists__ = false;
+      return;
+    }
+
+    try {
+      const parsed = new URL(baseUrl);
+      const llmsUrl = `${parsed.protocol}//${parsed.host}/llms.txt`;
+      console.log(`[MCP Processor] Fetching llms.txt: ${llmsUrl}`);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(llmsUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GuruMCP/1.0)' },
+        });
+        clearTimeout(timer);
+
+        if (res.ok) {
+          const text = await res.text();
+          // Verify it's not an HTML error page
+          const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE');
+          if (!isHtml && text.trim().length > 10) {
+            data.__llms_txt__ = text.slice(0, 3000);
+            data.__llms_txt_exists__ = true;
+          } else {
+            data.__llms_txt__ = '[llms.txt returned HTML (likely 404 page)]';
+            data.__llms_txt_exists__ = false;
+          }
+        } else {
+          data.__llms_txt__ = `[llms.txt returned HTTP ${res.status}]`;
+          data.__llms_txt_exists__ = false;
+        }
+      } catch (err) {
+        clearTimeout(timer);
+        data.__llms_txt__ = `[Failed to fetch llms.txt: ${err.message}]`;
+        data.__llms_txt_exists__ = false;
+      }
+    } catch {
+      data.__llms_txt__ = '[Invalid URL for llms.txt check]';
+      data.__llms_txt_exists__ = false;
+    }
+  },
 };
 
 
@@ -708,6 +849,8 @@ const SYSTEM_TOOLS = [
       { type: 'seo_score' },
       { type: 'check_existing' },
       { type: 'extract_text' },
+      { type: 'check_robots_txt', param: 'url' },
+      { type: 'check_llms_txt', param: 'url' },
     ],
   },
   {
@@ -834,9 +977,14 @@ function buildFetchWebResponse(data, args, durationMs) {
 
     // Structured data
     has_schema: info.hasSchema || false,
+    schema_types: info.schemaTypes || [],
     existing_schema: info.existingSchema ? info.existingSchema.slice(0, 2000) : null,
     has_open_graph: info.hasOG || false,
     has_twitter_card: info.hasTwitter || false,
+
+    // Hreflang
+    has_hreflang: info.hasHreflang || false,
+    hreflang_tags: info.hreflangTags || [],
 
     // Content
     word_count: info.wordCount || 0,
@@ -855,6 +1003,14 @@ function buildFetchWebResponse(data, args, durationMs) {
 
     // Existing elements detail (formatted text)
     existing_elements_report: data.__existing_elements__ || null,
+
+    // Robots.txt
+    has_robots_txt: data.__robots_txt_exists__ || false,
+    robots_txt: data.__robots_txt_exists__ ? data.__robots_txt__ : null,
+
+    // llms.txt
+    has_llms_txt: data.__llms_txt_exists__ || false,
+    llms_txt: data.__llms_txt_exists__ ? data.__llms_txt__ : null,
 
     // Page text excerpt (for content analysis)
     page_text_excerpt: (data.__page_text__ || '').slice(0, 2000),

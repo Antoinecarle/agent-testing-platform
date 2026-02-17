@@ -104,13 +104,35 @@ function extractHtmlInfo(html) {
   const h2s = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
   const h3s = [...html.matchAll(/<h3[^>]*>(.*?)<\/h3>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
 
-  // Schema markup
+  // Schema markup — parse JSON-LD deeply to extract @graph types
   const schemaMatches = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   const hasSchema = schemaMatches.length > 0;
   let existingSchema = null;
+  const schemaTypes = []; // e.g. ["Organization", "FAQPage", "HowTo", "BreadcrumbList"]
   if (hasSchema) {
     existingSchema = schemaMatches.map(m => m[1].trim()).join('\n---\n');
+    for (const m of schemaMatches) {
+      try {
+        const parsed = JSON.parse(m[1].trim());
+        // Handle @graph arrays
+        if (parsed['@graph'] && Array.isArray(parsed['@graph'])) {
+          for (const item of parsed['@graph']) {
+            if (item['@type']) schemaTypes.push(item['@type']);
+          }
+        } else if (parsed['@type']) {
+          schemaTypes.push(parsed['@type']);
+        }
+      } catch (_) {
+        // Try regex fallback for malformed JSON
+        const typeMatches = [...m[1].matchAll(/"@type"\s*:\s*"([^"]+)"/g)];
+        for (const tm of typeMatches) schemaTypes.push(tm[1]);
+      }
+    }
   }
+
+  // Hreflang tags
+  const hreflangMatches = [...html.matchAll(/<link[^>]*hreflang=["']([^"']+)["'][^>]*href=["']([^"']+)["']/gi)];
+  const hreflangTags = hreflangMatches.map(m => ({ lang: m[1], href: m[2] }));
 
   // Meta tags collection
   const metaTags = {};
@@ -168,8 +190,9 @@ function extractHtmlInfo(html) {
 
   return {
     title, metaDescription, h1s, h2s, h3s,
-    hasSchema, existingSchema,
+    hasSchema, existingSchema, schemaTypes,
     metaTags, hasOG, hasTwitter, canonical,
+    hreflangTags, hasHreflang: hreflangTags.length > 0,
     totalImages, imagesWithoutAlt,
     internalLinks, externalLinks,
     wordCount, detectedLang, textPreview,
@@ -189,9 +212,25 @@ function formatHtmlAnalysis(analysis) {
   out += `- Canonical: ${analysis.canonical || 'MISSING'}\n`;
   out += `- H1 tags (${analysis.h1s.length}): ${analysis.h1s.join(', ') || 'NONE'}\n`;
   out += `- H2 tags (${analysis.h2s.length}): ${analysis.h2s.slice(0, 10).join(' | ') || 'NONE'}\n`;
-  out += `- Schema markup: ${analysis.hasSchema ? 'YES' : 'NO'}\n`;
+
+  // Schema with types
+  if (analysis.hasSchema) {
+    const types = analysis.schemaTypes || [];
+    out += `- Schema markup: YES — ${types.length} type(s): ${types.join(', ') || 'present'}\n`;
+  } else {
+    out += `- Schema markup: NO\n`;
+  }
+
   out += `- OG tags: ${analysis.hasOG ? 'YES' : 'NO'}\n`;
   out += `- Twitter tags: ${analysis.hasTwitter ? 'YES' : 'NO'}\n`;
+
+  // Hreflang
+  if (analysis.hasHreflang) {
+    out += `- Hreflang tags: YES (${analysis.hreflangTags.length} languages: ${analysis.hreflangTags.map(h => h.lang).join(', ')})\n`;
+  } else {
+    out += `- Hreflang tags: NO\n`;
+  }
+
   out += `- Images: ${analysis.totalImages} total, ${analysis.imagesWithoutAlt} without alt\n`;
   out += `- Links: ${analysis.internalLinks} internal, ${analysis.externalLinks} external\n`;
   out += `- Word count: ~${analysis.wordCount}\n`;
@@ -203,7 +242,7 @@ function formatHtmlAnalysis(analysis) {
   out += `- Semantic HTML: ${semanticTags.length ? semanticTags.join(', ') : 'NONE (bad for SEO)'}\n`;
 
   if (analysis.existingSchema) {
-    out += `\n### Existing Schema Markup\n\`\`\`json\n${analysis.existingSchema.slice(0, 3000)}\n\`\`\`\n`;
+    out += `\n### Existing Schema Markup (${(analysis.schemaTypes || []).join(', ')})\n\`\`\`json\n${analysis.existingSchema.slice(0, 3000)}\n\`\`\`\n`;
   }
 
   return out;
