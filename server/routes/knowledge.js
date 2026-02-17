@@ -35,6 +35,151 @@ const upload = multer({
   },
 });
 
+// ===================== AUTO-POPULATE (AI-generated KB entries) =====================
+
+const { populateKnowledgeBase, populateDesignAgentFull, AVAILABLE_MODES } = require('../lib/kb-populator');
+
+// GET /auto-populate/modes — list available generation modes
+router.get('/auto-populate/modes', (req, res) => {
+  const modeDescriptions = {
+    scrape_reference: {
+      description: 'Fetch a reference website, analyze its design/UX, and create structured entries (tokens, layout, components, interactions, insights)',
+      required_args: ['url'],
+      optional_args: ['focus'],
+      example: { url: 'https://linear.app', focus: 'design tokens and interactions' },
+    },
+    generate_patterns: {
+      description: 'Generate UX patterns for a specific UI type with reference products, priority levels, code snippets, and accessibility notes',
+      required_args: ['ui_type'],
+      optional_args: ['reference_products', 'focus', 'domain'],
+      example: { ui_type: 'node-editor', reference_products: ['figma', 'n8n'], focus: 'drag interactions' },
+    },
+    generate_principles: {
+      description: 'Generate design/UX principles (Fitts\'s Law, Hick\'s Law, Gestalt, etc.) with scientific basis, concrete applications, code, and thresholds',
+      required_args: [],
+      optional_args: ['domain', 'focus', 'principles'],
+      example: { domain: 'saas dashboard', principles: ['Fitts Law', 'Hick Law', 'Doherty Threshold'] },
+    },
+    generate_interactions: {
+      description: 'Generate complete micro-interaction code snippets (JS + CSS) for drag-drop, zoom, rubber-band, keyboard nav, etc.',
+      required_args: [],
+      optional_args: ['page_type', 'interactions'],
+      example: { page_type: 'node-editor', interactions: ['drag-drop', 'rubber-band', 'zoom-semantic'] },
+    },
+    generate_states: {
+      description: 'Generate state design examples (empty, loading, error, overflow, success) with HTML/CSS code, design rationale, and references',
+      required_args: [],
+      optional_args: ['context', 'states', 'style'],
+      example: { context: 'SaaS dashboard', states: ['empty', 'loading', 'error'], style: 'dark theme' },
+    },
+    generate_tokens: {
+      description: 'Generate design token entries (CSS custom properties) for colors, typography, spacing, shadows, etc.',
+      required_args: [],
+      optional_args: ['style', 'reference', 'categories'],
+      example: { style: 'Linear-inspired dark theme', categories: ['colors', 'typography', 'spacing'] },
+    },
+    generate_components: {
+      description: 'Generate component anatomy breakdowns with full HTML structure, CSS states, keyboard interaction, responsive behavior, and ARIA',
+      required_args: [],
+      optional_args: ['context', 'components', 'style'],
+      example: { components: ['card', 'modal', 'command-palette', 'toast'], style: 'modern dark SaaS' },
+    },
+    custom: {
+      description: 'Generate entries from a free-form brief — the AI decides the best structure',
+      required_args: ['brief'],
+      optional_args: ['entry_count'],
+      example: { brief: 'Create entries about Web3 wallet connection patterns, including MetaMask, WalletConnect, and Coinbase Wallet integration UX', entry_count: 10 },
+    },
+  };
+
+  res.json({ modes: modeDescriptions });
+});
+
+/**
+ * POST /auto-populate — Generate AI knowledge entries and save to a KB
+ *
+ * Body:
+ *   mode: string — generation mode (see /auto-populate/modes)
+ *   agent_name: string — agent to link the KB to
+ *   kb_name: string (optional) — custom KB name (auto-generated if omitted)
+ *   kb_id: string (optional) — existing KB ID to add entries to
+ *   args: object — mode-specific arguments (url, ui_type, brief, etc.)
+ *
+ * Returns: { kb, entries, stats }
+ */
+router.post('/auto-populate', async (req, res) => {
+  try {
+    const { mode, agent_name, kb_name, kb_id, args } = req.body;
+
+    if (!mode) return res.status(400).json({ error: 'mode is required', available_modes: AVAILABLE_MODES });
+    if (!AVAILABLE_MODES.includes(mode)) {
+      return res.status(400).json({ error: `Unknown mode: ${mode}`, available_modes: AVAILABLE_MODES });
+    }
+    if (!agent_name) return res.status(400).json({ error: 'agent_name is required' });
+
+    // Validate agent exists
+    const agent = await db.getAgent(agent_name);
+    if (!agent) return res.status(404).json({ error: `Agent "${agent_name}" not found` });
+
+    // Validate mode-specific required args
+    if (mode === 'scrape_reference' && (!args || !args.url)) {
+      return res.status(400).json({ error: 'args.url is required for scrape_reference mode' });
+    }
+    if (mode === 'custom' && (!args || !args.brief)) {
+      return res.status(400).json({ error: 'args.brief is required for custom mode' });
+    }
+
+    console.log(`[KB Populator] Starting ${mode} for ${agent_name} (args: ${JSON.stringify(args).substring(0, 200)})`);
+
+    const result = await populateKnowledgeBase({
+      mode,
+      agentName: agent_name,
+      kbName: kb_name,
+      kbId: kb_id,
+      args: args || {},
+      userId: req.user?.userId,
+    });
+
+    console.log(`[KB Populator] Done: ${result.stats.saved} entries saved to "${result.kb.name}"`);
+    res.json(result);
+  } catch (err) {
+    console.error('[KB Populator] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /auto-populate/full — Generate ALL recommended KBs for a design agent (6 KBs, ~70-100 entries)
+ *
+ * Body:
+ *   agent_name: string — agent to populate
+ *   style: string (optional) — design style context (e.g., "dark SaaS", "fintech", "Web3")
+ *
+ * This is a LONG operation (2-5 minutes). Returns when complete.
+ */
+router.post('/auto-populate/full', async (req, res) => {
+  try {
+    const { agent_name, style } = req.body;
+    if (!agent_name) return res.status(400).json({ error: 'agent_name is required' });
+
+    const agent = await db.getAgent(agent_name);
+    if (!agent) return res.status(404).json({ error: `Agent "${agent_name}" not found` });
+
+    console.log(`[KB Populator] Starting FULL populate for ${agent_name} (style: ${style || 'default'})`);
+
+    const result = await populateDesignAgentFull(agent_name, {
+      userId: req.user?.userId,
+      style,
+    });
+
+    console.log(`[KB Populator] Full populate done: ${result.totalSaved} entries across ${result.batches.length} KBs`);
+    res.json(result);
+  } catch (err) {
+    console.error('[KB Populator] Full populate error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===================== STATIC ROUTES (before /:id to avoid conflicts) =====================
 
 // POST /search — search across knowledge bases
