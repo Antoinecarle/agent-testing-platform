@@ -320,6 +320,7 @@ async function populateKnowledgeBase(config) {
 
   // 6. Save entries with embeddings
   const savedEntries = [];
+  const errors = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const title = entry.title || `Entry ${i + 1}`;
@@ -352,6 +353,7 @@ async function populateKnowledgeBase(config) {
       savedEntries.push(saved);
     } catch (err) {
       console.error(`[KB Populator] Failed to save entry "${title}":`, err.message);
+      errors.push({ title, error: err.message });
       progress('error', `Failed: ${title} — ${err.message}`);
     }
   }
@@ -367,6 +369,7 @@ async function populateKnowledgeBase(config) {
     kbId: kb.id,
     kbName: kb.name,
     agentName,
+    errors: errors.length > 0 ? errors : undefined,
   };
 
   progress('done', `Completed: ${savedEntries.length} entries saved to "${kb.name}"`);
