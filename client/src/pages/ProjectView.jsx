@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
+import OrchestraView from '../components/OrchestraView';
 import FileExplorer from '../components/FileExplorer';
 import FileViewer from '../components/FileViewer';
 
@@ -268,8 +269,9 @@ export default function ProjectView() {
   const [userClaudeConnected, setUserClaudeConnected] = useState(null);
   const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
   const [agentSkills, setAgentSkills] = useState([]);
-  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files'
+  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files' | 'orchestra'
   const [viewingFile, setViewingFile] = useState(null); // file path for FileViewer
+  const [allAgents, setAllAgents] = useState([]);
   // Inline editing state
   const [editingName, setEditingName] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
@@ -305,13 +307,15 @@ export default function ProjectView() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [p, tree, savedTabs, skills] = await Promise.all([
+        const [p, tree, savedTabs, skills, agentsList] = await Promise.all([
           api(`/api/projects/${projectId}`),
           api(`/api/iterations/${projectId}/tree`),
           api(`/api/terminal-tabs/${projectId}`),
           api(`/api/projects/${projectId}/skills`).catch(() => []),
+          api('/api/agents').catch(() => []),
         ]);
         setProject(p);
+        setAllAgents(agentsList || []);
         setAgentSkills(skills || []);
         setTreeData(tree || []);
         if (tree && tree.length > 0) {
@@ -470,6 +474,16 @@ export default function ProjectView() {
     setViewingFile(node.path);
   }, []);
 
+  // Refresh project data (e.g. after adding/removing team members)
+  const refreshProject = useCallback(async () => {
+    try {
+      const p = await api(`/api/projects/${projectId}`);
+      setProject(p);
+    } catch (err) {
+      console.error('[ProjectView] Refresh error:', err);
+    }
+  }, [projectId]);
+
   // Send prompt to the active terminal as a claude command
   const handleGenerate = useCallback(() => {
     if (!prompt.trim()) return;
@@ -509,8 +523,9 @@ export default function ProjectView() {
             { id: 'preview', label: 'Preview' },
             { id: 'terminal', label: 'Terminal' },
             { id: 'files', label: 'Files' },
+            ...(project?.mode === 'orchestra' ? [{ id: 'orchestra', label: 'Orchestra' }] : []),
           ].map(tab => (
-            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); if (tab.id === 'files') setRightPanel('files'); else if (tab.id === 'terminal') setRightPanel('terminal'); }} style={{
+            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); if (tab.id === 'files') setRightPanel('files'); else if (tab.id === 'terminal') setRightPanel('terminal'); else if (tab.id === 'orchestra') setRightPanel('orchestra'); }} style={{
               flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
               background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
               color: mobilePanel === tab.id ? t.tp : t.tm,
@@ -736,11 +751,11 @@ export default function ProjectView() {
       <aside style={{
         width: isMobile ? '100%' : `${rightW}px`,
         background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' ? 'none' : 'flex',
+        display: isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' && mobilePanel !== 'orchestra' ? 'none' : 'flex',
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        {/* Panel type switcher: Terminal | Files */}
+        {/* Panel type switcher: Terminal | Files | Orchestra */}
         <div style={{
           display: 'flex', borderBottom: `1px solid ${t.border}`, height: '34px', flexShrink: 0,
           background: t.bg,
@@ -771,9 +786,32 @@ export default function ProjectView() {
             <FolderTree size={12} />
             Files
           </button>
+          {project?.mode === 'orchestra' && (
+            <button
+              onClick={() => setRightPanel('orchestra')}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                background: rightPanel === 'orchestra' ? t.surface : 'transparent',
+                color: rightPanel === 'orchestra' ? '#F59E0B' : t.tm,
+                border: 'none', borderBottom: rightPanel === 'orchestra' ? '2px solid #F59E0B' : '2px solid transparent',
+                fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              <Shield size={12} />
+              Orchestra
+            </button>
+          )}
         </div>
 
-        {rightPanel === 'files' ? (
+        {rightPanel === 'orchestra' && project?.mode === 'orchestra' ? (
+          /* ORCHESTRA PANEL */
+          <OrchestraView
+            project={project}
+            teamMembers={project.team_members || []}
+            agents={allAgents}
+            onRefresh={refreshProject}
+          />
+        ) : rightPanel === 'files' ? (
           /* FILE EXPLORER PANEL */
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: viewingFile ? '200px' : '100%', minWidth: '160px', overflow: 'hidden', borderRight: viewingFile ? `1px solid ${t.border}` : 'none', flexShrink: 0 }}>

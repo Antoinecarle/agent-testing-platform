@@ -187,4 +187,50 @@ router.get('/:projectId/files/read', async (req, res) => {
   }
 });
 
+// POST /api/projects/:projectId/files/write — create/write file in workspace
+router.post('/:projectId/files/write', async (req, res) => {
+  try {
+    const project = await db.getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.user_id && project.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { path: filePath, content } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+
+    // Prevent path traversal
+    const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
+    const fullPath = path.resolve(wsDir, filePath);
+    if (!fullPath.startsWith(wsDir)) {
+      return res.status(403).json({ error: 'Path traversal not allowed' });
+    }
+
+    // Ensure workspace exists
+    if (!fs.existsSync(wsDir)) {
+      fs.mkdirSync(wsDir, { recursive: true });
+    }
+
+    // Create parent directories if needed
+    const parentDir = path.dirname(fullPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    // Write file
+    fs.writeFileSync(fullPath, content || '', 'utf-8');
+
+    const stat = fs.statSync(fullPath);
+    res.status(201).json({
+      ok: true,
+      path: filePath,
+      size: stat.size,
+      mtime: stat.mtimeMs,
+    });
+  } catch (err) {
+    console.error('[Files] Write error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

@@ -151,6 +151,10 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
   const [recentChanges, setRecentChanges] = useState(new Map()); // path -> timestamp
   const [activityLog, setActivityLog] = useState([]); // [{path, type, time}]
   const socketRef = useRef(null);
+  const [creating, setCreating] = useState(false);
+  const [newFilePath, setNewFilePath] = useState('');
+  const [createError, setCreateError] = useState('');
+  const newFileRef = useRef(null);
 
   // Load file tree
   const loadTree = useCallback(async () => {
@@ -164,9 +168,30 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
     }
   }, [projectId]);
 
+  const createFile = useCallback(async () => {
+    const filePath = newFilePath.trim();
+    if (!filePath) return;
+    setCreateError('');
+    try {
+      await api(`/api/projects/${projectId}/files/write`, {
+        method: 'POST',
+        body: JSON.stringify({ path: filePath, content: '' }),
+      });
+      setCreating(false);
+      setNewFilePath('');
+      loadTree();
+    } catch (err) {
+      setCreateError(err.message || 'Error');
+    }
+  }, [projectId, newFilePath, loadTree]);
+
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  useEffect(() => {
+    if (creating && newFileRef.current) newFileRef.current.focus();
+  }, [creating]);
 
   // Listen for real-time file changes
   useEffect(() => {
@@ -226,15 +251,67 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
         <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Files
         </span>
-        <button onClick={loadTree} style={{
-          background: 'none', border: 'none', color: t.tm, cursor: 'pointer',
-          padding: '2px', display: 'flex', alignItems: 'center',
-        }} title="Refresh">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-          </svg>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button onClick={() => { setCreating(true); setCreateError(''); setNewFilePath(''); }} style={{
+            background: 'none', border: 'none', color: t.tm, cursor: 'pointer',
+            padding: '2px', display: 'flex', alignItems: 'center',
+          }} title="New file">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button onClick={loadTree} style={{
+            background: 'none', border: 'none', color: t.tm, cursor: 'pointer',
+            padding: '2px', display: 'flex', alignItems: 'center',
+          }} title="Refresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+          </button>
+        </div>
       </div>
+
+      {/* New file input */}
+      {creating && (
+        <div style={{
+          padding: '6px 10px', borderBottom: `1px solid ${t.border}`,
+          background: 'rgba(139,92,246,0.04)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input
+              ref={newFileRef}
+              value={newFilePath}
+              onChange={e => setNewFilePath(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') createFile();
+                if (e.key === 'Escape') { setCreating(false); setNewFilePath(''); }
+              }}
+              placeholder="path/to/file.js"
+              style={{
+                flex: 1, background: t.bg, border: `1px solid ${t.violet}50`,
+                borderRadius: '4px', padding: '5px 8px', color: t.tp,
+                fontSize: '11px', outline: 'none', fontFamily: '"JetBrains Mono","Fira Code",monospace',
+              }}
+            />
+            <button onClick={createFile} style={{
+              background: t.violet, border: 'none', borderRadius: '4px',
+              padding: '4px 8px', color: '#fff', fontSize: '10px', fontWeight: 600,
+              cursor: 'pointer',
+            }}>
+              OK
+            </button>
+            <button onClick={() => { setCreating(false); setNewFilePath(''); }} style={{
+              background: 'none', border: 'none', color: t.tm, cursor: 'pointer',
+              padding: '2px', display: 'flex', fontSize: '14px', lineHeight: 1,
+            }}>
+              x
+            </button>
+          </div>
+          {createError && (
+            <div style={{ fontSize: '10px', color: '#ef4444', marginTop: '4px' }}>{createError}</div>
+          )}
+        </div>
+      )}
 
       {/* File Tree */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
