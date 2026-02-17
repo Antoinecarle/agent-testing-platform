@@ -66,8 +66,10 @@ function processTemplate(template, args, htmlAnalysis) {
     }).join('\n');
   });
 
-  // 5. Direct param replacement: {{param}}
+  // 5. Direct param replacement: {{param}} — skip processor placeholders ({{__name__}})
   result = result.replace(/\{\{(\w+)\}\}/g, (match, param) => {
+    // Preserve processor placeholders — they get replaced later by injectProcessorData
+    if (param.startsWith('__') && param.endsWith('__')) return match;
     const value = args[param];
     if (value === undefined || value === null) return '';
     if (Array.isArray(value)) return value.join(', ');

@@ -624,25 +624,28 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     systemPrompt += enriched.contextAddition;
   }
 
-  // 6. Inject knowledge base (RAG) — only 3 most relevant entries to stay lean
-  try {
-    const agentKBs = await db.getAgentKnowledgeBases(session.agentName);
-    if (agentKBs?.length > 0) {
-      const queryText = enriched.userMessage || args.message || toolDef.tool_name;
-      const queryEmbedding = await generateEmbedding(queryText);
-      const kbIds = agentKBs.map(kb => kb.id);
-      const results = await db.searchKnowledge(queryEmbedding, {
-        threshold: 0.3, limit: 3, knowledgeBaseIds: kbIds,
-      });
-      if (results?.length > 0) {
-        systemPrompt += '\n\n## Relevant Knowledge\n\n';
-        for (const entry of results) {
-          systemPrompt += `**${entry.title || 'Entry'}**\n${entry.content}\n\n`;
+  // 6. Inject knowledge base (RAG) — skip if inject_knowledge processor already ran
+  const hasKnowledgeProcessor = toolDef.pre_processors?.some(p => p.type === 'inject_knowledge');
+  if (!hasKnowledgeProcessor) {
+    try {
+      const agentKBs = await db.getAgentKnowledgeBases(session.agentName);
+      if (agentKBs?.length > 0) {
+        const queryText = enriched.userMessage || args.message || toolDef.tool_name;
+        const queryEmbedding = await generateEmbedding(queryText);
+        const kbIds = agentKBs.map(kb => kb.id);
+        const results = await db.searchKnowledge(queryEmbedding, {
+          threshold: 0.3, limit: 3, knowledgeBaseIds: kbIds,
+        });
+        if (results?.length > 0) {
+          systemPrompt += '\n\n## Relevant Knowledge\n\n';
+          for (const entry of results) {
+            systemPrompt += `**${entry.title || 'Entry'}**\n${entry.content}\n\n`;
+          }
         }
       }
+    } catch (err) {
+      console.warn('[MCP Specialized] Knowledge injection failed:', err.message);
     }
-  } catch (err) {
-    console.warn('[MCP Specialized] Knowledge injection failed:', err.message);
   }
 
   // 7. Build messages
