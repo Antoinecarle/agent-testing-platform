@@ -6,6 +6,7 @@ import {
   Zap, Plus, X, Search
 } from 'lucide-react';
 import { api } from '../api';
+import McpToolsManager from '../components/McpToolsManager';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -458,6 +459,9 @@ export default function AgentEdit() {
               </div>
             )}
           </div>
+
+          {/* MCP Tools */}
+          <McpToolsManager agentName={name} />
 
           {/* MD Preview */}
           <div style={{ backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '12px', padding: '20px', flex: 1 }}>
