@@ -409,7 +409,17 @@ const PROCESSORS = {
     out += `\n**Meta tags found:** ${existingMeta.join(', ') || 'none'}\n`;
     out += `**Meta tags missing:** ${missingMeta.join(', ') || 'none'}\n`;
 
-    // Robots.txt & llms.txt (if processors have run — data comes from check_robots_txt/check_llms_txt)
+    // Robots.txt & llms.txt — auto-fetch if not already gathered by dedicated processors
+    const fetchedUrl = data.__fetched_url__ || args.url || args.site_url;
+    if (data.__robots_txt_exists__ === undefined && fetchedUrl) {
+      // Autonomously fetch robots.txt
+      await PROCESSORS.check_robots_txt(args, { param: 'url' }, data);
+    }
+    if (data.__llms_txt_exists__ === undefined && fetchedUrl) {
+      // Autonomously fetch llms.txt
+      await PROCESSORS.check_llms_txt(args, { param: 'url' }, data);
+    }
+
     if (data.__robots_txt_exists__ !== undefined) {
       out += `\n**robots.txt:** ${data.__robots_txt_exists__ ? 'EXISTS' : 'NOT FOUND'}\n`;
       if (data.__robots_txt_exists__ && data.__robots_txt__) {
