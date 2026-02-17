@@ -658,9 +658,11 @@ async function handleSpecializedTool(id, toolDef, args, session) {
 
   if (!apiKey) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'No LLM API key available.' } };
 
-  // 9. Call LLM — use 4096 max tokens (enough for expert analysis, faster response)
+  // 9. Call LLM — adaptive max tokens based on tool type
+  //    Page/interaction generation needs more tokens than analysis tools
   let llmResult;
-  const maxTokens = 4096;
+  const generativeTools = ['create_page', 'interaction_layer', 'create_section_template', 'generate_component'];
+  const maxTokens = generativeTools.includes(toolDef.tool_name) ? 8192 : 4096;
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
   } catch (err) {
