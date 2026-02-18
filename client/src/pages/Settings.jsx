@@ -107,6 +107,19 @@ export default function Settings() {
   const [connectStatus, setConnectStatus] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [connectLoading, setConnectLoading] = useState(false);
+  const [showOnboardingForm, setShowOnboardingForm] = useState(false);
+
+  // Onboarding form fields
+  const [obFirstName, setObFirstName] = useState('');
+  const [obLastName, setObLastName] = useState('');
+  const [obDobDay, setObDobDay] = useState('');
+  const [obDobMonth, setObDobMonth] = useState('');
+  const [obDobYear, setObDobYear] = useState('');
+  const [obAddressLine1, setObAddressLine1] = useState('');
+  const [obCity, setObCity] = useState('');
+  const [obPostalCode, setObPostalCode] = useState('');
+  const [obCountry, setObCountry] = useState('FR');
+  const [obIban, setObIban] = useState('');
 
   useEffect(() => {
     loadData();
@@ -221,34 +234,41 @@ export default function Settings() {
   }
 
   async function handleConnectStripe() {
-    setConnectLoading(true);
-    try {
-      const res = await api('/api/stripe-connect/onboard', { method: 'POST' });
-      if (res.url) window.location.href = res.url;
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setConnectLoading(false);
+    if (!obFirstName || !obLastName || !obAddressLine1 || !obCity || !obPostalCode || !obIban) {
+      showToast('Please fill in all required fields', 'error');
+      return;
     }
-  }
-
-  async function handleContinueSetup() {
     setConnectLoading(true);
     try {
-      const res = await api('/api/stripe-connect/onboard', { method: 'POST' });
-      if (res.url) window.location.href = res.url;
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setConnectLoading(false);
-    }
-  }
-
-  async function handleViewDashboard() {
-    setConnectLoading(true);
-    try {
-      const res = await api('/api/stripe-connect/dashboard-link', { method: 'POST' });
-      if (res.url) window.open(res.url, '_blank');
+      const res = await api('/api/stripe-connect/onboard', {
+        method: 'POST',
+        body: JSON.stringify({
+          business_type: 'individual',
+          first_name: obFirstName,
+          last_name: obLastName,
+          dob_day: obDobDay || undefined,
+          dob_month: obDobMonth || undefined,
+          dob_year: obDobYear || undefined,
+          address_line1: obAddressLine1,
+          address_city: obCity,
+          address_postal_code: obPostalCode,
+          address_country: obCountry,
+          iban: obIban.replace(/\s/g, ''),
+        }),
+      });
+      if (res.already_connected) {
+        showToast('Account already connected');
+      } else if (res.success) {
+        showToast('Stripe account created successfully!');
+      }
+      setShowOnboardingForm(false);
+      // Reload connect status
+      const [connectRes, earningsRes] = await Promise.allSettled([
+        api('/api/stripe-connect/status'),
+        api('/api/stripe-connect/earnings'),
+      ]);
+      if (connectRes.status === 'fulfilled') setConnectStatus(connectRes.value);
+      if (earningsRes.status === 'fulfilled') setEarnings(earningsRes.value);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -700,53 +720,172 @@ export default function Settings() {
               {/* Not connected */}
               {(!connectStatus || !connectStatus.connected) && (
                 <Section title="Connect Stripe to Receive Payments">
-                  <div style={{
-                    padding: '24px', background: t.bg, borderRadius: '8px',
-                    border: `1px solid ${t.border}`,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-                      <div style={{
-                        width: '40px', height: '40px', borderRadius: '10px', flexShrink: 0,
-                        background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Landmark size={18} color={t.violet} />
+                  {!showOnboardingForm ? (
+                    <div style={{
+                      padding: '24px', background: t.bg, borderRadius: '8px',
+                      border: `1px solid ${t.border}`,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                        <div style={{
+                          width: '40px', height: '40px', borderRadius: '10px', flexShrink: 0,
+                          background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Landmark size={18} color={t.violet} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '14px', fontWeight: '600', color: t.tp, marginBottom: '8px' }}>
+                            Start earning from your agents
+                          </div>
+                          <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.6', marginBottom: '16px' }}>
+                            Set up your payout account to receive real-money payments when users purchase your agents on the marketplace. The platform takes a 20% commission, and the rest is transferred directly to your bank account.
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+                            {[
+                              { icon: DollarSign, text: 'Receive payments directly to your bank account' },
+                              { icon: Zap, text: 'Automatic payouts on a rolling basis' },
+                              { icon: TrendingUp, text: 'Track earnings and transaction history' },
+                            ].map((item, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <item.icon size={12} color={t.success} />
+                                <span style={{ fontSize: '12px', color: t.ts }}>{item.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => setShowOnboardingForm(true)}
+                            style={{
+                              padding: '10px 24px', background: t.violet, color: '#fff',
+                              border: 'none', borderRadius: '6px', fontSize: '13px',
+                              fontWeight: '600', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: '8px',
+                            }}
+                          >
+                            <Landmark size={14} />
+                            Set Up Payouts
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '14px', fontWeight: '600', color: t.tp, marginBottom: '8px' }}>
-                          Start earning from your agents
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '20px', background: t.bg, borderRadius: '8px',
+                      border: `1px solid ${t.border}`,
+                    }}>
+                      {/* Personal Information */}
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: t.violet, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                        Personal Information
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                        <Field label="First Name *" value={obFirstName} onChange={setObFirstName} placeholder="John" />
+                        <Field label="Last Name *" value={obLastName} onChange={setObLastName} placeholder="Doe" />
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '500', color: t.ts, marginBottom: '6px' }}>Date of Birth</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
+                        <input
+                          placeholder="Day"
+                          value={obDobDay}
+                          onChange={e => setObDobDay(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                          style={inputStyle}
+                        />
+                        <input
+                          placeholder="Month"
+                          value={obDobMonth}
+                          onChange={e => setObDobMonth(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                          style={inputStyle}
+                        />
+                        <input
+                          placeholder="Year"
+                          value={obDobYear}
+                          onChange={e => setObDobYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          style={inputStyle}
+                        />
+                      </div>
+
+                      {/* Address */}
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: t.violet, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                        Address
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                        <Field label="Street Address *" value={obAddressLine1} onChange={setObAddressLine1} placeholder="123 Main Street" />
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+                          <Field label="City *" value={obCity} onChange={setObCity} placeholder="Paris" />
+                          <Field label="Postal Code *" value={obPostalCode} onChange={setObPostalCode} placeholder="75001" />
                         </div>
-                        <div style={{ fontSize: '12px', color: t.ts, lineHeight: '1.6', marginBottom: '16px' }}>
-                          Connect your Stripe account to receive real-money payments when users purchase your agents on the marketplace. The platform takes a 20% commission, and the rest is transferred directly to you.
+                        <div>
+                          <label style={labelStyle}>Country *</label>
+                          <select
+                            value={obCountry}
+                            onChange={e => setObCountry(e.target.value)}
+                            style={{ ...inputStyle, cursor: 'pointer' }}
+                          >
+                            {[
+                              { code: 'FR', name: 'France' },
+                              { code: 'DE', name: 'Germany' },
+                              { code: 'ES', name: 'Spain' },
+                              { code: 'IT', name: 'Italy' },
+                              { code: 'NL', name: 'Netherlands' },
+                              { code: 'BE', name: 'Belgium' },
+                              { code: 'PT', name: 'Portugal' },
+                              { code: 'AT', name: 'Austria' },
+                              { code: 'IE', name: 'Ireland' },
+                              { code: 'LU', name: 'Luxembourg' },
+                              { code: 'CH', name: 'Switzerland' },
+                              { code: 'GB', name: 'United Kingdom' },
+                              { code: 'US', name: 'United States' },
+                              { code: 'CA', name: 'Canada' },
+                            ].map(c => (
+                              <option key={c.code} value={c.code}>{c.name}</option>
+                            ))}
+                          </select>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-                          {[
-                            { icon: DollarSign, text: 'Receive payments directly to your bank account' },
-                            { icon: Zap, text: 'Automatic payouts on a rolling basis' },
-                            { icon: TrendingUp, text: 'Track earnings and transaction history' },
-                          ].map((item, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <item.icon size={12} color={t.success} />
-                              <span style={{ fontSize: '12px', color: t.ts }}>{item.text}</span>
-                            </div>
-                          ))}
-                        </div>
+                      </div>
+
+                      {/* Bank Details */}
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: t.violet, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+                        Bank Details
+                      </div>
+                      <Field label="IBAN *" value={obIban} onChange={setObIban} placeholder="FR76 3000 6000 0112 3456 7890 189" />
+                      <div style={{ fontSize: '11px', color: t.tm, marginTop: '6px', marginBottom: '20px' }}>
+                        Your IBAN is used to receive payouts. It is stored securely by Stripe.
+                      </div>
+
+                      {/* TOS notice */}
+                      <div style={{
+                        padding: '12px', background: t.surfaceEl, borderRadius: '6px',
+                        fontSize: '11px', color: t.ts, lineHeight: '1.5', marginBottom: '20px',
+                      }}>
+                        By submitting this form, you agree to the <a href="https://stripe.com/connect-account/legal" target="_blank" rel="noopener noreferrer" style={{ color: t.violet }}>Stripe Connected Account Agreement</a> and authorize GURU to facilitate payments to your bank account.
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                         <button
-                          onClick={handleConnectStripe}
-                          disabled={connectLoading}
+                          onClick={() => setShowOnboardingForm(false)}
                           style={{
-                            padding: '10px 24px', background: t.violet, color: '#fff',
-                            border: 'none', borderRadius: '6px', fontSize: '13px',
-                            fontWeight: '600', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            opacity: connectLoading ? 0.7 : 1,
+                            padding: '8px 16px', background: 'transparent', color: t.ts,
+                            border: `1px solid ${t.border}`, borderRadius: '6px',
+                            fontSize: '12px', cursor: 'pointer',
                           }}
                         >
-                          {connectLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ExternalLink size={14} />}
-                          {connectLoading ? 'Connecting...' : 'Connect with Stripe'}
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleConnectStripe}
+                          disabled={connectLoading || !obFirstName || !obLastName || !obAddressLine1 || !obCity || !obPostalCode || !obIban}
+                          style={{
+                            padding: '8px 20px', background: t.violet, color: '#fff',
+                            border: 'none', borderRadius: '6px', fontSize: '13px',
+                            fontWeight: '600', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            opacity: (connectLoading || !obFirstName || !obLastName || !obAddressLine1 || !obCity || !obPostalCode || !obIban) ? 0.5 : 1,
+                          }}
+                        >
+                          {connectLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />}
+                          {connectLoading ? 'Creating account...' : 'Create Payout Account'}
                         </button>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </Section>
               )}
 
@@ -764,11 +903,11 @@ export default function Settings() {
                         Onboarding incomplete
                       </div>
                       <div style={{ fontSize: '12px', color: t.ts, marginTop: '2px' }}>
-                        You need to finish setting up your Stripe account before you can receive payments.
+                        Your account setup is incomplete. Please disconnect and re-create your payout account.
                       </div>
                     </div>
                     <button
-                      onClick={handleContinueSetup}
+                      onClick={handleDisconnect}
                       disabled={connectLoading}
                       style={{
                         padding: '8px 16px', background: t.warning, color: '#000',
@@ -777,7 +916,7 @@ export default function Settings() {
                         opacity: connectLoading ? 0.7 : 1,
                       }}
                     >
-                      {connectLoading ? 'Loading...' : 'Continue Setup'}
+                      {connectLoading ? 'Loading...' : 'Reset & Retry'}
                     </button>
                   </div>
                 </Section>
@@ -786,25 +925,7 @@ export default function Settings() {
               {/* Connected */}
               {connectStatus?.connected && connectStatus.details_submitted && (
                 <>
-                  <Section
-                    title="Stripe Connect"
-                    action={
-                      <button
-                        onClick={handleViewDashboard}
-                        disabled={connectLoading}
-                        style={{
-                          padding: '6px 12px', background: t.violetM, color: t.violet,
-                          border: `1px solid ${t.violet}`, borderRadius: '4px',
-                          fontSize: '11px', fontWeight: '600', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', gap: '4px',
-                          opacity: connectLoading ? 0.7 : 1,
-                        }}
-                      >
-                        <ExternalLink size={12} />
-                        Stripe Dashboard
-                      </button>
-                    }
-                  >
+                  <Section title="Payout Account">
                     {/* Status */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                       <div style={{

@@ -13,7 +13,7 @@ function getStripe() {
 
 const PLATFORM_FEE_PERCENT = 20;
 
-// POST /api/stripe-connect/onboard — create Express account + return onboarding link
+// POST /api/stripe-connect/onboard — create Custom account (in-app onboarding, no redirect)
 router.post('/onboard', async (req, res) => {
   try {
     const stripe = getStripe();
@@ -21,35 +21,113 @@ router.post('/onboard', async (req, res) => {
     const user = await db.getUserById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    let accountId = user.stripe_connect_account_id;
-
-    if (!accountId) {
-      // Create a new Express connected account
-      const account = await stripe.accounts.create({
-        type: 'express',
-        email: user.email,
-        metadata: { user_id: userId },
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-      });
-      accountId = account.id;
-      await db.updateUserStripeConnect(userId, { stripe_connect_account_id: accountId });
+    // If already has a fully onboarded account, return early
+    if (user.stripe_connect_account_id) {
+      try {
+        const existing = await stripe.accounts.retrieve(user.stripe_connect_account_id);
+        if (existing.details_submitted) {
+          return res.json({ already_connected: true, account_id: existing.id });
+        }
+        // Delete incomplete account to recreate
+        await stripe.accounts.del(user.stripe_connect_account_id);
+        await db.updateUserStripeConnect(userId, { stripe_connect_account_id: null });
+      } catch (e) {
+        // Account doesn't exist on Stripe anymore, clear it
+        await db.updateUserStripeConnect(userId, { stripe_connect_account_id: null });
+      }
     }
 
-    const appUrl = process.env.APP_URL || 'https://guru-api-production.up.railway.app';
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${appUrl}/settings?tab=payouts`,
-      return_url: `${appUrl}/settings?tab=payouts`,
-      type: 'account_onboarding',
+    const {
+      business_type = 'individual',
+      first_name, last_name,
+      dob_day, dob_month, dob_year,
+      address_line1, address_city, address_postal_code, address_country,
+      iban,
+    } = req.body;
+
+    if (!first_name || !last_name) {
+      return res.status(400).json({ error: 'First name and last name are required' });
+    }
+    if (!address_line1 || !address_city || !address_postal_code || !address_country) {
+      return res.status(400).json({ error: 'Complete address is required' });
+    }
+    if (!iban) {
+      return res.status(400).json({ error: 'IBAN / account number is required' });
+    }
+
+    const country = address_country.toUpperCase();
+    const email = user.email;
+
+    // Create account token (required for platforms to set individual details + TOS)
+    const tokenData = {
+      business_type,
+      individual: {
+        first_name,
+        last_name,
+        email,
+        address: {
+          line1: address_line1,
+          city: address_city,
+          postal_code: address_postal_code,
+          country,
+        },
+      },
+      tos_shown_and_accepted: true,
+    };
+    if (dob_day && dob_month && dob_year) {
+      tokenData.individual.dob = {
+        day: parseInt(dob_day),
+        month: parseInt(dob_month),
+        year: parseInt(dob_year),
+      };
+    }
+
+    const accountToken = await stripe.tokens.create({ account: tokenData });
+
+    // Derive bank country from IBAN (first 2 chars)
+    const bankCountry = iban.substring(0, 2).toUpperCase();
+    const isIban = /^[A-Z]{2}\d{2}/.test(iban.toUpperCase());
+    const currency = ['GB'].includes(bankCountry) ? 'gbp' : ['US'].includes(bankCountry) ? 'usd' : 'eur';
+
+    // Create Custom connected account
+    const account = await stripe.accounts.create({
+      type: 'custom',
+      country,
+      email,
+      account_token: accountToken.id,
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      external_account: {
+        object: 'bank_account',
+        country: isIban ? bankCountry : country,
+        currency,
+        account_number: iban,
+        account_holder_name: `${first_name} ${last_name}`,
+        account_holder_type: business_type === 'company' ? 'company' : 'individual',
+      },
+      metadata: { user_id: userId },
     });
 
-    res.json({ url: accountLink.url });
+    // Save to DB
+    await db.updateUserStripeConnect(userId, {
+      stripe_connect_account_id: account.id,
+      stripe_connect_onboarding_complete: account.details_submitted,
+      stripe_connect_charges_enabled: account.charges_enabled,
+      stripe_connect_payouts_enabled: account.payouts_enabled,
+    });
+
+    res.json({
+      success: true,
+      account_id: account.id,
+      details_submitted: account.details_submitted,
+      charges_enabled: account.charges_enabled,
+      payouts_enabled: account.payouts_enabled,
+    });
   } catch (err) {
     console.error('[StripeConnect] Onboard error:', err.message);
-    res.status(500).json({ error: 'Failed to start onboarding' });
+    res.status(500).json({ error: err.message || 'Failed to create account' });
   }
 });
 
@@ -86,7 +164,7 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// POST /api/stripe-connect/dashboard-link — generate Stripe Express dashboard login link
+// POST /api/stripe-connect/dashboard-link — generate dashboard link (Express only, Custom accounts managed in-app)
 router.post('/dashboard-link', async (req, res) => {
   try {
     const stripe = getStripe();
@@ -95,6 +173,12 @@ router.post('/dashboard-link', async (req, res) => {
 
     if (!connectData || !connectData.stripe_connect_account_id) {
       return res.status(400).json({ error: 'No Stripe Connect account found' });
+    }
+
+    // Check account type - login links only work for Express accounts
+    const account = await stripe.accounts.retrieve(connectData.stripe_connect_account_id);
+    if (account.type === 'custom') {
+      return res.json({ type: 'custom', message: 'Custom accounts are managed in-app. Payouts are handled automatically by Stripe.' });
     }
 
     const loginLink = await stripe.accounts.createLoginLink(connectData.stripe_connect_account_id);
