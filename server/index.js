@@ -254,6 +254,7 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const jwt = require('jsonwebtoken');
   const googleOAuthAuth = (req, res, next) => {
     if (req.path === '/callback') return next();
+    if (req.path === '/login') return next(); // No auth — login initiation
     // For /auth: accept JWT from query param (browser redirects can't set headers)
     if (req.path === '/auth' && req.query.token) {
       try {

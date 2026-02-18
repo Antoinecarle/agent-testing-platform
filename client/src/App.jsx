@@ -35,6 +35,7 @@ const Wallet = React.lazy(() => import('./pages/Wallet'));
 const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
 const GitHubCallback = React.lazy(() => import('./pages/GitHubCallback'));
+const GoogleCallback = React.lazy(() => import('./pages/GoogleCallback'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 
 function ProtectedRoute({ children }) {
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/auth/github/success" element={<GitHubCallback />} />
+            <Route path="/auth/google/success" element={<GoogleCallback />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/setup-claude" element={<ProtectedRoute><ClaudeSetup /></ProtectedRoute>} />
