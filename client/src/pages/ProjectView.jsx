@@ -247,7 +247,7 @@ function IterationCarousel({ allIterations, selected, onSelect, projectId, previ
                 }}>
                   <iframe src={`/api/preview/${projectId}/${iteration.id}?v=${previewKey}`}
                     style={{ width: '100%', height: '100%', border: 'none' }}
-                    title={`Preview V${iteration.version}`} loading="lazy" sandbox="allow-same-origin" />
+                    title={`Preview V${iteration.version}`} loading="lazy" sandbox="allow-same-origin allow-scripts" />
                 </div>
                 {isSelected && (
                   <div style={{

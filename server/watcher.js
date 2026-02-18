@@ -27,14 +27,14 @@ const POLL_INTERVAL_MS = IS_RAILWAY ? 5000 : 10000;
 let ioRef = null;
 
 // ==================== ACTIVE ITERATION TRACKING ====================
-// Each project has at most ONE "active" iteration that gets UPDATED in place
+// Each project+source has at most ONE "active" iteration that gets UPDATED in place
 // when the workspace file changes. A new iteration is only created when:
-//   1. No active iteration exists (first time)
+//   1. No active iteration exists for that source (first time)
 //   2. User explicitly creates a new version (via API: createNewVersion)
 //   3. Branch context changes
-//   4. Subdirectory-based versions appear (version-1/, version-2/)
 //
-// Key: projectId → { iterationId, filePath (in iterations dir) }
+// Key: `${projectId}` for root files, `${projectId}:${subdir}` for subdirectory files
+// Value: { iterationId }
 const activeIterations = new Map();
 
 // Change log: tracks modifications per project for progress visibility
@@ -280,9 +280,10 @@ async function handleRootHtmlChange(projectId, htmlPath) {
 
 /**
  * Handle a subdirectory-based HTML file (version-1/index.html).
- * These always create NEW iterations (they represent explicit parallel versions).
+ * Uses the same "active iteration" pattern as root files:
+ * updates the existing iteration in place, only creates new on first encounter.
  */
-async function handleSubdirHtmlChange(projectId, htmlPath, title, parentIdOverride) {
+async function handleSubdirHtmlChange(projectId, htmlPath, title, parentIdOverride, subdir) {
   let content;
   try {
     content = fs.readFileSync(htmlPath, 'utf-8');
@@ -299,20 +300,40 @@ async function handleSubdirHtmlChange(projectId, htmlPath, title, parentIdOverri
 
   fileHashes.set(hashKey, hash);
 
-  return await createNewIteration(projectId, content, title, parentIdOverride);
+  // Use per-subdir active iteration key
+  const activeKey = `${projectId}:${subdir}`;
+  const active = activeIterations.get(activeKey);
+  if (active) {
+    // UPDATE existing iteration in place
+    const updated = await updateIterationHtml(active.iterationId, content, projectId);
+    if (updated) {
+      return active.iterationId;
+    }
+    // If update failed (iteration deleted?), fall through to create new
+    activeIterations.delete(activeKey);
+  }
+
+  // No active iteration for this subdir — create a new one
+  const newId = await createNewIteration(projectId, content, title, parentIdOverride);
+  if (newId) {
+    activeIterations.set(activeKey, { iterationId: newId });
+  }
+  return newId;
 }
 
 /**
  * Import from workspace into iterations.
- * Root-level files use active-iteration pattern (update in place).
- * Subdirectory-based versions always create new iterations.
+ * Both root-level files and subdirectory files use active-iteration pattern (update in place).
+ * A new iteration is only created on first encounter of a file/subdir.
  */
 async function importIteration(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   let imported = null;
-  const hadActiveIterBefore = activeIterations.has(projectId);
+  // Track if any active iteration existed before (root or subdir)
+  const hadActiveIterBefore = activeIterations.has(projectId) ||
+    [...activeIterations.keys()].some(k => k.startsWith(`${projectId}:`));
 
-  // First: check for subdirectory-based versions (always create new)
+  // First: check for subdirectory-based versions
   const subdirHtmls = findAllSubdirHtmls(wsDir);
   if (subdirHtmls.length > 0) {
     subdirHtmls.sort((a, b) => a.subdir.localeCompare(b.subdir, undefined, { numeric: true }));
@@ -336,7 +357,7 @@ async function importIteration(projectId) {
         const vMatch = item.subdir.match(/(?:version-?|v)(\d+)/i);
         const title = vMatch ? `V${vMatch[1]}` : item.subdir;
         const parentOverride = isParallelBatch ? null : undefined;
-        const result = await handleSubdirHtmlChange(projectId, item.path, title, parentOverride);
+        const result = await handleSubdirHtmlChange(projectId, item.path, title, parentOverride, item.subdir);
         if (result) imported = result;
       }
     }
@@ -545,14 +566,38 @@ function watchProject(projectId) {
 }
 
 /**
- * Restore active iteration from DB on startup
+ * Restore active iterations from DB on startup.
+ * Sets the latest iteration as the root active, and also restores
+ * subdir-based active iterations by matching titles to subdirectories.
  */
 async function _restoreActiveIteration(projectId) {
   try {
     const iterations = await db.getIterationsByProject(projectId);
-    if (iterations.length > 0) {
-      const latest = iterations[iterations.length - 1];
-      activeIterations.set(projectId, { iterationId: latest.id });
+    if (iterations.length === 0) return;
+
+    // Set the latest iteration as root active
+    const latest = iterations[iterations.length - 1];
+    activeIterations.set(projectId, { iterationId: latest.id });
+
+    // Also restore subdir active iterations by matching title patterns (V1→version-1, etc.)
+    // and scanning workspace for existing subdirectories
+    const wsDir = path.join(WORKSPACES_DIR, projectId);
+    if (fs.existsSync(wsDir)) {
+      try {
+        const entries = fs.readdirSync(wsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+          const vMatch = entry.name.match(/(?:version-?|v)(\d+)/i);
+          if (!vMatch) continue;
+          const title = `V${vMatch[1]}`;
+          // Find the latest iteration with this title
+          const matching = iterations.filter(i => i.title === title);
+          if (matching.length > 0) {
+            const latestMatch = matching[matching.length - 1];
+            activeIterations.set(`${projectId}:${entry.name}`, { iterationId: latestMatch.id });
+          }
+        }
+      } catch (_) {}
     }
   } catch (_) {}
 }
@@ -633,6 +678,18 @@ async function initWatchers(io) {
 }
 
 /**
+ * Clear all active iterations for a project (root + all subdirs).
+ */
+function _clearAllActiveIterations(projectId) {
+  activeIterations.delete(projectId);
+  for (const key of activeIterations.keys()) {
+    if (key.startsWith(`${projectId}:`)) {
+      activeIterations.delete(key);
+    }
+  }
+}
+
+/**
  * Manually trigger import for a project (API use)
  * Clears BOTH file-path hashes and content hashes so ALL workspace files
  * get re-imported as new iterations regardless of dedup.
@@ -650,8 +707,8 @@ async function manualImport(projectId) {
       knownContentHashes.delete(key);
     }
   }
-  // Clear active iteration so new ones get created
-  activeIterations.delete(projectId);
+  // Clear all active iterations so new ones get created
+  _clearAllActiveIterations(projectId);
   return await importIteration(projectId);
 }
 
@@ -676,8 +733,8 @@ async function scanProject(projectId) {
  * Called from the API when user clicks "New Version".
  */
 async function createNewVersion(projectId) {
-  // Clear active iteration → import will create a new one
-  activeIterations.delete(projectId);
+  // Clear all active iterations → import will create new ones
+  _clearAllActiveIterations(projectId);
   logChange(projectId, 'snapshot', 'Snapshot created — next edit will start a new version');
 
   // If there are already HTML files in the workspace, import them now
@@ -699,9 +756,9 @@ async function createNewVersion(projectId) {
 
   const result = await importIteration(projectId);
 
-  // IMPORTANT: Clear active iteration AGAIN after the snapshot import.
+  // IMPORTANT: Clear all active iterations AGAIN after the snapshot import.
   // The snapshot should be frozen — the next edit should create a NEW iteration.
-  activeIterations.delete(projectId);
+  _clearAllActiveIterations(projectId);
 
   // Refresh workspace CLAUDE.md after new version
   if (result) {
@@ -716,7 +773,7 @@ async function createNewVersion(projectId) {
  * Next file change will create a new iteration.
  */
 function resetActiveIteration(projectId) {
-  activeIterations.delete(projectId);
+  _clearAllActiveIterations(projectId);
   logChange(projectId, 'reset', 'Active iteration reset — next edit creates new version');
 }
 
