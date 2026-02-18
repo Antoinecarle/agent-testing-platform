@@ -190,6 +190,20 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   const io = new Server(server, { cors: corsOptions });
 
+  // Redis adapter for Socket.IO (enables multi-instance scaling)
+  if (process.env.REDIS_URL) {
+    const { createAdapter } = require('@socket.io/redis-adapter');
+    const { createClient } = require('redis');
+    const pubClient = createClient({ url: process.env.REDIS_URL });
+    const subClient = pubClient.duplicate();
+    Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('[Redis] Socket.IO adapter connected');
+    }).catch(err => {
+      console.warn('[Redis] Failed to connect, falling back to in-memory:', err.message);
+    });
+  }
+
   // Security headers — CSP allows inline styles/scripts for iteration previews in iframes
   app.use(helmet({
     contentSecurityPolicy: {
@@ -721,7 +735,13 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   // Serve static frontend
   const distPath = path.join(__dirname, '..', 'client', 'dist');
-  app.use(express.static(distPath));
+
+  // Serve pitch page before SPA (explicit route)
+  app.get('/pitch', (req, res) => {
+    res.sendFile(path.join(distPath, 'pitch.html'));
+  });
+
+  app.use(express.static(distPath, { extensions: ['html'] }));
   app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
