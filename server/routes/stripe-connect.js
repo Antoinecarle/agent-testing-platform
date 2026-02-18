@@ -306,6 +306,62 @@ router.post('/verify-payment', async (req, res) => {
   }
 });
 
+// POST /api/stripe-connect/complete-purchase — called by MarketplaceDetail after Stripe payment succeeds
+// Looks up the user's latest pending payment for the agent and verifies it with Stripe
+router.post('/complete-purchase', async (req, res) => {
+  try {
+    const stripe = getStripe();
+    const buyerUserId = req.user.userId;
+    const { agent_name } = req.body;
+
+    if (!agent_name) {
+      return res.status(400).json({ error: 'agent_name is required' });
+    }
+
+    // Find the most recent pending payment for this user + agent
+    const { data: payments } = await db.supabase.from('stripe_connect_payments')
+      .select('*')
+      .eq('buyer_user_id', buyerUserId)
+      .eq('agent_name', agent_name)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!payments || payments.length === 0) {
+      return res.status(404).json({ error: 'No payment found for this agent' });
+    }
+
+    const payment = payments[0];
+
+    // If already completed, just ensure purchase is recorded
+    if (payment.status === 'completed') {
+      await db.recordStripePurchase(buyerUserId, agent_name, payment.amount_cents);
+      return res.json({ success: true, already_completed: true });
+    }
+
+    // Verify with Stripe
+    const paymentIntent = await stripe.paymentIntents.retrieve(payment.stripe_payment_intent_id);
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({ error: `Payment not yet succeeded (status: ${paymentIntent.status})` });
+    }
+
+    // Mark completed
+    await db.updateConnectPayment(payment.id, {
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    });
+
+    // Record purchase (idempotent)
+    await db.recordStripePurchase(buyerUserId, agent_name, payment.amount_cents);
+
+    console.log(`[StripeConnect] Purchase completed: ${agent_name} by user ${buyerUserId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[StripeConnect] Complete purchase error:', err.message);
+    res.status(500).json({ error: 'Failed to complete purchase' });
+  }
+});
+
 // GET /api/stripe-connect/earnings — seller earnings summary + recent transactions
 router.get('/earnings', async (req, res) => {
   try {

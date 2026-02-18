@@ -1620,6 +1620,15 @@ export default function MarketplaceDetail() {
           setShowStripePayment(false);
           setPurchaseGlow(true);
           setTimeout(() => setPurchaseGlow(false), 3000);
+          // Record the purchase on server (verify payment + create purchase record)
+          try {
+            await api('/api/stripe-connect/complete-purchase', {
+              method: 'POST',
+              body: JSON.stringify({ agent_name: agent?.name }),
+            });
+          } catch (e) {
+            console.warn('[MarketplaceDetail] complete-purchase failed:', e.message);
+          }
           showToast('Payment successful! Your API token is ready.');
           await loadData();
         }}
