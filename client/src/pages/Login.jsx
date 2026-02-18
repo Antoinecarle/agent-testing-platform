@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { setToken, setRefreshToken, setUser } from '../api';
 
-const LOGO_URL = 'https://lh3.googleusercontent.com/gg/AMW1TPqpzr7I6vew9xaze-X_7OAmrf8uKjGOt3qEVKw06unFiCPc5Xzn83kiA5Vz1o8J7lAR1AybPK892UuiooLC9-K0b4TOkEKALy31LXHXw3SvmrLeS9ilZxKoRYhHiuIIQSPlMsJ7IRPUuKsprzGZLPhmoKi1WCf2CWNbU4uWxGrQcR5YRanO=s1024-rj-mp2';
+const LOGO_URL = '/logo.png';
 
 const keyframes = `
 @keyframes loginFadeUp {
