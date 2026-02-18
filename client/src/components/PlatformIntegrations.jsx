@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plug, Check, X, ExternalLink, Key, AlertCircle, CheckCircle,
   Search, ChevronRight, Loader, Link2, Unlink, Eye, EyeOff,
-  RefreshCw, Zap, Lock, Clock, Globe, Terminal, ChevronDown, ChevronUp, Copy
+  RefreshCw, Zap, Lock, Clock, Globe, Terminal, ChevronDown, ChevronUp, Copy,
+  Shield, Mail, HardDrive, LogOut
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -323,6 +324,335 @@ function CredentialModal({ platform, onClose, onSaved }) {
   );
 }
 
+// =================== GOOGLE AUTH MODAL ===================
+
+const GOOGLE_SERVICES = [
+  {
+    slug: 'google-drive',
+    label: 'Google Drive',
+    description: 'Search, read, create files and folders',
+    icon: HardDrive,
+    color: '#4285f4',
+  },
+  {
+    slug: 'gmail',
+    label: 'Gmail',
+    description: 'Search, read, send emails and manage drafts',
+    icon: Mail,
+    color: '#ea4335',
+  },
+];
+
+function GoogleAuthModal({ onClose, onConnected, initialPlatform }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedServices, setSelectedServices] = useState(new Set());
+  const [connecting, setConnecting] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api('/api/google-oauth/status');
+        setStatus(data);
+        // Pre-select the service that was clicked (if not already connected)
+        if (initialPlatform) {
+          const svc = data.services?.[initialPlatform];
+          if (!svc?.connected) {
+            setSelectedServices(new Set([initialPlatform]));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load Google status:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [initialPlatform]);
+
+  const anyConnected = status?.services && Object.entries(status.services)
+    .filter(([k]) => k !== '_account')
+    .some(([, v]) => v.connected);
+
+  const account = status?.services?._account;
+
+  const handleConnect = () => {
+    if (selectedServices.size === 0) return;
+    setConnecting(true);
+    const token = localStorage.getItem('token');
+    const services = [...selectedServices].join(',');
+    // Pass current path so OAuth redirects back here after completion
+    const returnTo = window.location.pathname;
+    window.location.href = `/api/google-oauth/auth?services=${encodeURIComponent(services)}&token=${encodeURIComponent(token)}&returnTo=${encodeURIComponent(returnTo)}`;
+  };
+
+  const toggleService = (slug) => {
+    setSelectedServices(prev => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  };
+
+  const allConnected = GOOGLE_SERVICES.every(s => status?.services?.[s.slug]?.connected);
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backdropFilter: 'blur(4px)',
+    }} onClick={onClose}>
+      <div style={{
+        background: t.surface, border: `1px solid ${t.borderS}`, borderRadius: '16px',
+        padding: '0', width: '100%', maxWidth: '480px', overflow: 'hidden',
+        boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header with Google branding */}
+        <div style={{
+          padding: '28px 28px 20px',
+          background: 'linear-gradient(135deg, rgba(66,133,244,0.08) 0%, rgba(234,67,53,0.06) 50%, rgba(251,188,4,0.04) 100%)',
+          borderBottom: `1px solid ${t.border}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              {/* Google G logo */}
+              <div style={{
+                width: '44px', height: '44px', borderRadius: '12px',
+                background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+              </div>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0, color: t.tp }}>
+                  Google Account
+                </h3>
+                <p style={{ fontSize: '12px', color: t.ts, margin: '2px 0 0' }}>
+                  {anyConnected ? 'Manage connected services' : 'Connect your Google account'}
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', cursor: 'pointer', color: t.tm, padding: '4px',
+            }}>
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Connected account info */}
+          {account && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px',
+              padding: '10px 14px', borderRadius: '8px',
+              background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)',
+            }}>
+              {account.photo ? (
+                <img src={account.photo} alt="" style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  border: '2px solid rgba(34,197,94,0.3)',
+                }} />
+              ) : (
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%',
+                  background: 'rgba(34,197,94,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Check size={14} style={{ color: t.success }} />
+                </div>
+              )}
+              <div style={{ flex: 1 }}>
+                {account.name && (
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{account.name}</div>
+                )}
+                <div style={{ fontSize: '11px', color: t.ts }}>{account.email}</div>
+              </div>
+              <Shield size={14} style={{ color: t.success }} />
+            </div>
+          )}
+        </div>
+
+        {/* Loading state */}
+        {loading && (
+          <div style={{ padding: '48px', textAlign: 'center' }}>
+            <Loader size={20} style={{ color: t.violet, animation: 'spin 1s linear infinite' }} />
+            <p style={{ fontSize: '12px', color: t.ts, marginTop: '12px' }}>Checking connection...</p>
+          </div>
+        )}
+
+        {/* Not configured */}
+        {!loading && !status?.configured && (
+          <div style={{ padding: '32px 28px', textAlign: 'center' }}>
+            <AlertCircle size={24} style={{ color: t.warning, margin: '0 auto 12px' }} />
+            <p style={{ fontSize: '13px', color: t.ts }}>
+              Google OAuth is not configured on this server.
+            </p>
+            <p style={{ fontSize: '11px', color: t.tm, marginTop: '8px' }}>
+              Ask your admin to set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET.
+            </p>
+          </div>
+        )}
+
+        {/* Services list */}
+        {!loading && status?.configured && (
+          <div style={{ padding: '20px 28px' }}>
+            <div style={{
+              fontSize: '10px', fontWeight: '600', color: t.tm,
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px',
+            }}>
+              Google Services
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {GOOGLE_SERVICES.map(svc => {
+                const svcStatus = status.services?.[svc.slug];
+                const isConnected = svcStatus?.connected;
+                const isSelected = selectedServices.has(svc.slug);
+                const Icon = svc.icon;
+
+                return (
+                  <div
+                    key={svc.slug}
+                    onClick={() => {
+                      if (!isConnected) toggleService(svc.slug);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '14px',
+                      padding: '14px 16px', borderRadius: '10px',
+                      background: isConnected
+                        ? 'rgba(34,197,94,0.04)'
+                        : isSelected
+                          ? 'rgba(66,133,244,0.08)'
+                          : t.surfaceEl,
+                      border: `1px solid ${
+                        isConnected
+                          ? 'rgba(34,197,94,0.2)'
+                          : isSelected
+                            ? 'rgba(66,133,244,0.3)'
+                            : t.border
+                      }`,
+                      cursor: isConnected ? 'default' : 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {/* Service icon */}
+                    <div style={{
+                      width: '36px', height: '36px', borderRadius: '8px',
+                      background: isConnected ? 'rgba(34,197,94,0.1)' : `${svc.color}15`,
+                      border: `1px solid ${isConnected ? 'rgba(34,197,94,0.2)' : svc.color + '30'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <Icon size={16} style={{ color: isConnected ? t.success : svc.color }} />
+                    </div>
+
+                    {/* Service info */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{
+                        fontSize: '13px', fontWeight: '600',
+                        color: isConnected ? t.success : t.tp,
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                      }}>
+                        {svc.label}
+                        {isConnected && (
+                          <span style={{
+                            fontSize: '9px', fontWeight: '700', padding: '2px 6px',
+                            borderRadius: '4px', background: 'rgba(34,197,94,0.12)',
+                            color: t.success, textTransform: 'uppercase',
+                          }}>
+                            Connected
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: t.ts, marginTop: '2px' }}>
+                        {svc.description}
+                      </div>
+                      {isConnected && svcStatus.connected_at && (
+                        <div style={{ fontSize: '10px', color: t.tm, marginTop: '4px' }}>
+                          Connected {new Date(svcStatus.connected_at).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Checkbox / status */}
+                    <div style={{ flexShrink: 0 }}>
+                      {isConnected ? (
+                        <CheckCircle size={18} style={{ color: t.success }} />
+                      ) : (
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '4px',
+                          border: `2px solid ${isSelected ? '#4285f4' : t.border}`,
+                          background: isSelected ? '#4285f4' : 'transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.15s',
+                        }}>
+                          {isSelected && <Check size={12} style={{ color: '#fff' }} />}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        {!loading && status?.configured && (
+          <div style={{
+            padding: '16px 28px 24px',
+            display: 'flex', gap: '10px', justifyContent: 'flex-end',
+            borderTop: `1px solid ${t.border}`,
+          }}>
+            <button onClick={onClose} style={{
+              padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+              background: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`, cursor: 'pointer',
+            }}>
+              {allConnected ? 'Done' : 'Cancel'}
+            </button>
+
+            {!allConnected && (
+              <button
+                onClick={handleConnect}
+                disabled={selectedServices.size === 0 || connecting}
+                style={{
+                  padding: '10px 24px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+                  background: selectedServices.size > 0 && !connecting
+                    ? 'linear-gradient(135deg, #4285f4, #3b78e7)'
+                    : t.surfaceEl,
+                  color: selectedServices.size > 0 && !connecting ? '#fff' : t.tm,
+                  border: 'none',
+                  cursor: selectedServices.size > 0 && !connecting ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  transition: 'all 0.2s',
+                  boxShadow: selectedServices.size > 0 ? '0 2px 8px rgba(66,133,244,0.3)' : 'none',
+                }}
+              >
+                {connecting ? (
+                  <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <Globe size={14} />
+                )}
+                {connecting
+                  ? 'Redirecting...'
+                  : anyConnected
+                    ? `Add ${selectedServices.size} service${selectedServices.size > 1 ? 's' : ''}`
+                    : `Connect with Google`
+                }
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // =================== PLATFORM CARD ===================
 
 function PlatformCard({ platform, agentLinked, onConnect, onDisconnect, onLink, onUnlink }) {
@@ -478,6 +808,7 @@ export default function PlatformIntegrations({ agentName }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [connectModal, setConnectModal] = useState(null);
+  const [googleAuthModal, setGoogleAuthModal] = useState(null); // { platform slug }
   const [expandedTool, setExpandedTool] = useState(null);
   const [copiedTool, setCopiedTool] = useState(null);
 
@@ -517,16 +848,9 @@ export default function PlatformIntegrations({ agentName }) {
   const handleConnect = (platform) => {
     const authConfig = platform.auth_config || {};
     if (authConfig.auth_type === 'oauth2') {
-      // Redirect to OAuth flow — JWT is sent via query param for the redirect
-      // The /auth route requires JWT auth, so we pass the token as a Bearer header via fetch redirect
-      const token = localStorage.getItem('token');
-      if (token) {
-        // Use a temporary approach: open the auth URL with the JWT in Authorization header
-        // Since this is a redirect flow, we pass the token as a query param that the backend
-        // middleware can extract (verifyToken already checks Authorization header)
-        window.location.href = `/api/google-oauth/auth?platform=${platform.slug}&token=${encodeURIComponent(token)}`;
-        return;
-      }
+      // Show Google auth modal instead of redirecting directly
+      setGoogleAuthModal(platform.slug);
+      return;
     }
     setConnectModal(platform);
   };
@@ -910,13 +1234,25 @@ export default function PlatformIntegrations({ agentName }) {
         </div>
       )}
 
-      {/* Credential Modal */}
+      {/* Credential Modal (API key platforms) */}
       {connectModal && (
         <CredentialModal
           platform={connectModal}
           onClose={() => setConnectModal(null)}
           onSaved={() => {
             setConnectModal(null);
+            loadData();
+          }}
+        />
+      )}
+
+      {/* Google Auth Modal (OAuth platforms) */}
+      {googleAuthModal && (
+        <GoogleAuthModal
+          initialPlatform={googleAuthModal}
+          onClose={() => setGoogleAuthModal(null)}
+          onConnected={() => {
+            setGoogleAuthModal(null);
             loadData();
           }}
         />

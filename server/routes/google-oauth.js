@@ -40,6 +40,15 @@ function redirectWithLoginError(res, message) {
 const SCOPES = {
   'google-drive': 'https://www.googleapis.com/auth/drive',
   gmail: 'https://www.googleapis.com/auth/gmail.modify',
+  'google-calendar': 'https://www.googleapis.com/auth/calendar',
+  'google-sheets': 'https://www.googleapis.com/auth/spreadsheets',
+};
+
+const SCOPE_LABELS = {
+  'https://www.googleapis.com/auth/drive': 'Google Drive',
+  'https://www.googleapis.com/auth/gmail.modify': 'Gmail',
+  'https://www.googleapis.com/auth/calendar': 'Google Calendar',
+  'https://www.googleapis.com/auth/spreadsheets': 'Google Sheets',
 };
 
 function getRedirectUri(req) {
@@ -90,6 +99,111 @@ function verifyState(state) {
   }
 }
 
+// GET /api/google-oauth/status — Check Google connection status per service
+router.get('/status', async (req, res) => {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const userId = req.user.userId;
+    const services = {};
+
+    // Check each Google platform
+    for (const slug of ['google-drive', 'gmail']) {
+      const platform = await db.getPlatformBySlug(slug);
+      if (!platform) continue;
+
+      const cred = await db.getPlatformCredential(userId, platform.id);
+      if (!cred) {
+        services[slug] = { connected: false };
+        continue;
+      }
+
+      // Decrypt to check scope and expiry
+      let scopeStr = '';
+      let expiresAt = null;
+      let hasRefreshToken = false;
+      try {
+        const decrypted = require('../lib/platform-integrations').decryptCredentials(cred.encrypted_credentials);
+        const parsed = JSON.parse(decrypted);
+        scopeStr = parsed.scope || '';
+        expiresAt = parsed.expires_at || null;
+        hasRefreshToken = !!parsed.refresh_token;
+      } catch {}
+
+      const grantedScopes = scopeStr.split(' ').filter(Boolean);
+      const scopeLabels = grantedScopes
+        .map(s => SCOPE_LABELS[s])
+        .filter(Boolean);
+
+      services[slug] = {
+        connected: true,
+        connected_at: cred.credential_metadata?.connected_at || cred.created_at,
+        scopes: grantedScopes,
+        scope_labels: scopeLabels,
+        has_refresh_token: hasRefreshToken,
+        token_expires_at: expiresAt,
+        token_valid: expiresAt ? expiresAt > Date.now() : null,
+      };
+    }
+
+    // Detect Google account email from Drive test (light)
+    let googleEmail = null;
+    const driveService = services['google-drive'];
+    if (driveService?.connected) {
+      try {
+        const drivePlatform = await db.getPlatformBySlug('google-drive');
+        const driveCred = await db.getPlatformCredential(userId, drivePlatform.id);
+        if (driveCred) {
+          const { refreshGoogleTokenIfNeeded } = require('../lib/platform-integrations');
+          const { token } = await refreshGoogleTokenIfNeeded(driveCred.encrypted_credentials);
+          const aboutRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName,photoLink)', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (aboutRes.ok) {
+            const about = await aboutRes.json();
+            googleEmail = about.user?.emailAddress;
+            services._account = {
+              email: about.user?.emailAddress,
+              name: about.user?.displayName,
+              photo: about.user?.photoLink,
+            };
+          }
+        }
+      } catch {}
+    }
+    // Fallback: try Gmail profile
+    if (!googleEmail && services.gmail?.connected) {
+      try {
+        const gmailPlatform = await db.getPlatformBySlug('gmail');
+        const gmailCred = await db.getPlatformCredential(userId, gmailPlatform.id);
+        if (gmailCred) {
+          const { refreshGoogleTokenIfNeeded } = require('../lib/platform-integrations');
+          const { token } = await refreshGoogleTokenIfNeeded(gmailCred.encrypted_credentials);
+          const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (profileRes.ok) {
+            const profile = await profileRes.json();
+            services._account = {
+              email: profile.emailAddress,
+            };
+          }
+        }
+      } catch {}
+    }
+
+    res.json({
+      configured: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+      services,
+    });
+  } catch (err) {
+    log.error('Google OAuth status error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/google-oauth/login — Initiate Google OAuth login (no auth required)
 router.get('/login', (req, res) => {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
@@ -114,23 +228,36 @@ router.get('/login', (req, res) => {
 // GET /api/google-oauth/auth — Initiate Google OAuth flow for platform connection
 // NOTE: This route requires JWT auth (verifyToken middleware applied in index.js)
 // so req.user.userId is available and trusted.
+// Supports: ?platform=google-drive|gmail|both  OR  ?services=google-drive,gmail (comma-separated)
 router.get('/auth', (req, res) => {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     return res.status(503).json({ error: 'Google OAuth not configured' });
   }
 
-  const platform = req.query.platform || 'google-drive'; // 'google-drive' | 'gmail' | 'both'
   const userId = req.user.userId; // From verified JWT — trusted
 
-  // Build scopes based on requested platform
-  let scope;
-  if (platform === 'both') {
-    scope = `${SCOPES['google-drive']} ${SCOPES.gmail}`;
+  // Support both ?platform= (legacy) and ?services= (new comma-separated list)
+  let requestedServices = [];
+  if (req.query.services) {
+    requestedServices = req.query.services.split(',').map(s => s.trim()).filter(Boolean);
   } else {
-    scope = SCOPES[platform] || SCOPES['google-drive'];
+    const platform = req.query.platform || 'google-drive';
+    if (platform === 'both') {
+      requestedServices = ['google-drive', 'gmail'];
+    } else {
+      requestedServices = [platform];
+    }
   }
 
-  const state = signState({ userId, platform });
+  // Build combined scope from all requested services
+  const scopeParts = requestedServices.map(s => SCOPES[s]).filter(Boolean);
+  if (scopeParts.length === 0) scopeParts.push(SCOPES['google-drive']);
+  const scope = scopeParts.join(' ');
+
+  // Save all requested services in state so callback knows which platforms to store credentials for
+  // Also save returnTo so we redirect back to the right page
+  const returnTo = req.query.returnTo || '/settings?tab=platforms';
+  const state = signState({ userId, platform: requestedServices.length === 1 ? requestedServices[0] : 'multi', services: requestedServices, returnTo });
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
@@ -158,19 +285,23 @@ router.get('/callback', async (req, res) => {
       return redirectWithLoginError(res, 'Invalid state parameter. Please try again.');
     }
 
+    // Build error redirect URL using returnTo from state (or fallback)
+    const errorRedirectBase = stateData.returnTo || '/settings?tab=platforms';
+    const errSep = errorRedirectBase.includes('?') ? '&' : '?';
+
     if (oauthError) {
       log.error('Google OAuth error:', oauthError);
       if (stateData.action === 'login') {
         return redirectWithLoginError(res, oauthError);
       }
-      return res.redirect(`/settings?tab=platforms&google=error&message=${encodeURIComponent(oauthError)}`);
+      return res.redirect(`${errorRedirectBase}${errSep}google=error&message=${encodeURIComponent(oauthError)}`);
     }
 
     if (!code) {
       if (stateData.action === 'login') {
         return redirectWithLoginError(res, 'No authorization code received');
       }
-      return res.redirect('/settings?tab=platforms&google=error&message=No+authorization+code+received');
+      return res.redirect(`${errorRedirectBase}${errSep}google=error&message=No+authorization+code+received`);
     }
 
     // Exchange code for tokens
@@ -192,7 +323,7 @@ router.get('/callback', async (req, res) => {
       if (stateData.action === 'login') {
         return redirectWithLoginError(res, 'Token exchange failed');
       }
-      return res.redirect(`/settings?tab=platforms&google=error&message=${encodeURIComponent('Token exchange failed')}`);
+      return res.redirect(`${errorRedirectBase}${errSep}google=error&message=${encodeURIComponent('Token exchange failed')}`);
     }
 
     const tokenData = await tokenRes.json();
@@ -202,7 +333,7 @@ router.get('/callback', async (req, res) => {
       if (stateData.action === 'login') {
         return redirectWithLoginError(res, msg);
       }
-      return res.redirect(`/settings?tab=platforms&google=error&message=${encodeURIComponent(msg)}`);
+      return res.redirect(`${errorRedirectBase}${errSep}google=error&message=${encodeURIComponent(msg)}`);
     }
 
     const { access_token, refresh_token, expires_in, scope: grantedScope } = tokenData;
@@ -269,7 +400,7 @@ router.get('/callback', async (req, res) => {
     // ── PLATFORM CONNECTION FLOW ────────────────────────────────────────────
     if (!stateData.userId) {
       log.error('Google OAuth: no userId in state for platform connection');
-      return res.redirect('/settings?tab=platforms&google=error&message=Invalid+state+parameter');
+      return res.redirect(`${errorRedirectBase}${errSep}google=error&message=Invalid+state+parameter`);
     }
 
     if (!refresh_token) {
@@ -289,9 +420,15 @@ router.get('/callback', async (req, res) => {
       auth_type: 'oauth2',
     };
 
-    const platformsToSave = stateData.platform === 'both'
-      ? ['google-drive', 'gmail']
-      : [stateData.platform];
+    // Use services array (new) or fall back to platform field (legacy)
+    let platformsToSave;
+    if (stateData.services && Array.isArray(stateData.services)) {
+      platformsToSave = stateData.services;
+    } else if (stateData.platform === 'both') {
+      platformsToSave = ['google-drive', 'gmail'];
+    } else {
+      platformsToSave = [stateData.platform];
+    }
 
     for (const slug of platformsToSave) {
       const platform = await db.getPlatformBySlug(slug);
@@ -301,7 +438,10 @@ router.get('/callback', async (req, res) => {
       }
     }
 
-    res.redirect('/settings?tab=platforms&google=connected');
+    // Redirect back to where the user came from (with google=connected flag)
+    const returnTo = stateData.returnTo || '/settings?tab=platforms';
+    const separator = returnTo.includes('?') ? '&' : '?';
+    res.redirect(`${returnTo}${separator}google=connected`);
   } catch (err) {
     log.error('Google OAuth callback error:', err.message);
     res.redirect(`/login?error=${encodeURIComponent('Authentication failed')}`);
