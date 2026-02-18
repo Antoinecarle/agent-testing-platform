@@ -378,7 +378,7 @@ function GoogleAuthModal({ onClose, onConnected, initialPlatform }) {
   const handleConnect = () => {
     if (selectedServices.size === 0) return;
     setConnecting(true);
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('atp-token');
     const services = [...selectedServices].join(',');
     // Pass current path so OAuth redirects back here after completion
     const returnTo = window.location.pathname;
