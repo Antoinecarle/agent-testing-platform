@@ -191,6 +191,7 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const io = new Server(server, { cors: corsOptions });
 
   // Redis adapter for Socket.IO (enables multi-instance scaling)
+  let redisConnected = false;
   if (process.env.REDIS_URL) {
     const { createAdapter } = require('@socket.io/redis-adapter');
     const { createClient } = require('redis');
@@ -198,6 +199,7 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     const subClient = pubClient.duplicate();
     Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
       io.adapter(createAdapter(pubClient, subClient));
+      redisConnected = true;
       console.log('[Redis] Socket.IO adapter connected');
     }).catch(err => {
       console.warn('[Redis] Failed to connect, falling back to in-memory:', err.message);
@@ -664,6 +666,7 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
       res.json({
         status: 'ready',
         database: 'connected',
+        redis: redisConnected ? 'connected' : (process.env.REDIS_URL ? 'disconnected' : 'not_configured'),
         uptime: Math.floor((Date.now() - startTime) / 1000),
         memory: {
           rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
