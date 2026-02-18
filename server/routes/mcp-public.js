@@ -5,7 +5,7 @@ const { generateEmbedding } = require('../lib/embeddings');
 const { encryptApiKey, decryptApiKey } = require('../lib/key-encryption');
 const { callLLMProvider, PROVIDER_CONFIGS } = require('../lib/llm-providers');
 const { formatToolsForMcp, buildEnrichedContext, getDefaultTools } = require('../lib/mcp-agent-tools');
-const { runProcessors, injectProcessorData, getSystemToolsMcp, getSystemTool, executeSystemTool } = require('../lib/mcp-processors');
+const { runProcessors, injectProcessorData, getSystemToolsMcp, getSystemTool, executeSystemTool, getPlatformToolsMcp, getPlatformTool } = require('../lib/mcp-processors');
 
 const router = express.Router();
 
@@ -369,6 +369,17 @@ async function handleMcpMessage(msg, session) {
       const systemTools = getSystemToolsMcp();
       agentTools = [...systemTools, ...agentTools];
 
+      // Append platform tools (notion_search, etc.) based on agent's linked platforms
+      try {
+        const agentPlatforms = await db.getAgentPlatforms(session.agentName);
+        if (agentPlatforms.length > 0) {
+          const platformTools = getPlatformToolsMcp(agentPlatforms);
+          agentTools = [...agentTools, ...platformTools];
+        }
+      } catch (err) {
+        console.warn(`[MCP] Failed to load platform tools for ${session.agentName}:`, err.message);
+      }
+
       return {
         jsonrpc: '2.0', id,
         result: { tools: agentTools },
@@ -397,6 +408,47 @@ async function handleMcpMessage(msg, session) {
           };
         } catch (err) {
           console.error(`[MCP System Tool] ${toolName} error:`, err.message);
+          return {
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }], isError: true },
+          };
+        }
+      }
+
+      // Check PLATFORM TOOLS — authenticated external API calls
+      const platformToolDef = getPlatformTool(toolName);
+      if (platformToolDef) {
+        try {
+          // Resolve the deployment creator's user ID for credential lookup
+          const deployment = await db.getDeployment(session.deploymentId);
+          const userId = deployment?.deployed_by;
+          if (!userId) {
+            return {
+              jsonrpc: '2.0', id,
+              result: { content: [{ type: 'text', text: 'Error: This deployment has no owner. Re-deploy the agent to fix this.' }], isError: true },
+            };
+          }
+
+          const context = { agent_name: session.agentName, user_id: userId, deployed_by: userId };
+          const processorData = await runProcessors(platformToolDef.pre_processors, toolArgs, context);
+
+          let resultText = processorData.__platform_formatted__ || '';
+          if (processorData.__platform_error__) {
+            resultText = `Error: ${processorData.__platform_error__}`;
+          }
+          if (!resultText && processorData.__platform_result__) {
+            resultText = JSON.stringify(processorData.__platform_result__, null, 2);
+          }
+
+          await db.logTokenUsage(session.deploymentId, session.agentName, 'system', 0, 0, `platform-${toolName}`, '', 0, processorData.__platform_error__ ? 'error' : 'success', '');
+          await db.updateApiKeyLastUsed(session.apiKeyId);
+
+          return {
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: resultText || '[No data returned]' }], isError: !!processorData.__platform_error__ },
+          };
+        } catch (err) {
+          console.error(`[MCP Platform Tool] ${toolName} error:`, err.message);
           return {
             jsonrpc: '2.0', id,
             result: { content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }], isError: true },

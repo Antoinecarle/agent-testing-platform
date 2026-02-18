@@ -344,6 +344,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const agentChatRoutes = require('./routes/agent-chat');
   app.use('/api/agent-chat', verifyToken, agentChatRoutes);
 
+  const platformsRoutes = require('./routes/platforms');
+  app.use('/api/platforms', verifyToken, platformsRoutes);
+
   const filesRoutes = require('./routes/files');
   app.use('/api/projects', verifyToken, filesRoutes);
 

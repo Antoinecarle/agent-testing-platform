@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Sparkles, MessageCircle, Server } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Sparkles, MessageCircle, Server, Plug } from 'lucide-react';
 import { api, getUser } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 import AgentCreator from '../components/AgentCreator';
 import AgentChatPanel from '../components/AgentChatPanel';
 import McpPanel from '../components/McpPanel';
+import PlatformIntegrations from '../components/PlatformIntegrations';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -625,6 +626,7 @@ export default function AgentDetail() {
       }}>
         {[
           { id: 'agent', label: 'Agent', icon: Zap },
+          { id: 'platforms', label: 'Platforms', icon: Plug },
           { id: 'mcp', label: 'MCP Server', icon: Server },
         ].map(tab => (
           <button
@@ -646,6 +648,11 @@ export default function AgentDetail() {
           </button>
         ))}
       </div>
+
+      {/* Platforms Tab */}
+      {activeTab === 'platforms' && (
+        <PlatformIntegrations agentName={name} />
+      )}
 
       {/* MCP Server Tab */}
       {activeTab === 'mcp' && (

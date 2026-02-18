@@ -895,6 +895,75 @@ const PROCESSORS = {
     data.__design_info__ = info;
     data.__design_analysis__ = formatDesignAnalysis(info);
   },
+
+  // =================== PLATFORM PROCESSORS ===================
+  // These processors execute authenticated actions on external platforms
+  // using credentials stored in platform_credentials table.
+  // Config: { "type": "platform_action", "platform": "notion", "action": "search", "params_map": { "query": "search_query" } }
+
+  /**
+   * platform_action: Execute an action on a connected platform.
+   * Uses the deployment creator's credentials (BYOK pattern).
+   * Config: { "type": "platform_action", "platform": "notion", "action": "search", "params_map": {} }
+   * Writes: __platform_result__, __platform_formatted__
+   */
+  platform_action: async (args, config, data, context) => {
+    const platformSlug = config.platform;
+    const action = config.action;
+    if (!platformSlug || !action) {
+      data.__platform_error__ = 'platform_action processor requires "platform" and "action" in config';
+      return;
+    }
+
+    // Map tool params to platform action params
+    const actionParams = {};
+    if (config.params_map && typeof config.params_map === 'object') {
+      for (const [platformParam, toolParam] of Object.entries(config.params_map)) {
+        if (args[toolParam] !== undefined) {
+          actionParams[platformParam] = args[toolParam];
+        }
+      }
+    }
+    // Also pass through any args that match platform param names directly
+    for (const [key, val] of Object.entries(args)) {
+      if (actionParams[key] === undefined) {
+        actionParams[key] = val;
+      }
+    }
+
+    try {
+      const db = require('../db');
+      const { executePlatformAction, formatPlatformResult } = require('./platform-integrations');
+
+      // Get credentials: first try from context (deployment creator), then from agent owner
+      let credential = null;
+      const userId = context?.user_id || context?.deployed_by;
+      if (userId) {
+        const platform = await db.getPlatformBySlug(platformSlug);
+        if (!platform) {
+          data.__platform_error__ = `Platform "${platformSlug}" not found`;
+          return;
+        }
+        credential = await db.getPlatformCredential(userId, platform.id);
+      }
+
+      if (!credential) {
+        data.__platform_error__ = `No ${platformSlug} credentials found. The agent owner must connect ${platformSlug} in Platform settings.`;
+        data.__platform_formatted__ = `[ERROR: No ${platformSlug} credentials configured. Connect the platform first.]`;
+        return;
+      }
+
+      console.log(`[MCP Processor] platform_action: ${platformSlug}/${action} with params:`, JSON.stringify(actionParams).slice(0, 200));
+
+      const result = await executePlatformAction(platformSlug, action, credential.encrypted_credentials, actionParams);
+      data.__platform_result__ = result;
+      data.__platform_formatted__ = formatPlatformResult(result);
+    } catch (err) {
+      console.error(`[MCP Processor] platform_action failed:`, err.message);
+      data.__platform_error__ = err.message;
+      data.__platform_formatted__ = `[Platform error: ${err.message}]`;
+    }
+  },
 };
 
 
@@ -1217,6 +1286,153 @@ const SYSTEM_TOOLS = [
   },
 ];
 
+// =================== PLATFORM TOOLS (dynamically generated) ===================
+
+/**
+ * Platform tool definitions — generated when an agent has a platform linked.
+ * These are injected into the MCP tools/list alongside system tools.
+ */
+const PLATFORM_TOOL_DEFINITIONS = {
+  notion: {
+    search: {
+      tool_name: 'notion_search',
+      description: 'Search across your Notion workspace for pages and databases. Returns titles, URLs, and last edited times.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query text' },
+          filter_type: { type: 'string', enum: ['page', 'database'], description: 'Filter results by type (optional)' },
+          limit: { type: 'number', description: 'Max results (default 10, max 20)' },
+        },
+        required: ['query'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'search' }],
+    },
+    read_page: {
+      tool_name: 'notion_read_page',
+      description: 'Read the full content of a Notion page including properties and all blocks. Returns markdown-formatted content.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          page_id: { type: 'string', description: 'The Notion page ID (UUID format, found in the page URL)' },
+        },
+        required: ['page_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'read_page' }],
+    },
+    read_database: {
+      tool_name: 'notion_query_database',
+      description: 'Query a Notion database with optional filters and sorting. Returns rows with all properties.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          database_id: { type: 'string', description: 'The Notion database ID (UUID, found in the database URL)' },
+          filter_property: { type: 'string', description: 'Property name to filter on (optional)' },
+          filter_value: { type: 'string', description: 'Value to filter by (optional)' },
+          sort_property: { type: 'string', description: 'Property name to sort by (optional)' },
+          sort_direction: { type: 'string', enum: ['ascending', 'descending'], description: 'Sort direction (default: descending)' },
+          limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+        },
+        required: ['database_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'read_database' }],
+    },
+    create_page: {
+      tool_name: 'notion_create_page',
+      description: 'Create a new page in a Notion database or as a child of another page.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          database_id: { type: 'string', description: 'Database to create the page in (provide this OR parent_page_id)' },
+          parent_page_id: { type: 'string', description: 'Parent page ID (provide this OR database_id)' },
+          title: { type: 'string', description: 'Page title' },
+          content: { type: 'string', description: 'Page content (markdown-like, one block per line)' },
+          properties: { type: 'object', description: 'Additional properties as key-value pairs' },
+        },
+        required: ['title'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'create_page' }],
+    },
+    update_page: {
+      tool_name: 'notion_update_page',
+      description: 'Update properties of an existing Notion page.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          page_id: { type: 'string', description: 'The page ID to update' },
+          title: { type: 'string', description: 'New title (optional)' },
+          properties: { type: 'object', description: 'Properties to update as key-value pairs' },
+        },
+        required: ['page_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'update_page' }],
+    },
+    append_blocks: {
+      tool_name: 'notion_append_content',
+      description: 'Append content blocks to an existing Notion page. Supports headings (# ## ###), bullets (-), dividers (---), and paragraphs.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          page_id: { type: 'string', description: 'The page ID to append to' },
+          content: { type: 'string', description: 'Content to append (markdown-like, one block per line)' },
+        },
+        required: ['page_id', 'content'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'append_blocks' }],
+    },
+  },
+};
+
+/**
+ * Get platform-specific tools for an agent based on linked platforms and enabled actions.
+ * Returns tool definitions formatted for MCP tools/list.
+ *
+ * @param {Array} agentPlatforms - Array from db.getAgentPlatforms(agentName)
+ * @returns {Array} Tool definitions for MCP
+ */
+function getPlatformToolsMcp(agentPlatforms) {
+  if (!agentPlatforms || agentPlatforms.length === 0) return [];
+
+  const tools = [];
+  for (const link of agentPlatforms) {
+    const platformSlug = link.platform_integrations?.slug;
+    if (!platformSlug) continue;
+
+    const platformDefs = PLATFORM_TOOL_DEFINITIONS[platformSlug];
+    if (!platformDefs) continue;
+
+    const enabledActions = link.enabled_actions || [];
+    // If no specific actions enabled, enable all available
+    const actionsToInclude = enabledActions.length > 0
+      ? enabledActions
+      : Object.keys(platformDefs);
+
+    for (const actionName of actionsToInclude) {
+      const toolDef = platformDefs[actionName];
+      if (!toolDef) continue;
+      tools.push({
+        name: toolDef.tool_name,
+        description: toolDef.description,
+        inputSchema: toolDef.input_schema,
+      });
+    }
+  }
+
+  return tools;
+}
+
+/**
+ * Find a platform tool definition by tool name.
+ */
+function getPlatformTool(toolName) {
+  for (const [, platformDefs] of Object.entries(PLATFORM_TOOL_DEFINITIONS)) {
+    for (const [, toolDef] of Object.entries(platformDefs)) {
+      if (toolDef.tool_name === toolName) return toolDef;
+    }
+  }
+  return null;
+}
+
 /**
  * Get system tools formatted for MCP tools/list.
  */
@@ -1431,4 +1647,8 @@ module.exports = {
   getSystemToolsMcp,
   getSystemTool,
   executeSystemTool,
+  // Platform tools
+  PLATFORM_TOOL_DEFINITIONS,
+  getPlatformToolsMcp,
+  getPlatformTool,
 };

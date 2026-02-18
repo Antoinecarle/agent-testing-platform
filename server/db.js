@@ -2123,6 +2123,116 @@ async function reorderMcpAgentTools(agentName, toolIds) {
   }
 }
 
+// ===================== PLATFORM INTEGRATIONS =====================
+
+async function getAllPlatforms() {
+  const { data } = await supabase.from('platform_integrations')
+    .select('*')
+    .order('sort_order', { ascending: true });
+  return data || [];
+}
+
+async function getPlatform(id) {
+  const { data } = await supabase.from('platform_integrations')
+    .select('*').eq('id', id).single();
+  return data;
+}
+
+async function getPlatformBySlug(slug) {
+  const { data } = await supabase.from('platform_integrations')
+    .select('*').eq('slug', slug).single();
+  return data;
+}
+
+async function getPlatformCredential(userId, platformId) {
+  const { data } = await supabase.from('platform_credentials')
+    .select('*').eq('user_id', userId).eq('platform_id', platformId).single();
+  return data;
+}
+
+async function getPlatformCredentialBySlug(userId, platformSlug) {
+  const { data } = await supabase.from('platform_credentials')
+    .select('*, platform_integrations!inner(slug)')
+    .eq('user_id', userId)
+    .eq('platform_integrations.slug', platformSlug)
+    .single();
+  return data;
+}
+
+async function savePlatformCredential(userId, platformId, encryptedCredentials, metadata = {}) {
+  const { data, error } = await supabase.from('platform_credentials')
+    .upsert({
+      user_id: userId,
+      platform_id: platformId,
+      encrypted_credentials: encryptedCredentials,
+      credential_metadata: metadata,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,platform_id' })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function deletePlatformCredential(userId, platformId) {
+  await supabase.from('platform_credentials')
+    .delete().eq('user_id', userId).eq('platform_id', platformId);
+}
+
+async function getUserPlatformCredentials(userId) {
+  const { data } = await supabase.from('platform_credentials')
+    .select('*, platform_integrations(slug, name, icon_svg, category, status)')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+  return data || [];
+}
+
+async function getAgentPlatforms(agentName) {
+  const { data } = await supabase.from('agent_platform_integrations')
+    .select('*, platform_integrations(slug, name, icon_svg, category, status, available_actions)')
+    .eq('agent_name', agentName)
+    .eq('is_active', true);
+  return data || [];
+}
+
+async function linkAgentPlatform(agentName, platformId, enabledActions = [], config = {}) {
+  const { data, error } = await supabase.from('agent_platform_integrations')
+    .upsert({
+      agent_name: agentName,
+      platform_id: platformId,
+      enabled_actions: enabledActions,
+      config,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'agent_name,platform_id' })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function unlinkAgentPlatform(agentName, platformId) {
+  await supabase.from('agent_platform_integrations')
+    .delete().eq('agent_name', agentName).eq('platform_id', platformId);
+}
+
+async function updateAgentPlatformLink(id, fields) {
+  const update = { updated_at: new Date().toISOString() };
+  if (fields.enabled_actions !== undefined) update.enabled_actions = fields.enabled_actions;
+  if (fields.config !== undefined) update.config = fields.config;
+  if (fields.is_active !== undefined) update.is_active = fields.is_active;
+  await supabase.from('agent_platform_integrations').update(update).eq('id', id);
+}
+
+async function getAgentPlatformActions(agentName, platformSlug) {
+  const { data } = await supabase.from('agent_platform_integrations')
+    .select('enabled_actions, config, platform_integrations!inner(slug, available_actions)')
+    .eq('agent_name', agentName)
+    .eq('platform_integrations.slug', platformSlug)
+    .eq('is_active', true)
+    .single();
+  return data;
+}
+
 // ===================== STRIPE CONNECT =====================
 
 async function updateUserStripeConnect(userId, fields) {
@@ -2329,6 +2439,12 @@ module.exports = {
   // MCP Agent Tools
   createMcpAgentTool, getMcpAgentTools, getMcpAgentTool,
   updateMcpAgentTool, deleteMcpAgentTool, reorderMcpAgentTools,
+  // Platform Integrations
+  getAllPlatforms, getPlatform, getPlatformBySlug,
+  getPlatformCredential, getPlatformCredentialBySlug, savePlatformCredential,
+  deletePlatformCredential, getUserPlatformCredentials,
+  getAgentPlatforms, linkAgentPlatform, unlinkAgentPlatform, updateAgentPlatformLink,
+  getAgentPlatformActions,
   // Stripe Connect
   updateUserStripeConnect, getUserStripeConnect,
   createConnectPayment, updateConnectPayment,
