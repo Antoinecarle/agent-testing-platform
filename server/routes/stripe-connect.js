@@ -295,12 +295,8 @@ router.post('/verify-payment', async (req, res) => {
       });
     }
 
-    // Create purchase record + generate API token (idempotent)
-    const alreadyPurchased = await db.hasUserPurchased(buyer_user_id, agent_name);
-    if (!alreadyPurchased) {
-      await db.purchaseAgent(buyer_user_id, agent_name, 0); // 0 credits since paid with real money
-      await db.generateAgentToken(buyer_user_id, agent_name);
-    }
+    // Create purchase record + generate API token (no wallet deduction for Stripe payments)
+    await db.recordStripePurchase(buyer_user_id, agent_name, paymentIntent.amount);
 
     console.log(`[StripeConnect] Payment verified & purchase recorded: ${agent_name} by user ${buyer_user_id}`);
     res.json({ success: true, agent_name, purchased: true });
@@ -400,12 +396,8 @@ module.exports.stripeConnectWebhookHandler = async (req, res) => {
             });
           }
 
-          // Create purchase record + generate API token (reuse existing wallet system)
-          const alreadyPurchased = await db.hasUserPurchased(buyer_user_id, agent_name);
-          if (!alreadyPurchased) {
-            await db.purchaseAgent(buyer_user_id, agent_name, 0); // 0 credits since paid with real money
-            await db.generateAgentToken(buyer_user_id, agent_name);
-          }
+          // Create purchase record + generate API token (no wallet deduction for Stripe payments)
+          await db.recordStripePurchase(buyer_user_id, agent_name, paymentIntent.amount);
           console.log(`[StripeConnect] Payment succeeded: ${agent_name} by user ${buyer_user_id}`);
         }
         break;

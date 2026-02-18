@@ -948,6 +948,31 @@ async function purchaseAgent(userId, agentName) {
   return { purchase: true, balance: newBalance, token };
 }
 
+// Record a purchase paid via Stripe (no wallet deduction)
+async function recordStripePurchase(userId, agentName, amountCents) {
+  // Check if already purchased (idempotent)
+  const already = await hasUserPurchased(userId, agentName);
+  if (already) return { purchase: true, already_existed: true };
+
+  // Create purchase record
+  await supabase.from('agent_purchases').insert({
+    user_id: userId, agent_name: agentName, price_paid: amountCents || 0,
+  });
+
+  // Generate API token
+  const token = await generateAgentToken(userId, agentName);
+
+  // Increment purchase count on agent
+  await supabase.rpc('increment_agent_field', { agent_name_param: agentName, field_name: 'purchase_count' }).catch(() => {
+    // Fallback: manual increment
+    supabase.from('agents').select('purchase_count').eq('name', agentName).single().then(({ data }) => {
+      if (data) supabase.from('agents').update({ purchase_count: (data.purchase_count || 0) + 1 }).eq('name', agentName);
+    });
+  });
+
+  return { purchase: true, token };
+}
+
 async function getUserPurchases(userId) {
   const { data } = await supabase.from('agent_purchases')
     .select('*').eq('user_id', userId).order('purchased_at', { ascending: false });
@@ -2242,7 +2267,7 @@ module.exports = {
   createShowcase, getShowcasesByAgent, getShowcase, deleteShowcase,
   reorderShowcases, countShowcases,
   // Wallet & Purchases
-  getUserWallet, getOrCreateWallet, depositCredits, purchaseAgent,
+  getUserWallet, getOrCreateWallet, depositCredits, purchaseAgent, recordStripePurchase,
   getUserPurchases, hasUserPurchased, generateAgentToken,
   getUserApiTokens, getUserApiTokensByAgent, revokeApiToken, getUserApiTokenByHash,
   getWalletTransactions, updateAgentPricing, getAgentPurchaseCount,
