@@ -704,8 +704,8 @@ export default function ProjectView() {
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        <div style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 0 12px', borderBottom: `1px solid ${t.border}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px 4px 12px', borderBottom: `1px solid ${t.border}`, flexWrap: 'wrap', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
             <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
             {agentWorking && (
               <span title="Agent is working..." style={{
@@ -714,7 +714,7 @@ export default function ProjectView() {
               }} />
             )}
           </div>
-          <div style={{ display: 'flex', gap: '3px' }}>
+          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
             {multiSelect ? (
               <>
                 <button onClick={handleBulkDelete} disabled={selectedIds.size === 0}
