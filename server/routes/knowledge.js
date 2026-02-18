@@ -827,7 +827,8 @@ async function extractFileContent(filePath, mimeType) {
   if (officeTypes.includes(mimeType) || filePath.match(/\.(pptx?|docx?)$/i)) {
     try {
       const { parseOffice } = require('officeparser');
-      const text = await parseOffice(filePath);
+      const result = await parseOffice(filePath);
+      const text = typeof result === 'string' ? result : (result && typeof result.toText === 'function' ? result.toText() : String(result));
       if (!text || !text.trim()) throw new Error('Office file parsed but no text extracted');
       return text.trim().slice(0, 500000);
     } catch (err) {

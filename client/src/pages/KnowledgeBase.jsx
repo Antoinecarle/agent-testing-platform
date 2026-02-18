@@ -4,7 +4,8 @@ import {
   Plus, Search, Edit2, Trash2, X, Check,
   Database, FileText, Globe, Upload, Brain,
   AlertCircle, Users, ArrowLeft, Link2, Unlink,
-  BookOpen, ChevronRight, Sparkles, Type, File, Layers
+  BookOpen, ChevronRight, ChevronDown, Sparkles, Type, File, Layers,
+  FolderOpen, FolderPlus
 } from 'lucide-react';
 import { api, getToken, getUser } from '../api';
 import useBulkImport from '../hooks/useBulkImport';
@@ -51,6 +52,9 @@ export default function KnowledgeBase() {
   const [isCsvOpen, setIsCsvOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [bulkFiles, setBulkFiles] = useState(null);
+  const [folderMode, setFolderMode] = useState(false);
+  const [accumulatedFiles, setAccumulatedFiles] = useState([]); // { file, path }
+  const [expandedFolders, setExpandedFolders] = useState({});
   const bulk = useBulkImport(kbId);
 
   // Form state
@@ -274,6 +278,104 @@ export default function KnowledgeBase() {
     } catch (err) { setError(err.message); } finally { setSearching(false); }
   };
 
+  // ---- Folder import helpers ----
+  const SUPPORTED_EXTENSIONS = ['.txt', '.md', '.csv', '.json', '.pdf', '.xlsx', '.xls', '.docx', '.doc', '.pptx', '.ppt'];
+
+  const handleFolderSelect = (e) => {
+    const allFiles = Array.from(e.target.files);
+    const supported = allFiles.filter(f => {
+      const ext = '.' + f.name.split('.').pop().toLowerCase();
+      return SUPPORTED_EXTENSIONS.includes(ext);
+    });
+    const wrapped = supported.map(f => ({
+      file: f,
+      path: f.webkitRelativePath || f.name,
+    }));
+    setAccumulatedFiles(prev => [...prev, ...wrapped]);
+    e.target.value = '';
+  };
+
+  const readAllEntries = (directoryReader) => {
+    return new Promise((resolve, reject) => {
+      const entries = [];
+      const readBatch = () => {
+        directoryReader.readEntries((batch) => {
+          if (batch.length === 0) resolve(entries);
+          else { entries.push(...batch); readBatch(); }
+        }, reject);
+      };
+      readBatch();
+    });
+  };
+
+  const readEntryRecursive = async (entry, basePath = '') => {
+    if (entry.isFile) {
+      return new Promise((resolve, reject) => {
+        entry.file((file) => {
+          resolve([{ file, path: basePath ? `${basePath}/${file.name}` : file.name }]);
+        }, reject);
+      });
+    } else if (entry.isDirectory) {
+      const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+      const reader = entry.createReader();
+      const entries = await readAllEntries(reader);
+      const results = [];
+      for (const childEntry of entries) {
+        const childFiles = await readEntryRecursive(childEntry, dirPath);
+        results.push(...childFiles);
+      }
+      return results;
+    }
+    return [];
+  };
+
+  const handleBulkDrop = async (e) => {
+    e.preventDefault();
+    e.currentTarget.style.borderColor = t.borderS;
+
+    if (folderMode) {
+      const items = Array.from(e.dataTransfer.items);
+      const allFiles = [];
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+          const files = await readEntryRecursive(entry);
+          allFiles.push(...files);
+        }
+      }
+      const supported = allFiles.filter(({ file }) => {
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        return SUPPORTED_EXTENSIONS.includes(ext);
+      });
+      setAccumulatedFiles(prev => [...prev, ...supported]);
+    } else {
+      setBulkFiles(e.dataTransfer.files);
+    }
+  };
+
+  const removeAccumulatedFile = (index) => {
+    setAccumulatedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const groupFilesByFolder = (files) => {
+    const groups = {};
+    files.forEach(({ file, path }, index) => {
+      const parts = path.split('/');
+      const root = parts.length > 1 ? parts[0] : '(ungrouped)';
+      if (!groups[root]) groups[root] = [];
+      groups[root].push({ file, path, subPath: parts.slice(1).join('/') || file.name, index });
+    });
+    return groups;
+  };
+
+  const toggleFolder = (folder) => {
+    setExpandedFolders(prev => ({ ...prev, [folder]: !prev[folder] }));
+  };
+
+  const totalAccumulatedSize = accumulatedFiles.reduce((s, { file }) => s + file.size, 0);
+  const folderGroups = groupFilesByFolder(accumulatedFiles);
+  const folderCount = Object.keys(folderGroups).filter(k => k !== '(ungrouped)').length;
+
   // ---- Filtered KBs ----
   const filteredKBs = knowledgeBases.filter(kb =>
     !search || kb.name.toLowerCase().includes(search.toLowerCase()) || (kb.description || '').toLowerCase().includes(search.toLowerCase())
@@ -344,7 +446,7 @@ export default function KnowledgeBase() {
             <File size={13} /> Bulk CSV Import
             <input type="file" accept=".csv" onChange={handleCsvBulkImport} style={{ display: 'none' }} />
           </label>
-          <button onClick={() => { setBulkFiles(null); bulk.reset(); setIsBulkOpen(true); }} style={{ ...btnCyanStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button onClick={() => { setBulkFiles(null); bulk.reset(); setFolderMode(false); setAccumulatedFiles([]); setExpandedFolders({}); setIsBulkOpen(true); }} style={{ ...btnCyanStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Layers size={13} /> Bulk Import
           </button>
           <div style={{ flex: 1 }} />
@@ -609,57 +711,215 @@ export default function KnowledgeBase() {
               <div style={modalHeaderStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Layers size={16} style={{ color: t.cyan }} />
-                  <h2 style={{ fontSize: '15px', fontWeight: '600', margin: 0 }}>Bulk File Import</h2>
+                  <h2 style={{ fontSize: '15px', fontWeight: '600', margin: 0 }}>Bulk Import</h2>
                 </div>
                 <button onClick={() => { if (bulk.phase === 'idle' || bulk.phase === 'done' || bulk.phase === 'error') { setIsBulkOpen(false); if (bulk.phase === 'done') { loadKBDetail(kbId); fetchKBs(); } } }}
                   style={closeBtnStyle}><X size={18} /></button>
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                {/* Phase: Idle — file picker */}
+                {/* Phase: Idle — mode toggle + file/folder picker */}
                 {bulk.phase === 'idle' && (
                   <div>
+                    {/* Mode toggle */}
                     <div style={{
-                      border: `2px dashed ${t.borderS}`, borderRadius: '10px', padding: '40px 20px',
-                      textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
-                    }}
-                      onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.cyan; }}
-                      onDragLeave={e => { e.currentTarget.style.borderColor = t.borderS; }}
-                      onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.borderS; setBulkFiles(e.dataTransfer.files); }}
-                      onClick={() => document.getElementById('bulk-file-input').click()}
-                    >
-                      <Upload size={28} style={{ color: t.tm, marginBottom: '10px' }} />
-                      <p style={{ fontSize: '13px', fontWeight: '500', margin: '0 0 4px 0' }}>
-                        {bulkFiles ? `${bulkFiles.length} file${bulkFiles.length > 1 ? 's' : ''} selected` : 'Click or drag files here'}
-                      </p>
-                      <p style={{ fontSize: '11px', color: t.tm, margin: 0 }}>
-                        Supports: .txt, .md, .csv, .json, .pdf, .xlsx (up to 20MB each)
-                      </p>
-                      <input id="bulk-file-input" type="file" multiple
-                        accept=".txt,.md,.csv,.json,.pdf,.xlsx"
-                        onChange={e => setBulkFiles(e.target.files)}
-                        style={{ display: 'none' }} />
+                      display: 'flex', gap: '4px', marginBottom: '16px',
+                      backgroundColor: t.bg, borderRadius: '6px', padding: '3px',
+                      border: `1px solid ${t.border}`,
+                    }}>
+                      <button
+                        onClick={() => setFolderMode(false)}
+                        style={{
+                          flex: 1, padding: '7px 12px', borderRadius: '4px', border: 'none',
+                          fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          backgroundColor: !folderMode ? t.surfaceEl : 'transparent',
+                          color: !folderMode ? t.tp : t.tm,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <Upload size={13} /> Files
+                      </button>
+                      <button
+                        onClick={() => setFolderMode(true)}
+                        style={{
+                          flex: 1, padding: '7px 12px', borderRadius: '4px', border: 'none',
+                          fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          backgroundColor: folderMode ? t.surfaceEl : 'transparent',
+                          color: folderMode ? t.tp : t.tm,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <FolderOpen size={13} /> Folders
+                      </button>
                     </div>
-                    {bulkFiles && bulkFiles.length > 0 && (
-                      <div style={{ marginTop: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: t.ts, marginBottom: '8px' }}>
-                          <span>{bulkFiles.length} file{bulkFiles.length > 1 ? 's' : ''}</span>
-                          <span>{(Array.from(bulkFiles).reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total</span>
+
+                    {/* File mode */}
+                    {!folderMode && (
+                      <>
+                        <div style={{
+                          border: `2px dashed ${t.borderS}`, borderRadius: '10px', padding: '40px 20px',
+                          textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
+                        }}
+                          onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.cyan; }}
+                          onDragLeave={e => { e.currentTarget.style.borderColor = t.borderS; }}
+                          onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.borderS; setBulkFiles(e.dataTransfer.files); }}
+                          onClick={() => document.getElementById('bulk-file-input').click()}
+                        >
+                          <Upload size={28} style={{ color: t.tm, marginBottom: '10px' }} />
+                          <p style={{ fontSize: '13px', fontWeight: '500', margin: '0 0 4px 0' }}>
+                            {bulkFiles ? `${bulkFiles.length} file${bulkFiles.length > 1 ? 's' : ''} selected` : 'Click or drag files here'}
+                          </p>
+                          <p style={{ fontSize: '11px', color: t.tm, margin: 0 }}>
+                            Supports: .txt, .md, .csv, .json, .pdf, .xlsx, .docx, .pptx
+                          </p>
+                          <input id="bulk-file-input" type="file" multiple
+                            accept=".txt,.md,.csv,.json,.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt"
+                            onChange={e => setBulkFiles(e.target.files)}
+                            style={{ display: 'none' }} />
                         </div>
-                        <div style={{ maxHeight: '150px', overflowY: 'auto', border: `1px solid ${t.border}`, borderRadius: '6px' }}>
-                          {Array.from(bulkFiles).slice(0, 50).map((f, i) => (
-                            <div key={i} style={{ padding: '6px 10px', fontSize: '11px', color: t.ts, borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
-                              <span style={{ color: t.tm, marginLeft: '8px', flexShrink: 0 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                        {bulkFiles && bulkFiles.length > 0 && (
+                          <div style={{ marginTop: '14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: t.ts, marginBottom: '8px' }}>
+                              <span>{bulkFiles.length} file{bulkFiles.length > 1 ? 's' : ''}</span>
+                              <span>{(Array.from(bulkFiles).reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total</span>
                             </div>
-                          ))}
-                          {bulkFiles.length > 50 && (
-                            <div style={{ padding: '6px 10px', fontSize: '11px', color: t.tm, textAlign: 'center' }}>
-                              ... and {bulkFiles.length - 50} more
+                            <div style={{ maxHeight: '150px', overflowY: 'auto', border: `1px solid ${t.border}`, borderRadius: '6px' }}>
+                              {Array.from(bulkFiles).slice(0, 50).map((f, i) => (
+                                <div key={i} style={{ padding: '6px 10px', fontSize: '11px', color: t.ts, borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                                  <span style={{ color: t.tm, marginLeft: '8px', flexShrink: 0 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                                </div>
+                              ))}
+                              {bulkFiles.length > 50 && (
+                                <div style={{ padding: '6px 10px', fontSize: '11px', color: t.tm, textAlign: 'center' }}>
+                                  ... and {bulkFiles.length - 50} more
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Folder mode */}
+                    {folderMode && (
+                      <>
+                        <div style={{
+                          border: `2px dashed ${t.borderS}`, borderRadius: '10px', padding: '32px 20px',
+                          textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
+                        }}
+                          onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = t.cyan; }}
+                          onDragLeave={e => { e.currentTarget.style.borderColor = t.borderS; }}
+                          onDrop={handleBulkDrop}
+                          onClick={() => document.getElementById('bulk-folder-input').click()}
+                        >
+                          <FolderOpen size={28} style={{ color: t.tm, marginBottom: '10px' }} />
+                          <p style={{ fontSize: '13px', fontWeight: '500', margin: '0 0 4px 0' }}>
+                            Click to select a folder or drag folders here
+                          </p>
+                          <p style={{ fontSize: '11px', color: t.tm, margin: 0 }}>
+                            Scans recursively for: .txt, .md, .csv, .json, .pdf, .xlsx, .docx, .pptx
+                          </p>
+                          <input id="bulk-folder-input" type="file"
+                            webkitdirectory="" directory="" multiple
+                            onChange={handleFolderSelect}
+                            style={{ display: 'none' }} />
                         </div>
-                      </div>
+
+                        {/* Add another folder button */}
+                        {accumulatedFiles.length > 0 && (
+                          <button
+                            onClick={() => document.getElementById('bulk-folder-input').click()}
+                            style={{
+                              ...btnOutlineStyle, marginTop: '10px', width: '100%',
+                              justifyContent: 'center', padding: '8px',
+                            }}
+                          >
+                            <FolderPlus size={13} /> Add another folder
+                          </button>
+                        )}
+
+                        {/* Folder summary + tree */}
+                        {accumulatedFiles.length > 0 && (
+                          <div style={{ marginTop: '14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: t.ts, marginBottom: '8px' }}>
+                              <span>
+                                {folderCount > 0 ? `${folderCount} folder${folderCount > 1 ? 's' : ''}, ` : ''}
+                                {accumulatedFiles.length} file{accumulatedFiles.length > 1 ? 's' : ''}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ color: t.tm }}>{(totalAccumulatedSize / 1024 / 1024).toFixed(1)} MB</span>
+                                <button
+                                  onClick={() => { setAccumulatedFiles([]); setExpandedFolders({}); }}
+                                  style={{ ...iconBtnStyle, color: t.danger, fontSize: '10px', padding: '2px 6px' }}
+                                  title="Clear all"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div style={{ maxHeight: '240px', overflowY: 'auto', border: `1px solid ${t.border}`, borderRadius: '6px' }}>
+                              {Object.entries(folderGroups).map(([folder, items]) => (
+                                <div key={folder}>
+                                  {/* Folder header */}
+                                  <div
+                                    onClick={() => toggleFolder(folder)}
+                                    style={{
+                                      padding: '7px 10px', fontSize: '11px', fontWeight: '600',
+                                      color: t.ts, backgroundColor: t.bg,
+                                      borderBottom: `1px solid ${t.border}`,
+                                      display: 'flex', alignItems: 'center', gap: '6px',
+                                      cursor: 'pointer', userSelect: 'none',
+                                    }}
+                                  >
+                                    {expandedFolders[folder]
+                                      ? <ChevronDown size={12} style={{ color: t.tm, flexShrink: 0 }} />
+                                      : <ChevronRight size={12} style={{ color: t.tm, flexShrink: 0 }} />
+                                    }
+                                    <FolderOpen size={12} style={{ color: t.cyan, flexShrink: 0 }} />
+                                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {folder === '(ungrouped)' ? 'Root files' : `${folder}/`}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '9px', color: t.tm, backgroundColor: t.surfaceEl,
+                                      padding: '1px 6px', borderRadius: '100px', flexShrink: 0,
+                                    }}>
+                                      {items.length}
+                                    </span>
+                                  </div>
+
+                                  {/* Folder children */}
+                                  {expandedFolders[folder] && items.map((item) => (
+                                    <div key={item.index} style={{
+                                      padding: '5px 10px 5px 32px', fontSize: '11px',
+                                      color: t.ts, borderBottom: `1px solid ${t.border}`,
+                                      display: 'flex', alignItems: 'center', gap: '6px',
+                                    }}>
+                                      <FileText size={10} style={{ color: t.tm, flexShrink: 0 }} />
+                                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {item.subPath}
+                                      </span>
+                                      <span style={{ color: t.tm, fontSize: '10px', flexShrink: 0 }}>
+                                        {item.file.size < 1024 ? `${item.file.size} B` : `${(item.file.size / 1024).toFixed(0)} KB`}
+                                      </span>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); removeAccumulatedFile(item.index); }}
+                                        style={{ ...iconBtnStyle, padding: '1px', color: t.tm }}
+                                        title="Remove file"
+                                      >
+                                        <X size={11} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -753,11 +1013,19 @@ export default function KnowledgeBase() {
                   <>
                     <button onClick={() => setIsBulkOpen(false)} style={btnSecStyle}>Cancel</button>
                     <button
-                      onClick={() => { if (bulkFiles && bulkFiles.length > 0) bulk.startImport(bulkFiles); }}
-                      disabled={!bulkFiles || bulkFiles.length === 0}
-                      style={{ ...btnPriStyle, opacity: (!bulkFiles || bulkFiles.length === 0) ? 0.4 : 1 }}
+                      onClick={() => {
+                        const filesToImport = folderMode
+                          ? accumulatedFiles.map(af => af.file)
+                          : (bulkFiles ? Array.from(bulkFiles) : []);
+                        if (filesToImport.length > 0) bulk.startImport(filesToImport);
+                      }}
+                      disabled={folderMode ? accumulatedFiles.length === 0 : (!bulkFiles || bulkFiles.length === 0)}
+                      style={{
+                        ...btnPriStyle,
+                        opacity: (folderMode ? accumulatedFiles.length === 0 : (!bulkFiles || bulkFiles.length === 0)) ? 0.4 : 1,
+                      }}
                     >
-                      Start Import ({bulkFiles ? bulkFiles.length : 0} files)
+                      Start Import ({folderMode ? accumulatedFiles.length : (bulkFiles ? bulkFiles.length : 0)} files)
                     </button>
                   </>
                 )}
