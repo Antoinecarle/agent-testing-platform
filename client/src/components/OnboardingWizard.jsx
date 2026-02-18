@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot, FolderPlus, Zap, Brain, Check, ChevronLeft, ChevronRight,
-  X, Sparkles, Rocket, ArrowRight, BookOpen, Star, Terminal
+  X, Sparkles, Rocket, ArrowRight, BookOpen, Star, Terminal,
+  Globe, Wifi, Monitor, Smartphone, Code2
 } from 'lucide-react';
 
 const t = {
@@ -139,13 +140,13 @@ function Confetti() {
 // ─── Floating agent cards for step 1 ───────────────────────────
 function FloatingAgentCards() {
   const agents = [
-    { name: 'Web Designer', icon: Sparkles, color: '#8B5CF6' },
-    { name: 'Code Reviewer', icon: Terminal, color: '#22c55e' },
-    { name: 'Content Writer', icon: BookOpen, color: '#f59e0b' },
+    { name: 'SEO Master', icon: Globe, color: '#3b82f6', stars: 4, flagship: false },
+    { name: 'GURU Showcase', icon: Rocket, color: '#8B5CF6', stars: 5, flagship: true },
+    { name: 'Code Reviewer', icon: Terminal, color: '#22c55e', stars: 4, flagship: false },
   ];
 
   return (
-    <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap', padding: '0 16px' }}>
+    <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '32px', flexWrap: 'wrap', padding: '0 16px', alignItems: 'center' }}>
       {agents.map((agent, i) => (
         <motion.div
           key={agent.name}
@@ -157,28 +158,46 @@ function FloatingAgentCards() {
             scale: { delay: 0.3 + i * 0.15, duration: 0.4 },
           }}
           style={{
-            background: t.surface,
-            border: `1px solid ${t.border}`,
+            background: agent.flagship ? t.surfaceEl : t.surface,
+            border: `1px solid ${agent.flagship ? `${t.violet}44` : t.border}`,
             borderRadius: '12px',
-            padding: '20px 24px',
+            padding: agent.flagship ? '24px 28px' : '20px 24px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             gap: '10px',
             minWidth: '120px',
+            position: 'relative',
+            ...(agent.flagship ? {
+              boxShadow: `0 0 40px rgba(139,92,246,0.15), 0 0 80px rgba(139,92,246,0.05)`,
+              transform: 'scale(1.05)',
+            } : {}),
           }}
         >
+          {agent.flagship && (
+            <div style={{
+              position: 'absolute', top: '-10px',
+              fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em',
+              padding: '3px 10px', borderRadius: '100px',
+              background: `linear-gradient(135deg, ${t.violet}, #7c3aed)`,
+              color: '#fff',
+            }}>
+              FLAGSHIP
+            </div>
+          )}
           <div style={{
-            width: '40px', height: '40px', borderRadius: '10px',
+            width: agent.flagship ? '48px' : '40px',
+            height: agent.flagship ? '48px' : '40px',
+            borderRadius: '10px',
             background: `${agent.color}22`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <agent.icon size={20} color={agent.color} />
+            <agent.icon size={agent.flagship ? 24 : 20} color={agent.color} />
           </div>
-          <span style={{ fontSize: '11px', color: t.ts, fontWeight: 500 }}>{agent.name}</span>
+          <span style={{ fontSize: '11px', color: agent.flagship ? t.tp : t.ts, fontWeight: agent.flagship ? 600 : 500 }}>{agent.name}</span>
           <div style={{ display: 'flex', gap: '2px' }}>
             {[...Array(5)].map((_, j) => (
-              <Star key={j} size={8} color={t.violet} fill={j < 4 ? t.violet : 'none'} />
+              <Star key={j} size={8} color={t.violet} fill={j < agent.stars ? t.violet : 'none'} />
             ))}
           </div>
         </motion.div>
@@ -368,6 +387,110 @@ function KnowledgeGraph() {
   );
 }
 
+// ─── Deploy Everywhere visual for deploy step ──────────────────
+function DeployEverywhereVisual() {
+  const platforms = [
+    { name: 'VS Code', color: '#007ACC', icon: Code2, angle: -72 },
+    { name: 'Cursor', color: '#00D1B2', icon: Monitor, angle: -18 },
+    { name: 'Slack', color: '#E01E5A', icon: Wifi, angle: 36 },
+    { name: 'API', color: '#f59e0b', icon: Globe, angle: 90 },
+    { name: 'Mobile', color: '#22c55e', icon: Smartphone, angle: 144 },
+  ];
+
+  const radius = 100;
+
+  return (
+    <div style={{ position: 'relative', width: '280px', height: '260px', margin: '32px auto 0' }}>
+      {/* Center hub */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, type: 'spring', stiffness: 200 }}
+        style={{
+          position: 'absolute',
+          left: '50%', top: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '64px', height: '64px', borderRadius: '16px',
+          background: `linear-gradient(135deg, ${t.violet}, #7c3aed)`,
+          boxShadow: `0 0 40px rgba(139,92,246,0.3)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 3,
+        }}
+      >
+        <Bot size={28} color="#fff" />
+      </motion.div>
+
+      {/* SVG connection lines */}
+      <svg width="100%" height="100%" viewBox="0 0 280 260" style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+        {platforms.map((p, i) => {
+          const rad = (p.angle * Math.PI) / 180;
+          const cx = 140, cy = 130;
+          const ex = cx + radius * Math.cos(rad);
+          const ey = cy + radius * Math.sin(rad);
+          return (
+            <motion.line
+              key={p.name}
+              x1={cx} y1={cy} x2={ex} y2={ey}
+              stroke={p.color}
+              strokeWidth={1.5}
+              strokeOpacity={0.4}
+              strokeDasharray="4 4"
+              initial={{ pathLength: 0, opacity: 0 }}
+              animate={{ pathLength: 1, opacity: 1 }}
+              transition={{ delay: 0.5 + i * 0.1, duration: 0.6, ease: 'easeOut' }}
+            />
+          );
+        })}
+      </svg>
+
+      {/* Platform nodes */}
+      {platforms.map((p, i) => {
+        const rad = (p.angle * Math.PI) / 180;
+        const cx = 140 + radius * Math.cos(rad);
+        const cy = 130 + radius * Math.sin(rad);
+        const Icon = p.icon;
+        return (
+          <motion.div
+            key={p.name}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{
+              opacity: 1, scale: 1,
+              y: [0, -4, 0],
+            }}
+            transition={{
+              opacity: { delay: 0.8 + i * 0.1, duration: 0.3 },
+              scale: { delay: 0.8 + i * 0.1, duration: 0.3, type: 'spring' },
+              y: { delay: 1.2 + i * 0.1, duration: 2.5, repeat: Infinity, ease: 'easeInOut' },
+            }}
+            style={{
+              position: 'absolute',
+              left: cx, top: cy,
+              transform: 'translate(-50%, -50%)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+              zIndex: 2,
+            }}
+          >
+            <div style={{
+              width: '40px', height: '40px', borderRadius: '10px',
+              background: `${p.color}18`,
+              border: `1px solid ${p.color}44`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Icon size={18} color={p.color} />
+            </div>
+            <span style={{
+              fontSize: '9px', fontWeight: 600, color: t.ts,
+              letterSpacing: '0.02em', whiteSpace: 'nowrap',
+            }}>
+              {p.name}
+            </span>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Step definitions ───────────────────────────────────────────
 const STEPS = [
   {
@@ -378,7 +501,7 @@ const STEPS = [
     id: 'agents',
     icon: Bot,
     title: 'Meet Your AI Agents',
-    description: 'Browse 35+ specialized agents or create your own. Each agent has unique skills and personality.',
+    description: 'Browse 35+ specialized agents or create your own. Each agent has unique skills, personality, and can be deployed as an MCP server anywhere.',
     visual: FloatingAgentCards,
     cta: { label: 'Browse Agents', path: '/agents' },
   },
