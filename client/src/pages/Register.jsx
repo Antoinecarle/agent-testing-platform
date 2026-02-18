@@ -1,6 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { setToken, setRefreshToken, setUser } from '../api';
+
+const LOGO_URL = 'https://lh3.googleusercontent.com/gg/AMW1TPqpzr7I6vew9xaze-X_7OAmrf8uKjGOt3qEVKw06unFiCPc5Xzn83kiA5Vz1o8J7lAR1AybPK892UuiooLC9-K0b4TOkEKALy31LXHXw3SvmrLeS9ilZxKoRYhHiuIIQSPlMsJ7IRPUuKsprzGZLPhmoKi1WCf2CWNbU4uWxGrQcR5YRanO=s1024-rj-mp2';
+
+const keyframes = `
+@keyframes regFadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes regPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+@keyframes regOrb1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-70px, -30px) scale(1.1); }
+  50% { transform: translate(40px, -70px) scale(0.95); }
+  75% { transform: translate(50px, 30px) scale(1.05); }
+}
+@keyframes regOrb2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(60px, 50px) scale(0.9); }
+  50% { transform: translate(-50px, 40px) scale(1.1); }
+  75% { transform: translate(-30px, -60px) scale(1); }
+}
+@keyframes regOrb3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-60px, 50px) scale(1.15); }
+  66% { transform: translate(50px, -40px) scale(0.9); }
+}
+@keyframes regLogoGlow {
+  0%, 100% { box-shadow: 0 0 30px rgba(139,92,246,0.2), 0 0 60px rgba(139,92,246,0.1); }
+  50% { box-shadow: 0 0 40px rgba(139,92,246,0.35), 0 0 80px rgba(139,92,246,0.15); }
+}
+@keyframes regGridFade {
+  0%, 100% { opacity: 0.03; }
+  50% { opacity: 0.06; }
+}
+@keyframes regSpin {
+  to { transform: rotate(360deg); }
+}
+`;
 
 export default function Register() {
   const [email, setEmail] = useState('');
@@ -8,7 +49,15 @@ export default function Register() {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
+  const [hoverBtn, setHoverBtn] = useState(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    requestAnimationFrame(() => setMounted(true));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,100 +82,376 @@ export default function Register() {
     }
   };
 
+  const inputStyle = (field) => ({
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    border: `1px solid ${focusedField === field ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.08)'}`,
+    borderRadius: '10px',
+    padding: '12px 14px 12px 42px',
+    color: '#F4F4F5',
+    fontSize: '14px',
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: '"Inter", -apple-system, sans-serif',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    boxShadow: focusedField === field ? '0 0 0 3px rgba(139,92,246,0.12), 0 0 20px rgba(139,92,246,0.06)' : 'none',
+  });
+
+  const iconColor = (field) => focusedField === field ? '#8B5CF6' : '#52525B';
+
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#050505', position: 'relative', overflow: 'hidden',
-    }}>
+    <>
+      <style>{keyframes}</style>
       <div style={{
-        position: 'absolute', top: '-10%', left: '50%', transform: 'translateX(-50%)',
-        width: '60%', height: '400px',
-        background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%)',
-        filter: 'blur(80px)', pointerEvents: 'none',
-      }} />
-      <form onSubmit={handleSubmit} style={{
-        width: '360px', padding: '40px', background: '#0A0A0B',
-        border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px',
-        position: 'relative', zIndex: 1,
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#050505',
+        position: 'relative',
+        overflow: 'hidden',
+        fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        {/* Animated background orbs */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
           <div style={{
-            width: '40px', height: '40px', borderRadius: '8px', background: '#111112',
-            border: '1px solid rgba(255,255,255,0.12)', display: 'inline-flex',
-            alignItems: 'center', justifyContent: 'center', marginBottom: '16px',
-            color: '#8B5CF6', fontSize: '20px',
-          }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-          </div>
-          <h1 style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '-0.02em', marginBottom: '4px', color: '#F4F4F5' }}>
-            Create Account
-          </h1>
-          <p style={{ fontSize: '13px', color: '#A1A1AA' }}>Join the Agent Testing Platform</p>
-        </div>
-
-        {error && (
+            position: 'absolute', top: '10%', right: '20%',
+            width: '400px', height: '400px', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)',
+            filter: 'blur(80px)', animation: 'regOrb1 20s ease-in-out infinite',
+          }} />
           <div style={{
-            padding: '8px 12px', marginBottom: '16px', borderRadius: '4px',
-            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-            color: '#ef4444', fontSize: '12px',
-          }}>{error}</div>
-        )}
+            position: 'absolute', bottom: '15%', left: '15%',
+            width: '350px', height: '350px', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)',
+            filter: 'blur(80px)', animation: 'regOrb2 25s ease-in-out infinite',
+          }} />
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: '300px', height: '300px', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(168,85,247,0.1) 0%, transparent 70%)',
+            filter: 'blur(80px)', animation: 'regOrb3 18s ease-in-out infinite',
+          }} />
+        </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Display Name</label>
-          <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
-            style={{ width: '100%' }} placeholder="Your name" />
-        </div>
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-            style={{ width: '100%' }} placeholder="you@example.com" />
-        </div>
-        <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#A1A1AA', marginBottom: '6px' }}>Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-            style={{ width: '100%' }} placeholder="Min. 6 characters" />
-        </div>
-        <button type="submit" disabled={loading} style={{
-          width: '100%', padding: '10px', background: '#F4F4F5', color: '#050505',
-          border: 'none', borderRadius: '4px', fontSize: '13px', fontWeight: '600',
-          opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer',
-        }}>
-          {loading ? 'Creating account...' : 'Create Account'}
-        </button>
-
+        {/* Subtle grid pattern */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '12px', margin: '20px 0',
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          backgroundImage: `
+            linear-gradient(rgba(139,92,246,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(139,92,246,0.03) 1px, transparent 1px)
+          `,
+          backgroundSize: '60px 60px',
+          animation: 'regGridFade 8s ease-in-out infinite',
+        }} />
+
+        {/* Top gradient wash */}
+        <div style={{
+          position: 'absolute', top: '-20%', left: '50%', transform: 'translateX(-50%)',
+          width: '120%', height: '500px',
+          background: 'radial-gradient(ellipse, rgba(139,92,246,0.08) 0%, transparent 60%)',
+          filter: 'blur(60px)', pointerEvents: 'none',
+          animation: 'regPulse 6s ease-in-out infinite',
+        }} />
+
+        {/* Register card */}
+        <form onSubmit={handleSubmit} style={{
+          width: '420px',
+          maxWidth: 'calc(100vw - 40px)',
+          padding: '40px 40px 32px',
+          background: 'rgba(12, 12, 14, 0.8)',
+          backdropFilter: 'blur(40px) saturate(1.2)',
+          WebkitBackdropFilter: 'blur(40px) saturate(1.2)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: '20px',
+          position: 'relative',
+          zIndex: 1,
+          boxShadow: '0 0 0 1px rgba(255,255,255,0.03), 0 20px 60px rgba(0,0,0,0.5), 0 0 100px rgba(139,92,246,0.04)',
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(24px)',
+          transition: 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
         }}>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-          <span style={{ fontSize: '11px', color: '#52525B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>or</span>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-        </div>
+          {/* Card inner glow at top */}
+          <div style={{
+            position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
+            width: '60%', height: '1px',
+            background: 'linear-gradient(90deg, transparent, rgba(139,92,246,0.3), transparent)',
+          }} />
 
-        <a href="/api/github/auth?action=login" style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-          width: '100%', padding: '10px', background: '#161618',
-          border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px',
-          fontSize: '13px', fontWeight: '500', color: '#F4F4F5',
-          textDecoration: 'none', boxSizing: 'border-box',
-          cursor: 'pointer', transition: 'border-color 0.2s',
-        }}
-        onMouseOver={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}
-        onMouseOut={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-          </svg>
-          Sign up with GitHub
-        </a>
+          {/* Logo + Branding */}
+          <div style={{
+            textAlign: 'center', marginBottom: '28px',
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(16px)',
+            transition: 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.15s',
+          }}>
+            <div style={{ position: 'relative', display: 'inline-block', marginBottom: '18px' }}>
+              <img
+                src={LOGO_URL}
+                alt="GURU Logo"
+                style={{
+                  width: '80px', height: '80px', borderRadius: '20px',
+                  objectFit: 'cover', border: '2px solid rgba(139,92,246,0.3)',
+                  animation: 'regLogoGlow 4s ease-in-out infinite',
+                  position: 'relative', zIndex: 1,
+                }}
+              />
+              <div style={{
+                position: 'absolute', inset: '-8px', borderRadius: '26px',
+                background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)',
+                filter: 'blur(12px)', zIndex: 0,
+              }} />
+            </div>
+            <h1 style={{
+              fontSize: '24px', fontWeight: '800', letterSpacing: '-0.03em',
+              margin: '0 0 6px', lineHeight: 1.2,
+            }}>
+              <span style={{ color: '#F4F4F5' }}>Join </span>
+              <span style={{ color: '#F4F4F5' }}>GURU</span>
+              <span style={{ color: '#8B5CF6' }}>.ai</span>
+            </h1>
+            <p style={{
+              fontSize: '13px', color: '#71717A', margin: 0,
+              letterSpacing: '0.02em', fontWeight: '400',
+            }}>
+              Create your account to get started
+            </p>
+          </div>
 
-        <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#A1A1AA' }}>
-          Already have an account?{' '}
-          <Link to="/login" style={{ color: '#8B5CF6', textDecoration: 'none', fontWeight: '500' }}>
-            Sign in
-          </Link>
-        </div>
-      </form>
-    </div>
+          {/* Error message */}
+          {error && (
+            <div style={{
+              padding: '10px 14px', marginBottom: '18px', borderRadius: '10px',
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              color: '#f87171', fontSize: '13px',
+              display: 'flex', alignItems: 'center', gap: '8px',
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              {error}
+            </div>
+          )}
+
+          {/* Display Name field */}
+          <div style={{
+            marginBottom: '14px',
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+            transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s',
+          }}>
+            <label style={{
+              display: 'block', fontSize: '12px', fontWeight: '600',
+              color: '#A1A1AA', marginBottom: '8px', letterSpacing: '0.03em',
+              textTransform: 'uppercase',
+            }}>Display Name</label>
+            <div style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={iconColor('name')} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', transition: 'stroke 0.3s', pointerEvents: 'none' }}>
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+              <input
+                type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+                placeholder="Your name"
+                onFocus={() => setFocusedField('name')}
+                onBlur={() => setFocusedField(null)}
+                style={inputStyle('name')}
+              />
+            </div>
+          </div>
+
+          {/* Email field */}
+          <div style={{
+            marginBottom: '14px',
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+            transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.3s',
+          }}>
+            <label style={{
+              display: 'block', fontSize: '12px', fontWeight: '600',
+              color: '#A1A1AA', marginBottom: '8px', letterSpacing: '0.03em',
+              textTransform: 'uppercase',
+            }}>Email</label>
+            <div style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={iconColor('email')} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', transition: 'stroke 0.3s', pointerEvents: 'none' }}>
+                <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+              </svg>
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                placeholder="you@example.com"
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField(null)}
+                style={inputStyle('email')}
+              />
+            </div>
+          </div>
+
+          {/* Password field */}
+          <div style={{
+            marginBottom: '24px',
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+            transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.4s',
+          }}>
+            <label style={{
+              display: 'block', fontSize: '12px', fontWeight: '600',
+              color: '#A1A1AA', marginBottom: '8px', letterSpacing: '0.03em',
+              textTransform: 'uppercase',
+            }}>Password</label>
+            <div style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={iconColor('password')} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', transition: 'stroke 0.3s', pointerEvents: 'none' }}>
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password} onChange={e => setPassword(e.target.value)} required
+                placeholder="Min. 6 characters"
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
+                style={{ ...inputStyle('password'), paddingRight: '42px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '8px',
+                  color: '#52525B', transition: 'color 0.2s', display: 'flex',
+                }}
+                onMouseOver={e => e.currentTarget.style.color = '#A1A1AA'}
+                onMouseOut={e => e.currentTarget.style.color = '#52525B'}
+              >
+                {showPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                    <path d="m1 1 22 22"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Create Account button */}
+          <div style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+            transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.5s',
+          }}>
+            <button
+              type="submit" disabled={loading}
+              onMouseOver={() => setHoverBtn('create')}
+              onMouseOut={() => setHoverBtn(null)}
+              style={{
+                width: '100%', padding: '13px',
+                background: hoverBtn === 'create' && !loading
+                  ? 'linear-gradient(135deg, #9B6DF7 0%, #7C3AED 100%)'
+                  : 'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)',
+                color: '#fff', border: 'none', borderRadius: '10px',
+                fontSize: '14px', fontWeight: '600',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1,
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: hoverBtn === 'create' && !loading
+                  ? '0 0 30px rgba(139,92,246,0.4), 0 4px 20px rgba(139,92,246,0.3)'
+                  : '0 0 20px rgba(139,92,246,0.15), 0 4px 12px rgba(0,0,0,0.3)',
+                letterSpacing: '0.01em', fontFamily: 'inherit',
+              }}
+            >
+              {loading ? (
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'regSpin 1s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                  Creating account...
+                </span>
+              ) : 'Create Account'}
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '16px', margin: '22px 0',
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.55s',
+          }}>
+            <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)' }} />
+            <span style={{ fontSize: '11px', color: '#3F3F46', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '500' }}>or sign up with</span>
+            <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)' }} />
+          </div>
+
+          {/* GitHub button */}
+          <div style={{
+            opacity: mounted ? 1 : 0,
+            transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+            transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.6s',
+          }}>
+            <a
+              href="/api/github/auth?action=login"
+              onMouseOver={() => setHoverBtn('github')}
+              onMouseOut={() => setHoverBtn(null)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                width: '100%', padding: '12px',
+                background: hoverBtn === 'github' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${hoverBtn === 'github' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: '10px',
+                fontSize: '14px', fontWeight: '500', color: '#E4E4E7',
+                textDecoration: 'none', boxSizing: 'border-box',
+                cursor: 'pointer',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: hoverBtn === 'github' ? '0 0 20px rgba(255,255,255,0.03)' : 'none',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              GitHub
+            </a>
+          </div>
+
+          {/* Sign in link */}
+          <div style={{
+            textAlign: 'center', marginTop: '22px',
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.7s',
+          }}>
+            <span style={{ fontSize: '13px', color: '#52525B' }}>
+              Already have an account?{' '}
+              <Link to="/login" style={{
+                color: '#8B5CF6', textDecoration: 'none', fontWeight: '600',
+                transition: 'color 0.2s',
+              }}
+              onMouseOver={e => e.target.style.color = '#A78BFA'}
+              onMouseOut={e => e.target.style.color = '#8B5CF6'}
+              >
+                Sign in
+              </Link>
+            </span>
+          </div>
+
+          {/* Bottom subtle branding */}
+          <div style={{
+            textAlign: 'center', marginTop: '24px', paddingTop: '18px',
+            borderTop: '1px solid rgba(255,255,255,0.04)',
+            opacity: mounted ? 1 : 0,
+            transition: 'opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.8s',
+          }}>
+            <p style={{
+              fontSize: '11px', color: '#3F3F46', margin: 0,
+              letterSpacing: '0.05em',
+            }}>
+              Secured by <span style={{ color: '#52525B', fontWeight: '600' }}>GURU</span><span style={{ color: 'rgba(139,92,246,0.5)' }}>.ai</span>
+            </p>
+          </div>
+        </form>
+      </div>
+    </>
   );
 }
