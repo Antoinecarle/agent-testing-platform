@@ -195,12 +195,12 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         connectSrc: ["'self'", "wss:", "ws:", "https:"],
-        frameSrc: ["'self'"],
+        frameSrc: ["'self'", "https://js.stripe.com"],
         frameAncestors: ["'self'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -236,6 +236,17 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   // Auth routes (no token required, rate limited)
   app.use('/api/auth', authLimiter, authRouter);
+
+  // GitHub OAuth routes (callback must be accessible without auth)
+  const githubRoutes = require('./routes/github');
+  const githubAuth = (req, res, next) => {
+    // Auth and callback routes don't require JWT (OAuth flow comes from GitHub)
+    if (req.path === '/auth' || req.path === '/callback') {
+      return next();
+    }
+    return verifyToken(req, res, next);
+  };
+  app.use('/api/github', githubAuth, githubRoutes);
 
   // Internal API key for workspace CLI calls (save-iteration, etc.)
   // Generate a per-boot key if not set in env — workspace CLAUDE.md injects it
