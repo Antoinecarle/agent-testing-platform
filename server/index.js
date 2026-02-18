@@ -641,9 +641,35 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     ].join('\n') + '\n');
   });
 
-  // .well-known endpoints — return 404 JSON for all MCP/OAuth discovery (no OAuth needed)
+  // .well-known endpoints — return OAuth metadata for MCP clients (Claude CLI, etc.)
+  app.get('/.well-known/oauth-authorization-server', (req, res) => {
+    res.status(404).json({
+      error: 'oauth_not_supported',
+      error_description: 'This server uses API key authentication. Pass your key via ?key= query param or Authorization: Bearer header.',
+    });
+  });
   app.get('/.well-known/*', (req, res) => {
     res.status(404).json({ error: 'Not found. This server uses API key authentication.' });
+  });
+
+  // OAuth endpoints — proper JSON errors for MCP clients trying OAuth flow
+  app.post('/register', (req, res) => {
+    res.status(400).json({
+      error: 'invalid_request',
+      error_description: 'This server does not support OAuth dynamic client registration. Use API key authentication instead: pass your key via ?key= query param or Authorization: Bearer header.',
+    });
+  });
+  app.post('/token', (req, res) => {
+    res.status(400).json({
+      error: 'invalid_request',
+      error_description: 'This server does not support OAuth token exchange. Use API key authentication instead.',
+    });
+  });
+  app.get('/authorize', (req, res) => {
+    res.status(400).json({
+      error: 'invalid_request',
+      error_description: 'This server does not support OAuth authorization. Use API key authentication instead.',
+    });
   });
 
   // Serve static frontend
