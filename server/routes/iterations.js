@@ -121,6 +121,25 @@ router.delete('/detail/:id', async (req, res) => {
   }
 });
 
+// PUT /api/iterations/detail/:id/html — update iteration HTML content
+router.put('/detail/:id/html', async (req, res) => {
+  try {
+    const { html_content } = req.body;
+    if (!html_content) return res.status(400).json({ error: 'html_content required' });
+    const iteration = await db.getIteration(req.params.id);
+    if (!iteration) return res.status(404).json({ error: 'Iteration not found' });
+    if (!iteration.file_path) return res.status(400).json({ error: 'No file path' });
+    const htmlPath = path.join(ITERATIONS_DIR, iteration.file_path);
+    const htmlDir = path.dirname(htmlPath);
+    if (!fs.existsSync(htmlDir)) fs.mkdirSync(htmlDir, { recursive: true });
+    fs.writeFileSync(htmlPath, html_content);
+    res.json({ ok: true, size: html_content.length });
+  } catch (err) {
+    console.error('[Iterations] Update HTML error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // PATCH /api/iterations/detail/:id — rename iteration (update title)
 router.patch('/detail/:id', async (req, res) => {
   try {
