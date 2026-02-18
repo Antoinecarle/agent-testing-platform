@@ -26,6 +26,15 @@ const registerSchema = z.object({
   displayName: z.string().max(100).optional().default(''),
 });
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email format').max(255),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token required'),
+  newPassword: z.string().min(6, 'Password must be at least 6 characters').max(128),
+});
+
 // ===================== PROJECT SCHEMAS =====================
 
 const createProjectSchema = z.object({
@@ -184,6 +193,8 @@ module.exports = {
   // Auth
   loginSchema,
   registerSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   // Projects
   createProjectSchema,
   updateProjectSchema,

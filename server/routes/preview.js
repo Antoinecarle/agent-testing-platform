@@ -7,6 +7,22 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'
 const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
 const db = require('../db');
 
+// UUID format validation for path params
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateIds(req, res) {
+  const { projectId, iterationId } = req.params;
+  if (projectId && !UUID_RE.test(projectId)) {
+    res.status(400).send('Invalid project ID');
+    return false;
+  }
+  if (iterationId && !UUID_RE.test(iterationId)) {
+    res.status(400).send('Invalid iteration ID');
+    return false;
+  }
+  return true;
+}
+
 /**
  * Generate a placeholder SVG for missing images.
  */
@@ -65,6 +81,7 @@ router.get('/template/:templateId', (req, res) => {
 
 // GET /api/preview/showcase/:projectId — public project info + all iterations (for client sharing)
 router.get('/showcase/:projectId', async (req, res) => {
+  if (!validateIds(req, res)) return;
   try {
     const project = await db.getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -78,6 +95,7 @@ router.get('/showcase/:projectId', async (req, res) => {
 
 // GET /api/preview/download/:projectId/:iterationId — download iteration as zip
 router.get('/download/:projectId/:iterationId', async (req, res) => {
+  if (!validateIds(req, res)) return;
   const archiver = require('archiver');
   try {
     const iterDir = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId);
@@ -107,6 +125,7 @@ router.get('/download/:projectId/:iterationId', async (req, res) => {
 
 // GET /api/preview/raw/:projectId/:iterationId — MUST be before wildcard routes
 router.get('/raw/:projectId/:iterationId', (req, res) => {
+  if (!validateIds(req, res)) return;
   try {
     const filePath = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId, 'index.html');
     if (!fs.existsSync(filePath)) {
@@ -121,6 +140,7 @@ router.get('/raw/:projectId/:iterationId', (req, res) => {
 
 // GET /api/preview/:projectId/:iterationId — serve iteration HTML
 router.get('/:projectId/:iterationId', (req, res) => {
+  if (!validateIds(req, res)) return;
   try {
     const filePath = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId, 'index.html');
     if (!fs.existsSync(filePath)) {
@@ -135,8 +155,15 @@ router.get('/:projectId/:iterationId', (req, res) => {
 
 // GET /api/preview/:projectId/:iterationId/* — serve assets or placeholder images
 router.get('/:projectId/:iterationId/*', (req, res) => {
+  if (!validateIds(req, res)) return;
   const relPath = req.params[0];
-  const absPath = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId, relPath);
+  const baseDir = path.resolve(ITERATIONS_DIR, req.params.projectId, req.params.iterationId);
+  const absPath = path.resolve(baseDir, relPath);
+
+  // SECURITY: Prevent path traversal — resolved path must stay within iteration directory
+  if (!absPath.startsWith(baseDir + path.sep) && absPath !== baseDir) {
+    return res.status(403).send('Forbidden');
+  }
 
   // Serve real file if it exists
   if (fs.existsSync(absPath)) {

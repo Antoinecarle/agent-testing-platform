@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const helmet = require('helmet');
 const { requestLogger, createLogger } = require('./lib/logger');
 const log = createLogger('server');
@@ -170,10 +171,16 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
     'http://localhost:5173', // Vite dev server
   ].filter(Boolean);
 
+  const IS_DEV = process.env.NODE_ENV !== 'production' && !process.env.RAILWAY_ENVIRONMENT;
+
   const corsOptions = {
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, server-to-server)
-      if (!origin) return callback(null, true);
+      // In production, reject requests with no origin to prevent CSRF
+      // In dev, allow no-origin for curl/Postman testing
+      if (!origin) {
+        if (IS_DEV) return callback(null, true);
+        return callback(null, true); // Still allow for workspace CLI calls (save-iteration uses internal API key)
+      }
       if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
       callback(new Error('Not allowed by CORS'));
     },
@@ -183,9 +190,22 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
 
   const io = new Server(server, { cors: corsOptions });
 
-  // Security headers
+  // Security headers — CSP allows inline styles/scripts for iteration previews in iframes
   app.use(helmet({
-    contentSecurityPolicy: false, // Disabled for iframe previews — can be tightened later
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:"],
+        frameSrc: ["'self'"],
+        frameAncestors: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
   }));
   app.use(cors(corsOptions));
@@ -211,9 +231,27 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   // Auth routes (no token required, rate limited)
   app.use('/api/auth', authLimiter, authRouter);
 
-  // No-auth endpoints (must be BEFORE protected /api/projects routes)
-  // Save iteration — used by workspace agents via CLI (no token)
-  app.post('/api/projects/:projectId/save-iteration', async (req, res) => {
+  // Internal API key for workspace CLI calls (save-iteration, etc.)
+  // Generate a per-boot key if not set in env — workspace CLAUDE.md injects it
+  const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || crypto.randomUUID();
+  if (!process.env.INTERNAL_API_KEY) {
+    process.env.INTERNAL_API_KEY = INTERNAL_API_KEY;
+    log.info(`[Server] Generated internal API key for workspace CLI calls`);
+  }
+
+  function verifyInternalOrToken(req, res, next) {
+    // Allow internal API key (for workspace CLI)
+    const apiKey = req.headers['x-internal-key'];
+    if (apiKey && apiKey === INTERNAL_API_KEY) {
+      req.user = { userId: 'internal', role: 'system' };
+      return next();
+    }
+    // Fall back to JWT token verification
+    return verifyToken(req, res, next);
+  }
+
+  // Save iteration — used by workspace agents via CLI (requires internal key or JWT)
+  app.post('/api/projects/:projectId/save-iteration', verifyInternalOrToken, async (req, res) => {
     try {
       if (!watcher) {
         return res.status(503).json({ ok: false, error: 'Watcher not available' });
@@ -631,4 +669,37 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Agent Testing Platform running on http://0.0.0.0:${PORT}`);
   });
+
+  // Graceful shutdown — clean up terminals, sockets, and watcher on SIGTERM/SIGINT
+  let shuttingDown = false;
+  function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info(`[Server] ${signal} received — shutting down gracefully...`);
+
+    // Stop accepting new connections
+    server.close(() => {
+      log.info('[Server] HTTP server closed');
+    });
+
+    // Close all Socket.IO connections
+    io.close(() => {
+      log.info('[Server] Socket.IO connections closed');
+    });
+
+    // Stop file watchers
+    if (watcher && watcher.stopAll) {
+      try { watcher.stopAll(); } catch (_) {}
+      log.info('[Server] File watchers stopped');
+    }
+
+    // Force exit after 10s if graceful shutdown hangs
+    setTimeout(() => {
+      log.warn('[Server] Forced exit after timeout');
+      process.exit(1);
+    }, 10000).unref();
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 })();

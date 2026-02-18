@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Play, Activity, Clock, Terminal, ArrowUpRight, CheckCircle2, AlertCircle, RefreshCw, MonitorDot, Repeat, Zap, Globe, Cpu, BarChart3, History, Shield, Sparkles, User, Bot, Edit2, ChevronLeft, ChevronRight, Star, Eye, FileSearch, GitBranch, Code, MessageSquare, Trash2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api';
 import AgentCreator from '../components/AgentCreator';
 import OnboardingBanner from '../components/OnboardingBanner';
+import OnboardingWizard from '../components/OnboardingWizard';
 import TemplateGallery from '../components/TemplateGallery';
 
 const t = {
@@ -172,6 +173,7 @@ export default function Dashboard() {
   const [activeSkill, setActiveSkill] = useState(null);
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [onboarding, setOnboarding] = useState(null);
+  const [showWizard, setShowWizard] = useState(false);
   const agentScrollRef = React.useRef(null);
 
   const fetchData = async () => {
@@ -187,8 +189,12 @@ export default function Dashboard() {
   const fetchOnboarding = async () => {
     try {
       const data = await api('/api/onboarding/status');
-      if (!data.onboarding_completed) setOnboarding(data);
-      else setOnboarding(null);
+      if (!data.onboarding_completed) {
+        setOnboarding(data);
+        setShowWizard(true);
+      } else {
+        setOnboarding(null);
+      }
     } catch (_) {}
   };
 
@@ -196,7 +202,19 @@ export default function Dashboard() {
     try {
       await api('/api/onboarding/dismiss', { method: 'POST' });
       setOnboarding(null);
+      setShowWizard(false);
     } catch (_) {}
+  };
+
+  const handleWizardComplete = async () => {
+    setShowWizard(false);
+    await dismissOnboarding();
+  };
+
+  const handleWizardNavigate = (path) => {
+    setShowWizard(false);
+    dismissOnboarding();
+    navigate(path);
   };
 
   useEffect(() => { fetchData(); fetchOnboarding(); }, []);
@@ -310,13 +328,36 @@ export default function Dashboard() {
   };
 
   if (loading) return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '80px', color: t.violet, fontFamily: t.mono, fontSize: '13px' }}>
-      <RefreshCw size={20} style={{ animation: 'spin 2s linear infinite', marginRight: '8px' }} />
-      INITIALIZING_DASHBOARD...
-    </div>
+    <>
+    <AnimatePresence>
+      {showWizard && (
+        <OnboardingWizard
+          onComplete={handleWizardComplete}
+          onNavigate={handleWizardNavigate}
+        />
+      )}
+    </AnimatePresence>
+    {!showWizard && (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '80px', color: t.violet, fontFamily: t.mono, fontSize: '13px' }}>
+        <RefreshCw size={20} style={{ animation: 'spin 2s linear infinite', marginRight: '8px' }} />
+        INITIALIZING_DASHBOARD...
+      </div>
+    )}
+    </>
   );
 
   return (
+    <>
+    {/* Onboarding Wizard Overlay */}
+    <AnimatePresence>
+      {showWizard && (
+        <OnboardingWizard
+          onComplete={handleWizardComplete}
+          onNavigate={handleWizardNavigate}
+        />
+      )}
+    </AnimatePresence>
+
     <motion.div
       variants={containerVariants}
       initial="hidden"
@@ -1210,5 +1251,6 @@ export default function Dashboard() {
       {/* Agent Creator Modal */}
       {showAgentCreator && <AgentCreator onClose={() => setShowAgentCreator(false)} />}
     </motion.div>
+    </>
   );
 }

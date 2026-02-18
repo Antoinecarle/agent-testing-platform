@@ -89,7 +89,12 @@ export default function Login() {
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
 
-        <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#A1A1AA' }}>
+        <div style={{ textAlign: 'center', marginTop: '12px' }}>
+          <Link to="/forgot-password" style={{ color: '#A1A1AA', fontSize: '12px', textDecoration: 'none' }}>
+            Forgot password?
+          </Link>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '12px', color: '#A1A1AA' }}>
           Don't have an account?{' '}
           <Link to="/register" style={{ color: '#8B5CF6', textDecoration: 'none', fontWeight: '500' }}>
             Create one
