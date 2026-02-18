@@ -3,7 +3,8 @@ import {
   Globe, Key, BarChart3, Settings, Wrench, Rocket, ExternalLink,
   Plus, Trash2, Copy, Pause, Play, Eye, EyeOff, RefreshCw,
   AlertCircle, CheckCircle, Clock, Activity, Server, Shield,
-  ChevronRight, X, Zap, TrendingUp, Database, Cpu
+  ChevronRight, ChevronDown, X, Zap, TrendingUp, Database, Cpu,
+  HardDrive, Mail, Calendar, FileSpreadsheet, Link2
 } from 'lucide-react';
 import { api } from '../api';
 import McpToolsManager from './McpToolsManager';
@@ -824,6 +825,185 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
 }
 
 
+// ----- Platform Tools Section -----
+const PLATFORM_ICONS = {
+  'google-drive': HardDrive,
+  gmail: Mail,
+  'google-calendar': Calendar,
+  'google-sheets': FileSpreadsheet,
+  notion: Database,
+};
+
+const PLATFORM_COLORS = {
+  'google-drive': '#4285F4',
+  gmail: '#EA4335',
+  'google-calendar': '#34A853',
+  'google-sheets': '#0F9D58',
+  notion: '#fff',
+};
+
+function PlatformToolsSection({ agentName }) {
+  const [tools, setTools] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedTool, setExpandedTool] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api(`/api/platforms/agent/${agentName}/mcp-tools`);
+        setTools(data || []);
+      } catch (err) {
+        console.error('Failed to load platform tools:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [agentName]);
+
+  if (loading) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
+        Loading platform tools...
+      </div>
+    );
+  }
+
+  if (tools.length === 0) {
+    return (
+      <div style={{
+        background: t.surface, border: `1px dashed ${t.border}`, borderRadius: '10px',
+        padding: '24px', textAlign: 'center',
+      }}>
+        <Link2 size={24} style={{ color: t.tm, marginBottom: '10px' }} />
+        <p style={{ fontSize: '13px', color: t.tm, margin: '0 0 4px' }}>No platform tools connected</p>
+        <p style={{ fontSize: '11px', color: t.tm, margin: 0, lineHeight: 1.5 }}>
+          Connect platforms in the <strong style={{ color: t.ts }}>Platforms</strong> tab to give this agent access to Google Drive, Gmail, Notion, and more via MCP.
+        </p>
+      </div>
+    );
+  }
+
+  // Group tools by platform
+  const grouped = {};
+  for (const tool of tools) {
+    const key = tool.platform_slug;
+    if (!grouped[key]) grouped[key] = { name: tool.platform_name, slug: key, tools: [] };
+    grouped[key].tools.push(tool);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {Object.values(grouped).map(platform => {
+        const PIcon = PLATFORM_ICONS[platform.slug] || Globe;
+        const pColor = PLATFORM_COLORS[platform.slug] || t.violet;
+
+        return (
+          <div key={platform.slug} style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: '10px',
+            overflow: 'hidden',
+          }}>
+            {/* Platform header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px',
+              borderBottom: `1px solid ${t.border}`,
+            }}>
+              <div style={{
+                width: '28px', height: '28px', borderRadius: '6px',
+                background: `${pColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <PIcon size={14} style={{ color: pColor }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '13px', fontWeight: '600' }}>{platform.name}</div>
+                <div style={{ fontSize: '10px', color: t.tm }}>
+                  {platform.tools.length} tool{platform.tools.length !== 1 ? 's' : ''} available via MCP
+                </div>
+              </div>
+              <span style={{
+                fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '3px 8px',
+                borderRadius: '100px', backgroundColor: 'rgba(34,197,94,0.12)', color: t.success,
+                letterSpacing: '0.04em',
+              }}>
+                Connected
+              </span>
+            </div>
+
+            {/* Tool rows */}
+            {platform.tools.map((tool, i) => {
+              const isExpanded = expandedTool === tool.tool_name;
+              return (
+                <div key={tool.tool_name}>
+                  <button
+                    onClick={() => setExpandedTool(isExpanded ? null : tool.tool_name)}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '10px 16px', background: isExpanded ? 'rgba(139,92,246,0.04)' : 'transparent',
+                      border: 'none', borderBottom: i < platform.tools.length - 1 || isExpanded ? `1px solid ${t.border}` : 'none',
+                      cursor: 'pointer', textAlign: 'left', color: t.tp,
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                    onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    {isExpanded
+                      ? <ChevronDown size={12} style={{ color: t.tm, flexShrink: 0 }} />
+                      : <ChevronRight size={12} style={{ color: t.tm, flexShrink: 0 }} />
+                    }
+                    <code style={{ fontSize: '11px', fontFamily: t.mono, color: t.violet, fontWeight: '600' }}>
+                      {tool.tool_name}
+                    </code>
+                    <span style={{ fontSize: '11px', color: t.ts, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {tool.description}
+                    </span>
+                  </button>
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div style={{
+                      padding: '12px 16px 12px 38px',
+                      borderBottom: i < platform.tools.length - 1 ? `1px solid ${t.border}` : 'none',
+                      background: 'rgba(139,92,246,0.02)',
+                    }}>
+                      <div style={{ fontSize: '11px', color: t.ts, lineHeight: 1.6, marginBottom: '10px' }}>
+                        {tool.description}
+                      </div>
+                      {tool.input_schema?.properties && (
+                        <div>
+                          <div style={{ fontSize: '10px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                            Parameters
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {Object.entries(tool.input_schema.properties).map(([param, schema]) => {
+                              const isRequired = (tool.input_schema.required || []).includes(param);
+                              return (
+                                <div key={param} style={{
+                                  display: 'flex', alignItems: 'baseline', gap: '8px',
+                                  padding: '4px 8px', background: t.surfaceEl, borderRadius: '4px',
+                                }}>
+                                  <code style={{ fontSize: '10px', fontFamily: t.mono, color: t.violet, fontWeight: '500' }}>{param}</code>
+                                  <span style={{ fontSize: '9px', fontFamily: t.mono, color: t.tm }}>{schema.type}</span>
+                                  {isRequired && (
+                                    <span style={{ fontSize: '8px', fontWeight: '700', color: t.warning, textTransform: 'uppercase' }}>req</span>
+                                  )}
+                                  <span style={{ fontSize: '10px', color: t.tm, flex: 1 }}>{schema.description}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
 // ----- Main McpPanel Component -----
 export default function McpPanel({ agentName, agent }) {
   const [section, setSection] = useState('overview');
@@ -994,6 +1174,38 @@ export default function McpPanel({ agentName, agent }) {
               </p>
             </div>
             <McpToolsManager agentName={agentName} />
+
+            {/* Platform Tools */}
+            <div style={{ marginTop: '32px' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px',
+                paddingBottom: '12px', borderBottom: `1px solid ${t.border}`,
+              }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '6px',
+                  background: 'rgba(34,197,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Link2 size={14} style={{ color: '#22c55e' }} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', margin: 0 }}>Platform Tools</h3>
+                  <p style={{ fontSize: '11px', color: t.tm, margin: 0 }}>
+                    Connected platforms are automatically exposed as MCP tools
+                  </p>
+                </div>
+              </div>
+              <div style={{
+                background: 'rgba(139,92,246,0.04)', border: `1px solid ${t.violet}20`,
+                borderRadius: '8px', padding: '10px 14px', marginBottom: '16px',
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
+              }}>
+                <Zap size={13} style={{ color: t.violet, flexShrink: 0, marginTop: '1px' }} />
+                <span style={{ fontSize: '11px', color: t.ts, lineHeight: 1.5 }}>
+                  When you connect a platform (Google Drive, Gmail, etc.) in the <strong>Platforms</strong> tab, its actions become available as MCP tools. External clients calling this agent's MCP endpoint can use these tools to interact with connected services on your behalf.
+                </span>
+              </div>
+              <PlatformToolsSection agentName={agentName} />
+            </div>
           </div>
         )}
         {section === 'api-keys' && (
