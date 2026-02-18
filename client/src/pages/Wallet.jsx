@@ -24,11 +24,15 @@ const TABS = [
 ];
 
 const PACKAGES = [
-  { amount: 500, label: 'Starter', icon: Zap, desc: 'Get started with AI agents' },
-  { amount: 2000, label: 'Popular', icon: Crown, desc: 'Most chosen by developers', popular: true },
-  { amount: 5000, label: 'Pro', icon: TrendingUp, desc: 'For power users & teams' },
-  { amount: 10000, label: 'Enterprise', icon: Shield, desc: 'Unlimited potential' },
+  { amount: 500, price: 500, label: 'Starter', icon: Zap, desc: 'Get started with AI agents' },
+  { amount: 2000, price: 2000, label: 'Popular', icon: Crown, desc: 'Most chosen by developers', popular: true },
+  { amount: 5000, price: 5000, label: 'Pro', icon: TrendingUp, desc: 'For power users & teams' },
+  { amount: 10000, price: 10000, label: 'Enterprise', icon: Shield, desc: 'Unlimited potential' },
 ];
+
+function formatPrice(cents) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 const TX_FILTERS = [
   { id: 'all', label: 'All' },
@@ -192,6 +196,7 @@ function TokenModal({ token, onClose }) {
 
 function DepositConfirmModal({ pkg, customAmount, onConfirm, onClose, depositing }) {
   const amount = pkg ? pkg.amount : customAmount;
+  const priceCents = amount; // 1 credit = 1 cent
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 10000,
@@ -209,19 +214,19 @@ function DepositConfirmModal({ pkg, customAmount, onConfirm, onClose, depositing
             width: '56px', height: '56px', borderRadius: '16px', margin: '0 auto 16px',
             background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <Coins size={24} color={t.violet} />
+            <CreditCard size={24} color={t.violet} />
           </div>
           <div style={{ color: t.tp, fontWeight: '600', fontSize: '18px', marginBottom: '4px' }}>
-            Add Credits
+            Purchase Credits
           </div>
           <div style={{ color: t.ts, fontSize: '13px' }}>
-            You are about to deposit
+            You will be redirected to Stripe to complete payment
           </div>
         </div>
 
         <div style={{
           background: t.bg, borderRadius: '10px', padding: '20px',
-          textAlign: 'center', marginBottom: '24px', border: `1px solid ${t.border}`,
+          textAlign: 'center', marginBottom: '16px', border: `1px solid ${t.border}`,
         }}>
           <div style={{
             fontFamily: t.mono, fontSize: '36px', fontWeight: '700',
@@ -230,6 +235,13 @@ function DepositConfirmModal({ pkg, customAmount, onConfirm, onClose, depositing
             {formatNumber(amount)}
           </div>
           <div style={{ color: t.ts, fontSize: '12px', marginTop: '4px' }}>credits</div>
+        </div>
+
+        <div style={{
+          textAlign: 'center', marginBottom: '24px',
+          fontFamily: t.mono, fontSize: '20px', fontWeight: '700', color: t.tp,
+        }}>
+          {formatPrice(priceCents)}
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -246,8 +258,8 @@ function DepositConfirmModal({ pkg, customAmount, onConfirm, onClose, depositing
             cursor: depositing ? 'not-allowed' : 'pointer', opacity: depositing ? 0.7 : 1,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
           }}>
-            {depositing ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-            {depositing ? 'Processing...' : 'Confirm'}
+            {depositing ? <Loader2 size={16} className="spin" /> : <CreditCard size={16} />}
+            {depositing ? 'Redirecting...' : `Pay ${formatPrice(priceCents)}`}
           </button>
         </div>
       </div>
@@ -338,23 +350,34 @@ export default function Wallet() {
       setLoading(false);
     }
     load();
-  }, [fetchWallet, fetchTransactions, fetchPurchases, fetchTokens]);
+
+    // Detect Stripe checkout result from URL params
+    const params = new URLSearchParams(window.location.search);
+    const purchase = params.get('purchase');
+    if (purchase === 'success') {
+      showToast('Credits added successfully!');
+      // Clean URL
+      window.history.replaceState({}, '', '/wallet');
+    } else if (purchase === 'canceled') {
+      showToast('Purchase canceled', 'error');
+      window.history.replaceState({}, '', '/wallet');
+    }
+  }, [fetchWallet, fetchTransactions, fetchPurchases, fetchTokens, showToast]);
 
   const handleDeposit = async (amount) => {
     setDepositing(true);
     try {
-      const updated = await api('/api/wallet/deposit', {
+      const data = await api('/api/wallet/deposit', {
         method: 'POST',
         body: JSON.stringify({ amount: Number(amount) }),
       });
-      setWallet(updated);
-      setDepositModal(null);
-      setCustomAmount('');
-      showToast(`${formatNumber(amount)} credits added successfully`);
-      fetchTransactions();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        showToast('Failed to create checkout session', 'error');
+      }
     } catch (e) {
       showToast(e.message || 'Deposit failed', 'error');
-    } finally {
       setDepositing(false);
     }
   };
@@ -647,8 +670,16 @@ export default function Wallet() {
                     }}>
                       {formatNumber(pkg.amount)}
                     </div>
-                    <div style={{ color: t.ts, fontSize: '12px', fontWeight: '500', marginBottom: '4px' }}>
-                      {pkg.label}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ color: t.ts, fontSize: '12px', fontWeight: '500' }}>
+                        {pkg.label}
+                      </span>
+                      <span style={{
+                        fontFamily: t.mono, fontSize: '13px', fontWeight: '700',
+                        color: t.success,
+                      }}>
+                        {formatPrice(pkg.price)}
+                      </span>
                     </div>
                     <div style={{ color: t.tm, fontSize: '11px', lineHeight: '1.4' }}>
                       {pkg.desc}
@@ -668,7 +699,7 @@ export default function Wallet() {
                 }} />
                 <input
                   type="number"
-                  placeholder="Custom amount..."
+                  placeholder="Custom amount (credits)..."
                   value={customAmount}
                   onChange={e => setCustomAmount(e.target.value)}
                   onKeyDown={e => {
@@ -687,6 +718,15 @@ export default function Wallet() {
                   onBlur={e => e.target.style.borderColor = t.border}
                 />
               </div>
+              {customAmount && Number(customAmount) > 0 && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', padding: '0 12px',
+                  fontFamily: t.mono, fontSize: '14px', fontWeight: '600', color: t.success,
+                  whiteSpace: 'nowrap',
+                }}>
+                  {formatPrice(Number(customAmount))}
+                </div>
+              )}
               <button
                 onClick={() => {
                   if (customAmount && Number(customAmount) > 0) {
@@ -701,7 +741,7 @@ export default function Wallet() {
                   transition: 'all 0.2s', whiteSpace: 'nowrap',
                 }}
               >
-                <Plus size={14} /> Deposit
+                <CreditCard size={14} /> Purchase
               </button>
             </div>
           </div>

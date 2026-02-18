@@ -217,6 +217,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const stripeConnectRoutes = require('./routes/stripe-connect');
   app.post('/api/stripe-connect/webhook', express.raw({ type: 'application/json' }), stripeConnectRoutes.stripeConnectWebhookHandler);
 
+  const walletRoutes = require('./routes/wallet');
+  app.post('/api/wallet/webhook', express.raw({ type: 'application/json' }), walletRoutes.stripeWalletWebhookHandler);
+
   app.use(express.json({ limit: '5mb' }));
 
   // Structured request logging
@@ -307,7 +310,6 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const marketplaceRoutes = require('./routes/marketplace');
   app.use('/api/marketplace', verifyToken, marketplaceRoutes);
 
-  const walletRoutes = require('./routes/wallet');
   app.use('/api/wallet', verifyToken, walletRoutes);
 
   const agentTeamsRoutes = require('./routes/agent-teams');
