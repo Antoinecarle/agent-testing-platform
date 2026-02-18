@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { encryptCredentials, testPlatformCredentials, executePlatformAction } = require('../lib/platform-integrations');
+const { PLATFORM_TOOL_DEFINITIONS } = require('../lib/mcp-processors');
 
 const router = express.Router();
 
@@ -49,6 +50,45 @@ router.delete('/agent/:name/platforms/:platformId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[Platforms] Unlink agent platform error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/platforms/agent/:name/mcp-tools — Get MCP tools generated for agent's linked platforms
+router.get('/agent/:name/mcp-tools', async (req, res) => {
+  try {
+    const links = await db.getAgentPlatforms(req.params.name);
+    const tools = [];
+
+    for (const link of links) {
+      const platformSlug = link.platform_integrations?.slug;
+      if (!platformSlug) continue;
+
+      const platformDefs = PLATFORM_TOOL_DEFINITIONS[platformSlug];
+      if (!platformDefs) continue;
+
+      const enabledActions = link.enabled_actions || [];
+      const actionsToInclude = enabledActions.length > 0
+        ? enabledActions
+        : Object.keys(platformDefs);
+
+      for (const actionName of actionsToInclude) {
+        const toolDef = platformDefs[actionName];
+        if (!toolDef) continue;
+        tools.push({
+          tool_name: toolDef.tool_name,
+          description: toolDef.description,
+          platform_slug: platformSlug,
+          platform_name: link.platform_integrations?.name || platformSlug,
+          action: actionName,
+          input_schema: toolDef.input_schema,
+        });
+      }
+    }
+
+    res.json(tools);
+  } catch (err) {
+    console.error('[Platforms] Get agent MCP tools error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

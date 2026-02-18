@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plug, Check, X, ExternalLink, Key, AlertCircle, CheckCircle,
   Search, ChevronRight, Loader, Link2, Unlink, Eye, EyeOff,
-  RefreshCw, Zap, Lock, Clock, Globe
+  RefreshCw, Zap, Lock, Clock, Globe, Terminal, ChevronDown, ChevronUp, Copy
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -467,19 +467,24 @@ function PlatformCard({ platform, agentLinked, onConnect, onDisconnect, onLink, 
 export default function PlatformIntegrations({ agentName }) {
   const [platforms, setPlatforms] = useState([]);
   const [agentPlatforms, setAgentPlatforms] = useState([]);
+  const [mcpTools, setMcpTools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [connectModal, setConnectModal] = useState(null);
+  const [expandedTool, setExpandedTool] = useState(null);
+  const [copiedTool, setCopiedTool] = useState(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [platformList, agentLinks] = await Promise.all([
+      const [platformList, agentLinks, tools] = await Promise.all([
         api('/api/platforms'),
         api(`/api/platforms/agent/${agentName}/platforms`),
+        api(`/api/platforms/agent/${agentName}/mcp-tools`),
       ]);
       setPlatforms(platformList);
       setAgentPlatforms(agentLinks);
+      setMcpTools(tools || []);
     } catch (err) {
       console.error('Failed to load platforms:', err);
     } finally {
@@ -582,6 +587,187 @@ export default function PlatformIntegrations({ agentName }) {
               {agentPlatforms.map(l => l.platform_integrations?.name).filter(Boolean).join(', ')}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* MCP Tools Section — shows tools generated from linked platforms */}
+      {mcpTools.length > 0 && (
+        <div style={{ marginBottom: '28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '13px', fontWeight: '600', color: t.tp, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Terminal size={14} style={{ color: t.violet }} /> MCP Actions
+              <span style={{
+                fontSize: '10px', fontWeight: '600', color: t.tm, padding: '2px 8px',
+                borderRadius: '100px', background: 'rgba(255,255,255,0.04)',
+              }}>
+                {mcpTools.length} tool{mcpTools.length > 1 ? 's' : ''}
+              </span>
+            </h3>
+            <span style={{ fontSize: '11px', color: t.ts }}>
+              Available via MCP server
+            </span>
+          </div>
+
+          {/* Group tools by platform */}
+          {(() => {
+            const grouped = {};
+            for (const tool of mcpTools) {
+              const key = tool.platform_slug;
+              if (!grouped[key]) grouped[key] = { name: tool.platform_name, tools: [] };
+              grouped[key].tools.push(tool);
+            }
+
+            return Object.entries(grouped).map(([slug, group]) => (
+              <div key={slug} style={{ marginBottom: '16px' }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px',
+                  padding: '8px 12px', borderRadius: '8px',
+                  background: 'rgba(139,92,246,0.04)', border: `1px solid rgba(139,92,246,0.1)`,
+                }}>
+                  <Plug size={12} style={{ color: t.violet }} />
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{group.name}</span>
+                  <span style={{ fontSize: '10px', color: t.tm }}>{group.tools.length} action{group.tools.length > 1 ? 's' : ''}</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {group.tools.map(tool => {
+                    const isExpanded = expandedTool === tool.tool_name;
+                    const params = tool.input_schema?.properties || {};
+                    const required = tool.input_schema?.required || [];
+
+                    return (
+                      <div key={tool.tool_name} style={{
+                        background: t.surface, border: `1px solid ${isExpanded ? t.violetM : t.border}`,
+                        borderRadius: '8px', overflow: 'hidden',
+                        transition: 'border-color 0.2s',
+                      }}>
+                        {/* Tool header */}
+                        <div
+                          onClick={() => setExpandedTool(isExpanded ? null : tool.tool_name)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '10px',
+                            padding: '10px 14px', cursor: 'pointer',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = t.surfaceEl}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <div style={{
+                            width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
+                            background: t.success,
+                          }} />
+                          <span style={{
+                            fontSize: '12px', fontWeight: '600', color: t.violet,
+                            fontFamily: t.mono,
+                          }}>
+                            {tool.tool_name}
+                          </span>
+                          <span style={{
+                            fontSize: '11px', color: t.ts, flex: 1,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {tool.description}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            {Object.keys(params).length > 0 && (
+                              <span style={{
+                                fontSize: '9px', padding: '2px 6px', borderRadius: '4px',
+                                background: t.surfaceEl, color: t.tm, fontFamily: t.mono,
+                              }}>
+                                {Object.keys(params).length} param{Object.keys(params).length > 1 ? 's' : ''}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(tool.tool_name);
+                                setCopiedTool(tool.tool_name);
+                                setTimeout(() => setCopiedTool(null), 1500);
+                              }}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: copiedTool === tool.tool_name ? t.success : t.tm,
+                                padding: '2px', display: 'flex',
+                              }}
+                              title="Copy tool name"
+                            >
+                              {copiedTool === tool.tool_name ? <Check size={12} /> : <Copy size={12} />}
+                            </button>
+                            {isExpanded ? <ChevronUp size={14} style={{ color: t.tm }} /> : <ChevronDown size={14} style={{ color: t.tm }} />}
+                          </div>
+                        </div>
+
+                        {/* Expanded detail */}
+                        {isExpanded && (
+                          <div style={{
+                            padding: '0 14px 14px', borderTop: `1px solid ${t.border}`,
+                          }}>
+                            <p style={{ fontSize: '12px', color: t.ts, margin: '12px 0', lineHeight: 1.5 }}>
+                              {tool.description}
+                            </p>
+
+                            {Object.keys(params).length > 0 && (
+                              <>
+                                <div style={{
+                                  fontSize: '10px', fontWeight: '600', color: t.tm,
+                                  textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px',
+                                }}>
+                                  Parameters
+                                </div>
+                                <div style={{
+                                  background: t.bg, borderRadius: '6px', border: `1px solid ${t.border}`,
+                                  overflow: 'hidden',
+                                }}>
+                                  {Object.entries(params).map(([paramName, paramDef], idx) => {
+                                    const isRequired = required.includes(paramName);
+                                    return (
+                                      <div key={paramName} style={{
+                                        display: 'flex', alignItems: 'flex-start', gap: '10px',
+                                        padding: '8px 12px',
+                                        borderBottom: idx < Object.keys(params).length - 1 ? `1px solid ${t.border}` : 'none',
+                                      }}>
+                                        <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <code style={{
+                                            fontSize: '11px', fontFamily: t.mono, color: t.tp, fontWeight: '600',
+                                          }}>
+                                            {paramName}
+                                          </code>
+                                          {isRequired && (
+                                            <span style={{
+                                              fontSize: '8px', fontWeight: '700', color: t.danger,
+                                              padding: '1px 4px', borderRadius: '3px',
+                                              background: 'rgba(239,68,68,0.1)', textTransform: 'uppercase',
+                                            }}>
+                                              req
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                          <span style={{ fontSize: '10px', color: t.tm, fontFamily: t.mono }}>
+                                            {paramDef.type || 'string'}
+                                            {paramDef.enum ? ` [${paramDef.enum.join(', ')}]` : ''}
+                                          </span>
+                                          {paramDef.description && (
+                                            <div style={{ fontSize: '11px', color: t.ts, marginTop: '2px', lineHeight: 1.4 }}>
+                                              {paramDef.description}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ));
+          })()}
         </div>
       )}
 
