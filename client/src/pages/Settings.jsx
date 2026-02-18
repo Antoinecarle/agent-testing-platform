@@ -334,10 +334,10 @@ export default function Settings() {
         <p style={{ fontSize: '13px', color: t.ts }}>Manage your account, security, and organizations</p>
       </div>
 
-      <div style={{ display: 'flex', gap: '24px' }}>
+      <div className="settings-layout" style={{ display: 'flex', gap: '24px' }}>
         {/* Sidebar tabs */}
-        <div style={{ width: '180px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <div className="settings-sidebar" style={{ width: '180px', flexShrink: 0 }}>
+          <div className="settings-tabs" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
@@ -368,7 +368,7 @@ export default function Settings() {
           {activeTab === 'profile' && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
               <Section title="Profile Information">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="settings-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <Field label="Display Name" value={displayName} onChange={setDisplayName} />
                   <Field label="Email" value={profile?.email || ''} disabled />
                   <Field label="Company" value={company} onChange={setCompany} placeholder="Your company" />
@@ -392,7 +392,7 @@ export default function Settings() {
 
               {/* Danger Zone */}
               <Section title="Danger Zone" danger style={{ marginTop: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="settings-danger-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: '500', color: t.danger }}>Delete Account</div>
                     <div style={{ fontSize: '12px', color: t.tm, marginTop: '2px' }}>
@@ -1070,6 +1070,12 @@ export default function Settings() {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @media (max-width: 640px) {
+          .settings-layout { flex-direction: column !important; gap: 16px !important; }
+          .settings-sidebar { width: 100% !important; }
+          .settings-tabs { flex-direction: row !important; overflow-x: auto !important; gap: 4px !important; padding-bottom: 4px !important; }
+          .settings-form-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </motion.div>

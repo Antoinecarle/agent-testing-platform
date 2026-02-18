@@ -497,6 +497,7 @@ export default function Dashboard() {
       <motion.div variants={itemVariants}>
         <div
           onClick={() => navigate('/personaboarding')}
+          className="dash-persona-cta"
           style={{
             position: 'relative', overflow: 'hidden', cursor: 'pointer',
             borderRadius: '16px', padding: '32px 36px',
@@ -562,7 +563,7 @@ export default function Dashboard() {
           </div>
 
           {/* Right: Mini preview chips + arrow */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', zIndex: 1, flexShrink: 0 }}>
+          <div className="dash-persona-right" style={{ display: 'flex', alignItems: 'center', gap: '16px', zIndex: 1, flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '180px' }}>
               {['Role', 'Skills', 'Style', 'Workflow'].map(tag => (
                 <span key={tag} style={{
@@ -1242,6 +1243,8 @@ export default function Dashboard() {
           .dash-metrics { grid-template-columns: 1fr !important; gap: 12px !important; }
           .dash-main-grid { grid-template-columns: 1fr !important; }
           .dash-header { flex-direction: column; align-items: flex-start !important; }
+          .dash-persona-cta { flex-direction: column !important; padding: 20px !important; gap: 16px !important; align-items: flex-start !important; }
+          .dash-persona-right { display: none !important; }
         }
         @media (max-width: 480px) {
           .dash-actions { grid-template-columns: 1fr !important; }

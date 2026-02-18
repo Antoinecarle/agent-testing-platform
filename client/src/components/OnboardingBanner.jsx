@@ -65,8 +65,8 @@ export default function OnboardingBanner({ steps = [], completed = 0, total = 5,
 
       <div style={{ padding: '16px 20px' }}>
         {/* Header row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+        <div className="onb-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '180px' }}>
             <div style={{
               width: '32px', height: '32px', borderRadius: '8px',
               background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -84,7 +84,7 @@ export default function OnboardingBanner({ steps = [], completed = 0, total = 5,
           </div>
 
           {/* Progress bar */}
-          <div style={{ flex: 1, maxWidth: '200px' }}>
+          <div className="onb-progress" style={{ flex: 1, maxWidth: '200px' }}>
             <div style={{
               height: '4px', background: t.surfaceEl, borderRadius: '2px', overflow: 'hidden',
             }}>
@@ -98,7 +98,7 @@ export default function OnboardingBanner({ steps = [], completed = 0, total = 5,
           </div>
 
           {/* Step dots */}
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <div className="onb-dots" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             {steps.map((step) => (
               <div
                 key={step.id}
@@ -214,6 +214,12 @@ export default function OnboardingBanner({ steps = [], completed = 0, total = 5,
           )}
         </AnimatePresence>
       </div>
+      <style>{`
+        @media (max-width: 640px) {
+          .onb-progress { display: none !important; }
+          .onb-dots { display: none !important; }
+        }
+      `}</style>
     </motion.div>
   );
 }

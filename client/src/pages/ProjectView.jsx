@@ -833,10 +833,10 @@ export default function ProjectView() {
         flexDirection: 'column', minWidth: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        <div style={{
-          height: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
+        <div className="pv-header-bar" style={{
+          minHeight: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', fontSize: '12px', color: t.ts, flexShrink: 0,
-          overflow: 'hidden',
+          overflowX: 'auto', overflowY: 'hidden', flexWrap: 'wrap',
         }}>
           {/* Inline editable project name */}
           {editingName ? (
@@ -1278,6 +1278,13 @@ export default function ProjectView() {
           </div>
         </div>
       )}
+
+      <style>{`
+        @media (max-width: 640px) {
+          .pv-header-bar { padding: 4px 8px !important; gap: 4px !important; flex-wrap: nowrap !important; overflow-x: auto !important; min-height: auto !important; }
+          .pv-header-bar > span { font-size: 11px !important; }
+        }
+      `}</style>
     </div>
   );
 }
