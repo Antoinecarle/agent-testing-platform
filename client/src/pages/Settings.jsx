@@ -6,7 +6,7 @@ import {
   User, Shield, Building2, CreditCard, Settings as SettingsIcon,
   Check, AlertCircle, Mail, Lock, Eye, EyeOff, Plus, Trash2,
   Crown, Users, ChevronRight, Loader2, ExternalLink, Landmark,
-  DollarSign, TrendingUp, Zap,
+  DollarSign, TrendingUp, Zap, Link2, Unlink,
 } from 'lucide-react';
 
 const t = {
@@ -31,6 +31,7 @@ const labelStyle = {
 const TABS = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'security', label: 'Security', icon: Shield },
+  { id: 'connections', label: 'Connections', icon: Link2 },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'billing', label: 'Billing', icon: CreditCard },
   { id: 'payouts', label: 'Payouts', icon: Landmark },
@@ -103,6 +104,10 @@ export default function Settings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
 
+  // GitHub
+  const [githubStatus, setGithubStatus] = useState(null);
+  const [githubLoading, setGithubLoading] = useState(false);
+
   // Stripe Connect
   const [connectStatus, setConnectStatus] = useState(null);
   const [earnings, setEarnings] = useState(null);
@@ -128,12 +133,13 @@ export default function Settings() {
   async function loadData() {
     setLoading(true);
     try {
-      const [profileRes, orgsRes, billingRes, connectRes, earningsRes] = await Promise.allSettled([
+      const [profileRes, orgsRes, billingRes, connectRes, earningsRes, githubRes] = await Promise.allSettled([
         api('/api/settings/profile'),
         api('/api/organizations'),
         api('/api/settings/billing'),
         api('/api/stripe-connect/status'),
         api('/api/stripe-connect/earnings'),
+        api('/api/github/status'),
       ]);
       if (profileRes.status === 'fulfilled' && profileRes.value) {
         const p = profileRes.value;
@@ -147,6 +153,7 @@ export default function Settings() {
       if (billingRes.status === 'fulfilled') setBilling(billingRes.value || null);
       if (connectRes.status === 'fulfilled') setConnectStatus(connectRes.value || null);
       if (earningsRes.status === 'fulfilled') setEarnings(earningsRes.value || null);
+      if (githubRes.status === 'fulfilled') setGithubStatus(githubRes.value || null);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -211,6 +218,34 @@ export default function Settings() {
       setSaving(false);
     }
   }
+
+  async function disconnectGithub() {
+    setGithubLoading(true);
+    try {
+      await api('/api/github/disconnect', { method: 'POST' });
+      setGithubStatus({ connected: false, username: null, avatar_url: null });
+      showToast('GitHub disconnected');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setGithubLoading(false);
+    }
+  }
+
+  function connectGithub() {
+    const user = JSON.parse(localStorage.getItem('atp-user') || '{}');
+    window.location.href = `/api/github/auth?action=connect&userId=${user.userId || ''}`;
+  }
+
+  // Check for GitHub connection success from redirect
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('github') === 'connected') {
+      showToast('GitHub connected successfully');
+      // Refresh GitHub status
+      api('/api/github/status').then(data => setGithubStatus(data)).catch(() => {});
+    }
+  }, []);
 
   async function createOrg() {
     if (!newOrgName.trim() || !newOrgSlug.trim()) return;
@@ -537,6 +572,92 @@ export default function Settings() {
                       {saving ? 'Changing...' : 'Change Password'}
                     </button>
                   </div>
+                </div>
+              </Section>
+            </motion.div>
+          )}
+
+          {activeTab === 'connections' && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Section title="Connected Accounts">
+                <div style={{
+                  padding: '16px', background: t.bg, borderRadius: '8px',
+                  border: `1px solid ${t.border}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{
+                        width: '40px', height: '40px', borderRadius: '10px', flexShrink: 0,
+                        background: githubStatus?.connected ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.05)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}>
+                        {githubStatus?.connected && githubStatus?.avatar_url ? (
+                          <img src={githubStatus.avatar_url} alt="" style={{ width: '100%', height: '100%', borderRadius: '10px' }} />
+                        ) : (
+                          <svg width="20" height="20" viewBox="0 0 16 16" fill="#F4F4F5">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '600', color: t.tp }}>GitHub</div>
+                        {githubStatus?.connected ? (
+                          <div style={{ fontSize: '12px', color: t.success, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Check size={12} /> Connected as @{githubStatus.username}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '12px', color: t.ts }}>Not connected</div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      {githubStatus?.connected ? (
+                        <button
+                          onClick={disconnectGithub}
+                          disabled={githubLoading}
+                          style={{
+                            padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '500',
+                            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                            color: t.danger, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                          }}
+                        >
+                          <Unlink size={12} />
+                          {githubLoading ? 'Disconnecting...' : 'Disconnect'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={connectGithub}
+                          style={{
+                            padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '500',
+                            background: t.violetM, border: `1px solid ${t.violet}`,
+                            color: t.violet, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                          }}
+                        >
+                          <Link2 size={12} />
+                          Connect GitHub
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {githubStatus?.connected && (
+                    <div style={{
+                      marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${t.border}`,
+                      fontSize: '12px', color: t.ts, lineHeight: '1.6',
+                    }}>
+                      Your GitHub account is linked. You can deploy projects to GitHub repos, import from repos, and sync changes.
+                    </div>
+                  )}
+                  {!githubStatus?.connected && (
+                    <div style={{
+                      marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${t.border}`,
+                      fontSize: '12px', color: t.ts, lineHeight: '1.6',
+                    }}>
+                      Connect your GitHub account to deploy projects as repos, import existing repos, and keep your work synced.
+                    </div>
+                  )}
                 </div>
               </Section>
             </motion.div>

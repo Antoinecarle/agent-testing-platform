@@ -2159,6 +2159,41 @@ async function getSellerEarningsSummary(userId) {
   };
 }
 
+// ===================== GITHUB =====================
+
+async function getUserByGithubId(githubId) {
+  const { data } = await supabase.from('users').select('*').eq('github_id', String(githubId)).single();
+  return data || null;
+}
+
+async function updateUserGithub(userId, fields) {
+  const update = {};
+  if (fields.github_id !== undefined) update.github_id = fields.github_id;
+  if (fields.github_username !== undefined) update.github_username = fields.github_username;
+  if (fields.github_access_token !== undefined) update.github_access_token = fields.github_access_token;
+  if (fields.github_avatar_url !== undefined) update.github_avatar_url = fields.github_avatar_url;
+  if (Object.keys(update).length === 0) return;
+  await supabase.from('users').update(update).eq('id', userId);
+}
+
+async function clearUserGithub(userId) {
+  await supabase.from('users').update({
+    github_id: null,
+    github_username: null,
+    github_access_token: null,
+    github_avatar_url: null,
+  }).eq('id', userId);
+}
+
+async function updateProjectGithub(projectId, fields) {
+  const update = {};
+  if (fields.github_repo_url !== undefined) update.github_repo_url = fields.github_repo_url;
+  if (fields.github_repo_name !== undefined) update.github_repo_name = fields.github_repo_name;
+  if (fields.github_last_sync !== undefined) update.github_last_sync = fields.github_last_sync;
+  if (Object.keys(update).length === 0) return;
+  await supabase.from('projects').update(update).eq('id', projectId);
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -2273,4 +2308,6 @@ module.exports = {
   updateUserStripeConnect, getUserStripeConnect,
   createConnectPayment, updateConnectPayment,
   getSellerPayments, getSellerEarningsSummary,
+  // GitHub
+  getUserByGithubId, updateUserGithub, clearUserGithub, updateProjectGithub,
 };

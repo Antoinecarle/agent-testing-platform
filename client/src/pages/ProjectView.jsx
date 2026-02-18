@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2 } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
@@ -330,6 +330,15 @@ export default function ProjectView() {
   // Agent working indicator
   const [agentWorking, setAgentWorking] = useState(false);
   const agentWorkingTimer = useRef(null);
+  // GitHub sync
+  const [showGitHub, setShowGitHub] = useState(false);
+  const [ghStatus, setGhStatus] = useState(null); // { connected, username }
+  const [ghRepos, setGhRepos] = useState([]);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghRepoName, setGhRepoName] = useState('');
+  const [ghPrivate, setGhPrivate] = useState(true);
+  const [ghMode, setGhMode] = useState('deploy'); // 'deploy' | 'import' | 'sync'
+  const [ghSelectedRepo, setGhSelectedRepo] = useState('');
 
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
@@ -511,6 +520,101 @@ export default function ProjectView() {
     setBranchParent(node);
     setBranchContext(node.id);
   }, [setBranchContext]);
+
+  // GitHub helpers
+  const loadGitHubStatus = useCallback(async () => {
+    try {
+      const status = await api('/api/github/status');
+      setGhStatus(status);
+    } catch (_) {
+      setGhStatus({ connected: false });
+    }
+  }, []);
+
+  const loadGitHubRepos = useCallback(async () => {
+    try {
+      const repos = await api('/api/github/repos');
+      setGhRepos(repos || []);
+    } catch (_) {
+      setGhRepos([]);
+    }
+  }, []);
+
+  const openGitHubPanel = useCallback(async () => {
+    setShowGitHub(true);
+    setGhLoading(true);
+    await loadGitHubStatus();
+    await loadGitHubRepos();
+    setGhRepoName(project?.name?.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-') || '');
+    setGhLoading(false);
+  }, [project, loadGitHubStatus, loadGitHubRepos]);
+
+  const handleGitHubDeploy = useCallback(async () => {
+    if (!ghRepoName.trim()) return;
+    setGhLoading(true);
+    try {
+      await api(`/api/github/deploy/${projectId}`, {
+        method: 'POST',
+        body: JSON.stringify({ repoName: ghRepoName.trim(), isPrivate: ghPrivate }),
+      });
+      // Refresh project to get the new GitHub link
+      const p = await api(`/api/projects/${projectId}`);
+      setProject(p);
+    } catch (err) {
+      alert(err.message || 'Deploy failed');
+    } finally {
+      setGhLoading(false);
+    }
+  }, [ghRepoName, ghPrivate, projectId]);
+
+  const handleGitHubImport = useCallback(async () => {
+    if (!ghSelectedRepo) return;
+    setGhLoading(true);
+    try {
+      await api(`/api/github/import/${projectId}`, {
+        method: 'POST',
+        body: JSON.stringify({ repoFullName: ghSelectedRepo }),
+      });
+      const p = await api(`/api/projects/${projectId}`);
+      setProject(p);
+      setGhMode('sync');
+    } catch (err) {
+      alert(err.message || 'Import failed');
+    } finally {
+      setGhLoading(false);
+    }
+  }, [ghSelectedRepo, projectId]);
+
+  const handleGitHubSync = useCallback(async (direction) => {
+    setGhLoading(true);
+    try {
+      await api(`/api/github/sync/${projectId}`, {
+        method: 'POST',
+        body: JSON.stringify({ direction }),
+      });
+      const p = await api(`/api/projects/${projectId}`);
+      setProject(p);
+    } catch (err) {
+      alert(err.message || 'Sync failed');
+    } finally {
+      setGhLoading(false);
+    }
+  }, [projectId]);
+
+  const handleGitHubUnlink = useCallback(async () => {
+    if (!confirm('Unlink this project from GitHub? The repo will not be deleted.')) return;
+    setGhLoading(true);
+    try {
+      await api(`/api/github/unlink/${projectId}`, { method: 'POST' });
+      const p = await api(`/api/projects/${projectId}`);
+      setProject(p);
+      setGhMode('deploy');
+    } catch (err) {
+      alert(err.message || 'Unlink failed');
+    } finally {
+      setGhLoading(false);
+    }
+  }, [projectId]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -916,6 +1020,20 @@ export default function ProjectView() {
             }}>FULLSTACK</span>
           )}
           <div style={{ flex: 1 }} />
+          {/* GitHub sync button */}
+          <div style={{ position: 'relative' }}>
+            <button onClick={openGitHubPanel} title="GitHub sync"
+              style={{
+                background: project?.github_repo_name ? 'rgba(34,197,94,0.1)' : 'transparent',
+                color: project?.github_repo_name ? '#22c55e' : t.ts,
+                border: `1px solid ${project?.github_repo_name ? 'rgba(34,197,94,0.3)' : t.border}`,
+                borderRadius: '4px', padding: '3px 8px', fontSize: '11px',
+                display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
+                flexShrink: 0, whiteSpace: 'nowrap',
+              }}>
+              <Github size={12} /> {project?.github_repo_name ? 'Synced' : 'GitHub'}
+            </button>
+          </div>
           {/* Compare button */}
           {allIterations.length >= 2 && (
             <button onClick={() => navigate(`/compare/${projectId}`)} title="Compare iterations side by side"
@@ -1191,6 +1309,203 @@ export default function ProjectView() {
       </aside>
 
       {/* Context Menu */}
+      {/* GitHub Sync Panel */}
+      {showGitHub && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowGitHub(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '480px', maxWidth: '95vw', maxHeight: '80vh', overflow: 'auto',
+            background: '#1a1a1b', border: `1px solid rgba(255,255,255,0.08)`,
+            borderRadius: '12px', padding: '24px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Github size={20} style={{ color: '#F4F4F5' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#F4F4F5', margin: 0 }}>GitHub Sync</h3>
+              </div>
+              <button onClick={() => setShowGitHub(false)} style={{
+                background: 'transparent', border: 'none', color: '#52525B', cursor: 'pointer', padding: '4px',
+              }}><X size={18} /></button>
+            </div>
+
+            {ghLoading && !ghStatus ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#A1A1AA' }}>
+                <Loader2 size={20} style={{ animation: 'spin 0.8s linear infinite' }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            ) : !ghStatus?.connected ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <div style={{ fontSize: '14px', color: '#A1A1AA', marginBottom: '16px' }}>
+                  Connect your GitHub account to deploy and sync projects.
+                </div>
+                <a href="/settings?tab=connections" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 20px', background: '#8B5CF6', color: '#fff',
+                  borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: '600',
+                }}>
+                  <Github size={16} /> Connect GitHub in Settings
+                </a>
+              </div>
+            ) : (
+              <>
+                {/* Connected status */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
+                  background: 'rgba(34,197,94,0.08)', borderRadius: '6px', marginBottom: '16px',
+                  border: '1px solid rgba(34,197,94,0.2)',
+                }}>
+                  {ghStatus.avatar_url && <img src={ghStatus.avatar_url} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%' }} />}
+                  <span style={{ fontSize: '12px', color: '#22c55e' }}>Connected as @{ghStatus.username}</span>
+                </div>
+
+                {/* Linked repo or actions */}
+                {project?.github_repo_name ? (
+                  <div>
+                    <div style={{
+                      padding: '12px', background: '#0f0f0f', borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.08)', marginBottom: '16px',
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#52525B', marginBottom: '4px' }}>Linked Repository</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Github size={14} style={{ color: '#F4F4F5' }} />
+                        <a href={project.github_repo_url} target="_blank" rel="noreferrer"
+                          style={{ color: '#8B5CF6', fontSize: '13px', fontWeight: '500', textDecoration: 'none' }}>
+                          {project.github_repo_name}
+                        </a>
+                        <ExternalLink size={12} style={{ color: '#52525B' }} />
+                      </div>
+                      {project.github_last_sync && (
+                        <div style={{ fontSize: '11px', color: '#52525B', marginTop: '4px' }}>
+                          Last synced: {new Date(project.github_last_sync).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                      <button onClick={() => handleGitHubSync('push')} disabled={ghLoading}
+                        style={{
+                          flex: 1, padding: '10px', background: 'rgba(139,92,246,0.12)',
+                          border: '1px solid rgba(139,92,246,0.3)', borderRadius: '6px',
+                          color: '#8B5CF6', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          opacity: ghLoading ? 0.6 : 1,
+                        }}>
+                        {ghLoading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={14} />}
+                        Push to GitHub
+                      </button>
+                      <button onClick={() => handleGitHubSync('pull')} disabled={ghLoading}
+                        style={{
+                          flex: 1, padding: '10px', background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
+                          color: '#A1A1AA', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          opacity: ghLoading ? 0.6 : 1,
+                        }}>
+                        {ghLoading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <FolderDown size={14} />}
+                        Pull from GitHub
+                      </button>
+                    </div>
+
+                    <button onClick={handleGitHubUnlink}
+                      style={{
+                        width: '100%', padding: '8px', background: 'rgba(239,68,68,0.08)',
+                        border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px',
+                        color: '#ef4444', fontSize: '12px', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                      }}>
+                      <Unlink size={12} /> Unlink repository
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    {/* Tab: Deploy or Import */}
+                    <div style={{ display: 'flex', marginBottom: '16px', border: `1px solid rgba(255,255,255,0.08)`, borderRadius: '6px', overflow: 'hidden' }}>
+                      <button onClick={() => setGhMode('deploy')} style={{
+                        flex: 1, padding: '8px', fontSize: '12px', fontWeight: '500', border: 'none', cursor: 'pointer',
+                        background: ghMode === 'deploy' ? 'rgba(139,92,246,0.15)' : 'transparent',
+                        color: ghMode === 'deploy' ? '#8B5CF6' : '#A1A1AA',
+                      }}>
+                        <Upload size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Deploy to repo
+                      </button>
+                      <button onClick={() => setGhMode('import')} style={{
+                        flex: 1, padding: '8px', fontSize: '12px', fontWeight: '500', border: 'none', cursor: 'pointer',
+                        background: ghMode === 'import' ? 'rgba(139,92,246,0.15)' : 'transparent',
+                        color: ghMode === 'import' ? '#8B5CF6' : '#A1A1AA',
+                      }}>
+                        <FolderDown size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Import from repo
+                      </button>
+                    </div>
+
+                    {ghMode === 'deploy' && (
+                      <div>
+                        <div style={{ marginBottom: '12px' }}>
+                          <label style={{ display: 'block', fontSize: '12px', color: '#A1A1AA', marginBottom: '6px' }}>Repository name</label>
+                          <input value={ghRepoName} onChange={e => setGhRepoName(e.target.value)}
+                            placeholder="my-project"
+                            style={{
+                              width: '100%', background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: '6px', padding: '8px 12px', color: '#F4F4F5', fontSize: '13px',
+                              outline: 'none', boxSizing: 'border-box',
+                            }} />
+                        </div>
+                        <label style={{
+                          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px',
+                          color: '#A1A1AA', marginBottom: '16px', cursor: 'pointer',
+                        }}>
+                          <input type="checkbox" checked={ghPrivate} onChange={e => setGhPrivate(e.target.checked)} />
+                          Private repository
+                        </label>
+                        <button onClick={handleGitHubDeploy} disabled={ghLoading || !ghRepoName.trim()}
+                          style={{
+                            width: '100%', padding: '10px', background: '#8B5CF6', color: '#fff',
+                            border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600',
+                            cursor: 'pointer', opacity: (ghLoading || !ghRepoName.trim()) ? 0.6 : 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          }}>
+                          {ghLoading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={14} />}
+                          {ghLoading ? 'Deploying...' : 'Deploy to GitHub'}
+                        </button>
+                      </div>
+                    )}
+
+                    {ghMode === 'import' && (
+                      <div>
+                        <div style={{ marginBottom: '12px' }}>
+                          <label style={{ display: 'block', fontSize: '12px', color: '#A1A1AA', marginBottom: '6px' }}>Select a repository</label>
+                          <select value={ghSelectedRepo} onChange={e => setGhSelectedRepo(e.target.value)}
+                            style={{
+                              width: '100%', background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: '6px', padding: '8px 12px', color: '#F4F4F5', fontSize: '13px',
+                              outline: 'none', boxSizing: 'border-box',
+                            }}>
+                            <option value="">-- Select repo --</option>
+                            {ghRepos.map(r => (
+                              <option key={r.id} value={r.full_name}>{r.full_name} {r.private ? '(private)' : ''}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button onClick={handleGitHubImport} disabled={ghLoading || !ghSelectedRepo}
+                          style={{
+                            width: '100%', padding: '10px', background: '#8B5CF6', color: '#fff',
+                            border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600',
+                            cursor: 'pointer', opacity: (ghLoading || !ghSelectedRepo) ? 0.6 : 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          }}>
+                          {ghLoading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <FolderDown size={14} />}
+                          {ghLoading ? 'Importing...' : 'Import from GitHub'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {contextMenu && (
         <div style={{
           position: 'fixed', left: contextMenu.x, top: contextMenu.y,
