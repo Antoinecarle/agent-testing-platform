@@ -369,6 +369,10 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const mcpPublicRoutes = require('./routes/mcp-public');
   app.use('/mcp', mcpPublicRoutes);
 
+  // Agent proxy — scoped token auth (NOT JWT), accessible from agent terminals
+  const agentProxyRoutes = require('./routes/agent-proxy');
+  app.use('/api/agent-proxy', agentProxyRoutes);
+
   // Preview route (no auth for iframe embedding)
   app.use('/api/preview', previewRoutes);
 

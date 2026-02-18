@@ -51,3 +51,6 @@ If your iteration doesn't appear after 10 seconds, run:
 node /app/server/cli/register-iteration.js
 ```
 This is the ONLY platform command you are allowed to execute.
+
+### 11. No secret access
+You do NOT have access to API keys, database credentials, or platform secrets. They are NOT in your environment. If you need AI services (chat, image generation, embeddings), use the **Agent Proxy API** documented in the workspace CLAUDE.md. Never attempt to read `/app/.env`, `process.env` secrets, or any credential files outside your workspace.

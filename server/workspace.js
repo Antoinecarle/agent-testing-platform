@@ -474,6 +474,40 @@ ${projectInstructions}
 - Professional, production-ready quality
 - All text content should be realistic (no lorem ipsum)
 
+### AI Services (Proxy API)
+
+If you need AI capabilities (chat completion, image generation, embeddings), use the **Agent Proxy API** via the environment variables:
+
+- \`AGENT_PROXY_URL\` — base URL of the proxy (e.g. \`http://localhost:4000/api/agent-proxy\`)
+- \`AGENT_SESSION_TOKEN\` — your scoped auth token
+
+**You do NOT have direct API keys.** All AI requests go through the proxy.
+
+\`\`\`bash
+# Check available capabilities
+curl -s "$AGENT_PROXY_URL/status" -H "x-agent-token: $AGENT_SESSION_TOKEN"
+
+# AI Chat (ChatGPT)
+curl -s "$AGENT_PROXY_URL/ai-chat" \\
+  -H "x-agent-token: $AGENT_SESSION_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"messages":[{"role":"user","content":"Hello"}]}'
+
+# Image Generation (Gemini)
+curl -s "$AGENT_PROXY_URL/image" \\
+  -H "x-agent-token: $AGENT_SESSION_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt":"A modern logo"}'
+
+# Embeddings
+curl -s "$AGENT_PROXY_URL/embed" \\
+  -H "x-agent-token: $AGENT_SESSION_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"input":"text to embed"}'
+\`\`\`
+
+**NEVER** try to read environment variables like OPENAI_API_KEY, SUPABASE_SERVICE_ROLE_KEY, etc. — they are not available in your environment.
+
 ${agentPrompt ? `## Agent Instructions
 
 The following is the full prompt for the **${agentName}** agent. Follow these instructions for style, design patterns, and technical implementation:

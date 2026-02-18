@@ -12,6 +12,56 @@ const db = require('./db');
 const { generateWorkspaceContext, syncSkillsToHome } = require('./workspace');
 const { ensureUserHome, getUserHomePath } = require('./user-home');
 
+// ── Agent Environment Isolation ──────────────────────────────────────────────
+// SECURITY: Agent terminals must NEVER inherit platform secrets.
+// Only whitelisted env vars are passed to agent processes.
+const AGENT_SAFE_ENV_KEYS = [
+  // Shell essentials
+  'TERM', 'COLORTERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LANGUAGE',
+  'SHELL', 'EDITOR', 'VISUAL', 'PAGER', 'LESS', 'TZ',
+  // System
+  'HOSTNAME', 'TMPDIR',
+  // Node.js runtime (non-secret)
+  'NODE_ENV', 'NODE_PATH', 'NODE_OPTIONS',
+  // Railway detection (non-secret — agents may need to know the environment)
+  'RAILWAY_ENVIRONMENT',
+  // Nix store paths (needed for binaries on Railway)
+  'NIX_PROFILES', 'NIX_SSL_CERT_FILE', 'SSL_CERT_FILE', 'CURL_CA_BUNDLE',
+  'GIT_SSL_CAINFO',
+];
+
+/**
+ * Build a sanitized env object for agent terminal processes.
+ * Only includes whitelisted keys + explicit overrides.
+ * NEVER includes secrets like API keys, DB credentials, JWT secrets, etc.
+ */
+function buildAgentEnv(overrides = {}) {
+  const safe = {};
+  for (const key of AGENT_SAFE_ENV_KEYS) {
+    if (process.env[key] !== undefined) {
+      safe[key] = process.env[key];
+    }
+  }
+  return { ...safe, ...overrides };
+}
+
+/**
+ * Generate a scoped session token for the agent proxy API.
+ * This token grants access ONLY to the proxy endpoints, NOT to the platform API.
+ */
+function generateAgentSessionToken(sessionId, projectId, userId) {
+  return jwt.sign(
+    {
+      type: 'agent_session',
+      sessionId,
+      projectId: projectId || '',
+      userId: userId || '',
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '24h', issuer: 'guru-agent-proxy' }
+  );
+}
+
 // Lazy-load watcher to avoid circular deps
 let _watcher = null;
 function getWatcher() {
@@ -123,23 +173,34 @@ function createSession(cols, rows, name, projectId, cwd, userId) {
     console.log(`[Terminal] Session ${id}: HOME=${userHome} CWD=${startCwd} USER=${userName} userId=${userId || 'none'}`);
   }
 
+  // Generate scoped token for agent proxy API access
+  const agentToken = generateAgentSessionToken(id, projectId, userId);
+  const PORT = process.env.PORT || 4000;
+
   const spawnOpts = {
     name: 'xterm-256color',
     cols: cols || 120,
     rows: rows || 30,
     cwd: startCwd,
-    env: {
-      ...process.env,
+    env: buildAgentEnv({
+      // Shell display
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
+      // User identity
       HOME: userHome,
       USER: userName,
       LOGNAME: userName,
+      // PATH — include npm global bin for Claude CLI, but NOT platform node_modules
       PATH: IS_RAILWAY
         ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
         : `/home/claude-user/.local/bin:${process.env.PATH}`,
-    },
+      // Agent Proxy — agents use this instead of raw API keys
+      AGENT_PROXY_URL: `http://localhost:${PORT}/api/agent-proxy`,
+      AGENT_SESSION_TOKEN: agentToken,
+      // Project context (non-secret)
+      GURU_PROJECT_ID: projectId || '',
+    }),
   };
 
   // Only set uid/gid on VPS (Railway runs as current user)
