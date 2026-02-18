@@ -40,11 +40,16 @@ router.get('/:name', async (req, res) => {
       db.getAgentPurchaseCount(req.params.name),
     ]);
 
-    // Get creator info
+    // Get creator info + Stripe Connect status
     let creator = null;
+    let sellerStripeConnected = false;
     if (agent.created_by) {
       const user = await db.getUserById(agent.created_by);
       if (user) creator = { id: user.id, email: user.email, display_name: user.display_name };
+      const connectData = await db.getUserStripeConnect(agent.created_by);
+      if (connectData && connectData.stripe_connect_charges_enabled) {
+        sellerStripeConnected = true;
+      }
     }
 
     // Check if current user has purchased this agent
@@ -73,6 +78,7 @@ router.get('/:name', async (req, res) => {
       projects: projectsList,
       iterations_by_project: iterationsByProject,
       creator,
+      seller_stripe_connected: sellerStripeConnected,
       user_purchased: userPurchased,
       user_tokens: userTokens,
     });

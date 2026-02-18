@@ -210,9 +210,12 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   }));
   app.use(cors(corsOptions));
 
-  // Stripe webhook must receive raw body (before JSON parser)
+  // Stripe webhooks must receive raw body (before JSON parser)
   const billingRoutes = require('./routes/billing');
   app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), billingRoutes.stripeWebhookHandler);
+
+  const stripeConnectRoutes = require('./routes/stripe-connect');
+  app.post('/api/stripe-connect/webhook', express.raw({ type: 'application/json' }), stripeConnectRoutes.stripeConnectWebhookHandler);
 
   app.use(express.json({ limit: '5mb' }));
 
@@ -292,6 +295,8 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   app.use('/api/organizations', verifyToken, organizationsRoutes);
 
   app.use('/api/billing', verifyToken, billingRoutes);
+
+  app.use('/api/stripe-connect', verifyToken, stripeConnectRoutes);
 
   const settingsRoutes = require('./routes/settings');
   app.use('/api/settings', verifyToken, settingsRoutes);

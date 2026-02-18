@@ -9,6 +9,7 @@ import {
   AlertCircle, CheckCircle, Settings, Hash, DollarSign
 } from 'lucide-react';
 import { api, getToken } from '../api';
+import StripePaymentModal from '../components/StripePaymentModal';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -304,6 +305,7 @@ export default function MarketplaceDetail() {
   const [purchasing, setPurchasing] = useState(false);
   const [showPurchaseConfirm, setShowPurchaseConfirm] = useState(false);
   const [purchaseGlow, setPurchaseGlow] = useState(false);
+  const [showStripePayment, setShowStripePayment] = useState(false);
 
   // Creator management
   const [mgmtOpen, setMgmtOpen] = useState(false);
@@ -1225,6 +1227,7 @@ export default function MarketplaceDetail() {
                 <button
                   onClick={() => {
                     if (isFree) handlePurchase();
+                    else if (agent.seller_stripe_connected && agent.price > 0) setShowStripePayment(true);
                     else setShowPurchaseConfirm(true);
                   }}
                   disabled={purchasing}
@@ -1608,6 +1611,23 @@ export default function MarketplaceDetail() {
           </div>
         </div>
       )}
+
+      {/* ════════ STRIPE PAYMENT MODAL ════════ */}
+      <StripePaymentModal
+        isOpen={showStripePayment}
+        onClose={() => setShowStripePayment(false)}
+        onSuccess={async () => {
+          setShowStripePayment(false);
+          setPurchaseGlow(true);
+          setTimeout(() => setPurchaseGlow(false), 3000);
+          showToast('Payment successful! Your API token is ready.');
+          await loadData();
+        }}
+        agentName={agent?.name}
+        agentDisplayName={formatName(agent?.name || '')}
+        amountCents={(agent?.price || 0) * 100}
+        priceCurrency="usd"
+      />
 
       {/* ════════ FULLSCREEN PREVIEW MODAL ════════ */}
       {selectedShowcase && (() => {

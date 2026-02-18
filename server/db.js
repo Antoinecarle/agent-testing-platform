@@ -2098,6 +2098,67 @@ async function reorderMcpAgentTools(agentName, toolIds) {
   }
 }
 
+// ===================== STRIPE CONNECT =====================
+
+async function updateUserStripeConnect(userId, fields) {
+  const update = { updated_at: now() };
+  if (fields.stripe_connect_account_id !== undefined) update.stripe_connect_account_id = fields.stripe_connect_account_id;
+  if (fields.stripe_connect_onboarding_complete !== undefined) update.stripe_connect_onboarding_complete = fields.stripe_connect_onboarding_complete;
+  if (fields.stripe_connect_charges_enabled !== undefined) update.stripe_connect_charges_enabled = fields.stripe_connect_charges_enabled;
+  if (fields.stripe_connect_payouts_enabled !== undefined) update.stripe_connect_payouts_enabled = fields.stripe_connect_payouts_enabled;
+  await supabase.from('users').update(update).eq('id', userId);
+}
+
+async function getUserStripeConnect(userId) {
+  const { data } = await supabase.from('users')
+    .select('stripe_connect_account_id, stripe_connect_onboarding_complete, stripe_connect_charges_enabled, stripe_connect_payouts_enabled')
+    .eq('id', userId)
+    .single();
+  return data || null;
+}
+
+async function createConnectPayment({ buyer_user_id, seller_user_id, agent_name, amount_cents, platform_fee_cents, currency, stripe_payment_intent_id }) {
+  const { data, error } = await supabase.from('stripe_connect_payments').insert({
+    buyer_user_id, seller_user_id, agent_name, amount_cents, platform_fee_cents,
+    currency: currency || 'usd', stripe_payment_intent_id, status: 'pending',
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+async function updateConnectPayment(id, fields) {
+  const update = {};
+  if (fields.status !== undefined) update.status = fields.status;
+  if (fields.completed_at !== undefined) update.completed_at = fields.completed_at;
+  if (fields.stripe_payment_intent_id !== undefined) update.stripe_payment_intent_id = fields.stripe_payment_intent_id;
+  await supabase.from('stripe_connect_payments').update(update).eq('id', id);
+}
+
+async function getSellerPayments(userId, limit = 20) {
+  const { data } = await supabase.from('stripe_connect_payments')
+    .select('*')
+    .eq('seller_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  return data || [];
+}
+
+async function getSellerEarningsSummary(userId) {
+  const { data } = await supabase.from('stripe_connect_payments')
+    .select('amount_cents, platform_fee_cents, status')
+    .eq('seller_user_id', userId)
+    .eq('status', 'completed');
+  const payments = data || [];
+  const totalEarned = payments.reduce((sum, p) => sum + p.amount_cents, 0);
+  const totalFees = payments.reduce((sum, p) => sum + p.platform_fee_cents, 0);
+  return {
+    total_earned_cents: totalEarned,
+    total_fees_cents: totalFees,
+    net_earnings_cents: totalEarned - totalFees,
+    completed_payments: payments.length,
+  };
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -2208,4 +2269,8 @@ module.exports = {
   // MCP Agent Tools
   createMcpAgentTool, getMcpAgentTools, getMcpAgentTool,
   updateMcpAgentTool, deleteMcpAgentTool, reorderMcpAgentTools,
+  // Stripe Connect
+  updateUserStripeConnect, getUserStripeConnect,
+  createConnectPayment, updateConnectPayment,
+  getSellerPayments, getSellerEarningsSummary,
 };
