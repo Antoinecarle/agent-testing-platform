@@ -5,7 +5,7 @@ import {
   RefreshCw, Zap, Lock, Clock, Globe, Terminal, ChevronDown, ChevronUp, Copy,
   Shield, Mail, HardDrive, LogOut
 } from 'lucide-react';
-import { api } from '../api';
+import { api, getToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -377,10 +377,13 @@ function GoogleAuthModal({ onClose, onConnected, initialPlatform }) {
 
   const handleConnect = () => {
     if (selectedServices.size === 0) return;
+    const token = getToken();
+    if (!token) {
+      console.error('No auth token found — user may need to log in again');
+      return;
+    }
     setConnecting(true);
-    const token = localStorage.getItem('atp-token');
     const services = [...selectedServices].join(',');
-    // Pass current path so OAuth redirects back here after completion
     const returnTo = window.location.pathname;
     window.location.href = `/api/google-oauth/auth?services=${encodeURIComponent(services)}&token=${encodeURIComponent(token)}&returnTo=${encodeURIComponent(returnTo)}`;
   };
