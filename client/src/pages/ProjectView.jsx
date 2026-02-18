@@ -444,38 +444,6 @@ export default function ProjectView() {
     return () => socket.disconnect();
   }, [projectId]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKey = (e) => {
-      // Ctrl+Enter → Generate
-      if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault();
-        if (prompt.trim() && terminalRef.current) {
-          const escaped = prompt.replace(/'/g, "'\\''");
-          terminalRef.current.sendInput(`claude -p '${escaped}'\n`);
-          setPrompt('');
-        }
-      }
-      // Escape → exit fullscreen or multi-select
-      if (e.key === 'Escape') {
-        if (fullscreen) { setFullscreen(false); e.preventDefault(); }
-        if (multiSelect) { setMultiSelect(false); setSelectedIds(new Set()); e.preventDefault(); }
-      }
-      // Arrow up/down to navigate iterations (when not in input)
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-        e.preventDefault();
-        const idx = allIterations.findIndex(it => it.id === selected?.id);
-        if (e.key === 'ArrowUp' && idx > 0) {
-          handleSelect(allIterations[idx - 1]);
-        } else if (e.key === 'ArrowDown' && idx < allIterations.length - 1) {
-          handleSelect(allIterations[idx + 1]);
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [prompt, fullscreen, multiSelect, allIterations, selected, handleSelect]);
-
   const handleMouseMove = useCallback(e => {
     if (resizing === 'left') setLeftW(Math.max(150, Math.min(500, e.clientX)));
     if (resizing === 'right') setRightW(Math.max(200, Math.min(700, window.innerWidth - e.clientX)));
@@ -543,6 +511,38 @@ export default function ProjectView() {
     setBranchParent(node);
     setBranchContext(node.id);
   }, [setBranchContext]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e) => {
+      // Ctrl+Enter → Generate
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (prompt.trim() && terminalRef.current) {
+          const escaped = prompt.replace(/'/g, "'\\''");
+          terminalRef.current.sendInput(`claude -p '${escaped}'\n`);
+          setPrompt('');
+        }
+      }
+      // Escape → exit fullscreen or multi-select
+      if (e.key === 'Escape') {
+        if (fullscreen) { setFullscreen(false); e.preventDefault(); }
+        if (multiSelect) { setMultiSelect(false); setSelectedIds(new Set()); e.preventDefault(); }
+      }
+      // Arrow up/down to navigate iterations (when not in input)
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        e.preventDefault();
+        const idx = allIterations.findIndex(it => it.id === selected?.id);
+        if (e.key === 'ArrowUp' && idx > 0) {
+          handleSelect(allIterations[idx - 1]);
+        } else if (e.key === 'ArrowDown' && idx < allIterations.length - 1) {
+          handleSelect(allIterations[idx + 1]);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [prompt, fullscreen, multiSelect, allIterations, selected, handleSelect]);
 
   // Inline editing handlers
   const startEditName = useCallback(() => {
