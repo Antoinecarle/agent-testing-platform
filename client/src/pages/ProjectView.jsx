@@ -346,18 +346,39 @@ export default function ProjectView() {
     if (projectId && projectId !== 'new') load();
   }, [projectId]);
 
-  // Listen for auto-imported iterations via Socket.IO
+  // Watcher logs state
+  const [watcherLogs, setWatcherLogs] = useState([]);
+  const [previewKey, setPreviewKey] = useState(0); // increment to force iframe refresh
+
+  // Listen for auto-imported iterations + live updates via Socket.IO
   useEffect(() => {
     if (!projectId || projectId === 'new') return;
     const socket = io({ transports: ['websocket'] });
 
     socket.on('iteration-created', (data) => {
       if (data.projectId === projectId) {
-        // Refresh the tree
+        // NEW iteration — refresh tree and select it
         api(`/api/iterations/${projectId}/tree`).then(tree => {
           setTreeData(tree || []);
           if (data.iteration) setSelected(data.iteration);
         }).catch(() => {});
+      }
+    });
+
+    socket.on('iteration-updated', (data) => {
+      if (data.projectId === projectId) {
+        // UPDATED iteration — refresh preview without changing tree
+        setPreviewKey(k => k + 1);
+        // If the updated iteration is currently selected, update its data
+        if (data.iteration) {
+          setSelected(prev => prev?.id === data.iterationId ? { ...prev, ...data.iteration } : prev);
+        }
+      }
+    });
+
+    socket.on('watcher-log', (data) => {
+      if (data.projectId === projectId) {
+        setWatcherLogs(prev => [...prev.slice(-49), { timestamp: data.timestamp, type: data.type, message: data.message }]);
       }
     });
 
@@ -547,10 +568,26 @@ export default function ProjectView() {
       }}>
         <div style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', borderBottom: `1px solid ${t.border}` }}>
           <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
-          <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New
-          </button>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button
+              onClick={() => {
+                api(`/api/terminal-tabs/${projectId}/new-version`, { method: 'POST' })
+                  .then(() => {
+                    api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
+                  })
+                  .catch(err => console.error('[NewVersion]', err));
+              }}
+              title="Snapshot current state as a new version"
+              style={{ background: 'rgba(139,92,246,0.15)', color: t.violet, border: `1px solid rgba(139,92,246,0.3)`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Snapshot
+            </button>
+            <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New
+            </button>
+          </div>
         </div>
         {branchParent !== undefined && (
           <div style={{
@@ -576,6 +613,26 @@ export default function ProjectView() {
             <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: t.tm }}>No iterations yet</div>
           )}
         </div>
+        {/* Activity Log */}
+        {watcherLogs.length > 0 && (
+          <div style={{ borderTop: `1px solid ${t.border}`, maxHeight: '120px', overflowY: 'auto', flexShrink: 0 }}>
+            <div style={{ padding: '4px 12px', fontSize: '10px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${t.border}`, background: t.surfaceEl, position: 'sticky', top: 0, zIndex: 1 }}>
+              Activity Log
+            </div>
+            {watcherLogs.slice().reverse().map((log, i) => (
+              <div key={i} style={{ padding: '3px 12px', fontSize: '10px', color: t.ts, display: 'flex', gap: '6px', alignItems: 'center', borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
+                <span style={{
+                  width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
+                  background: log.type === 'create' ? '#22c55e' : log.type === 'update' ? '#3b82f6' : log.type === 'snapshot' ? t.violet : '#f59e0b',
+                }} />
+                <span style={{ color: t.tm, fontSize: '9px', flexShrink: 0 }}>
+                  {new Date(log.timestamp).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* Left Resizer */}
@@ -695,7 +752,7 @@ export default function ProjectView() {
 
         <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
           {selected ? (
-            <iframe src={`/api/preview/${projectId}/${selected.id}`}
+            <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
               style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
           ) : (
             <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg }}>

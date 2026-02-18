@@ -26,6 +26,40 @@ const POLL_INTERVAL_MS = IS_RAILWAY ? 5000 : 10000;
 // Socket.IO server ref (set during init)
 let ioRef = null;
 
+// ==================== ACTIVE ITERATION TRACKING ====================
+// Each project has at most ONE "active" iteration that gets UPDATED in place
+// when the workspace file changes. A new iteration is only created when:
+//   1. No active iteration exists (first time)
+//   2. User explicitly creates a new version (via API: createNewVersion)
+//   3. Branch context changes
+//   4. Subdirectory-based versions appear (version-1/, version-2/)
+//
+// Key: projectId → { iterationId, filePath (in iterations dir) }
+const activeIterations = new Map();
+
+// Change log: tracks modifications per project for progress visibility
+// Key: projectId → [ { timestamp, type, message } ]
+const changeLogs = new Map();
+
+function logChange(projectId, type, message) {
+  if (!changeLogs.has(projectId)) changeLogs.set(projectId, []);
+  const logs = changeLogs.get(projectId);
+  const entry = { timestamp: Date.now(), type, message };
+  logs.push(entry);
+  // Keep max 200 entries per project
+  if (logs.length > 200) logs.splice(0, logs.length - 200);
+  console.log(`[Watcher:${type}] ${message} (project: ${projectId.slice(0, 8)})`);
+  // Emit real-time log event
+  if (ioRef) {
+    ioRef.emit('watcher-log', { projectId, ...entry });
+  }
+}
+
+function getChangeLogs(projectId, limit = 50) {
+  const logs = changeLogs.get(projectId) || [];
+  return logs.slice(-limit);
+}
+
 function hashContent(content) {
   return crypto.createHash('md5').update(content).digest('hex');
 }
@@ -100,36 +134,52 @@ function findAllSubdirHtmls(wsDir) {
 }
 
 /**
- * Import a single HTML file as an iteration
- * @param {string} projectId
- * @param {string} htmlPath - absolute path to HTML file
- * @param {string|null} titleOverride - custom title (null = auto V{n})
- * @param {string|null|undefined} parentIdOverride - explicit parent (null=root, undefined=auto-detect)
+ * Update an existing iteration's HTML content in place.
+ * Returns true if updated, false if iteration not found.
  */
-async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOverride) {
-  let content;
+async function updateIterationHtml(iterationId, content, projectId) {
   try {
-    content = fs.readFileSync(htmlPath, 'utf-8');
+    const iteration = await db.getIteration(iterationId);
+    if (!iteration || !iteration.file_path) return false;
+
+    const htmlPath = path.join(ITERATIONS_DIR, iteration.file_path);
+    const htmlDir = path.dirname(htmlPath);
+    if (!fs.existsSync(htmlDir)) fs.mkdirSync(htmlDir, { recursive: true });
+    fs.writeFileSync(htmlPath, content);
+
+    // Update content hash
+    const hash = hashContent(content);
+    knownContentHashes.add(`${projectId}:${hash}`);
+
+    logChange(projectId, 'update', `Updated iteration ${iteration.title || 'V' + iteration.version} in place`);
+
+    // Emit iteration-updated for live preview refresh (NOT iteration-created)
+    if (ioRef) {
+      ioRef.emit('iteration-updated', {
+        projectId,
+        iterationId,
+        iteration: await db.getIteration(iterationId),
+        timestamp: Date.now(),
+      });
+    }
+
+    return true;
   } catch (err) {
-    console.error(`[Watcher] Cannot read ${htmlPath}:`, err.message);
-    return null;
+    console.error(`[Watcher] Failed to update iteration ${iterationId}:`, err.message);
+    return false;
   }
-  if (!content || content.trim().length < 50) return null;
+}
 
+/**
+ * Create a brand new iteration from HTML content.
+ * Used only when there's no active iteration or explicit new version requested.
+ */
+async function createNewIteration(projectId, content, titleOverride, parentIdOverride) {
   const hash = hashContent(content);
-  const hashKey = `${projectId}:${htmlPath}`;
-  const previousHash = fileHashes.get(hashKey);
-  if (previousHash === hash) return null;
 
-  // Content-based dedup: skip if this exact content was already imported for this project
+  // Content-based dedup
   const contentKey = `${projectId}:${hash}`;
-  if (knownContentHashes.has(contentKey)) {
-    // Update file hash so we don't keep checking, but don't create a duplicate
-    fileHashes.set(hashKey, hash);
-    return null;
-  }
-
-  fileHashes.set(hashKey, hash);
+  if (knownContentHashes.has(contentKey)) return null;
 
   try {
     const project = await db.getProject(projectId);
@@ -142,17 +192,13 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
     // Determine parent
     let parentId;
     if (parentIdOverride !== undefined) {
-      // Explicit override (null = root, string = specific parent)
       parentId = parentIdOverride;
     } else {
-      // Read branch context
       const branchCtx = readBranchContext(projectId);
       if (branchCtx) {
         parentId = branchCtx.parentId;
-        const ctxPath = path.join(WORKSPACES_DIR, projectId, '.branch-context.json');
-        try { fs.unlinkSync(ctxPath); } catch (_) {}
+        // Don't clear branch context here — it persists for the session
       } else {
-        // Default: chain to latest
         const iterations = await db.getIterationsByProject(projectId);
         parentId = iterations.length > 0 ? iterations[iterations.length - 1].id : null;
       }
@@ -167,17 +213,15 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
     fs.writeFileSync(path.join(iterDir, 'index.html'), content);
     const filePath = `${projectId}/${id}/index.html`;
 
-    // Use auto-versioning V{n} as default, only override if a real title was provided
     const title = titleOverride || `V${version}`;
     await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
 
     const count = await db.countIterations(projectId);
     await db.updateProjectIterationCount(projectId, count);
 
-    // Register content hash to prevent future duplicates
     knownContentHashes.add(contentKey);
 
-    console.log(`[Watcher] Imported iteration ${title} (parent: ${parentId || 'ROOT'}) for project ${project.name} (${id})`);
+    logChange(projectId, 'create', `Created iteration ${title} (parent: ${parentId || 'ROOT'})`);
 
     if (ioRef) {
       ioRef.emit('iteration-created', {
@@ -188,32 +232,91 @@ async function importSingleHtml(projectId, htmlPath, titleOverride, parentIdOver
 
     return id;
   } catch (err) {
-    // Rollback hash so the file will be retried on next poll
-    if (previousHash !== undefined) {
-      fileHashes.set(hashKey, previousHash);
-    } else {
-      fileHashes.delete(hashKey);
-    }
-    console.error(`[Watcher] DB error importing ${htmlPath} for project ${projectId}:`, err.message);
+    console.error(`[Watcher] DB error creating iteration for project ${projectId}:`, err.message);
     return null;
   }
 }
 
 /**
+ * Handle a root-level HTML file change.
+ * Uses the "active iteration" pattern: updates in place, only creates new when needed.
+ */
+async function handleRootHtmlChange(projectId, htmlPath) {
+  let content;
+  try {
+    content = fs.readFileSync(htmlPath, 'utf-8');
+  } catch (err) {
+    console.error(`[Watcher] Cannot read ${htmlPath}:`, err.message);
+    return null;
+  }
+  if (!content || content.trim().length < 50) return null;
+
+  const hash = hashContent(content);
+  const hashKey = `${projectId}:${htmlPath}`;
+  const previousHash = fileHashes.get(hashKey);
+  if (previousHash === hash) return null; // No actual change
+
+  fileHashes.set(hashKey, hash);
+
+  // Check if we have an active iteration for this project
+  const active = activeIterations.get(projectId);
+  if (active) {
+    // UPDATE existing iteration in place
+    const updated = await updateIterationHtml(active.iterationId, content, projectId);
+    if (updated) {
+      return active.iterationId;
+    }
+    // If update failed (iteration deleted?), fall through to create new
+    activeIterations.delete(projectId);
+  }
+
+  // No active iteration — create a new one
+  const newId = await createNewIteration(projectId, content, null, undefined);
+  if (newId) {
+    activeIterations.set(projectId, { iterationId: newId });
+  }
+  return newId;
+}
+
+/**
+ * Handle a subdirectory-based HTML file (version-1/index.html).
+ * These always create NEW iterations (they represent explicit parallel versions).
+ */
+async function handleSubdirHtmlChange(projectId, htmlPath, title, parentIdOverride) {
+  let content;
+  try {
+    content = fs.readFileSync(htmlPath, 'utf-8');
+  } catch (err) {
+    console.error(`[Watcher] Cannot read ${htmlPath}:`, err.message);
+    return null;
+  }
+  if (!content || content.trim().length < 50) return null;
+
+  const hash = hashContent(content);
+  const hashKey = `${projectId}:${htmlPath}`;
+  const previousHash = fileHashes.get(hashKey);
+  if (previousHash === hash) return null;
+
+  fileHashes.set(hashKey, hash);
+
+  return await createNewIteration(projectId, content, title, parentIdOverride);
+}
+
+/**
  * Import from workspace into iterations.
- * Subdirectory-based versions (version-1/, version-2/) are treated as parallel roots.
- * Root-level HTML files are chained to the latest iteration.
+ * Root-level files use active-iteration pattern (update in place).
+ * Subdirectory-based versions always create new iterations.
  */
 async function importIteration(projectId) {
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   let imported = null;
+  const hadActiveIterBefore = activeIterations.has(projectId);
 
-  // First: check for subdirectory-based versions that haven't been imported yet
+  // First: check for subdirectory-based versions (always create new)
   const subdirHtmls = findAllSubdirHtmls(wsDir);
   if (subdirHtmls.length > 0) {
     subdirHtmls.sort((a, b) => a.subdir.localeCompare(b.subdir, undefined, { numeric: true }));
 
-    // Count how many NEW subdirs need importing
     const newItems = subdirHtmls.filter(item => {
       const hashKey = `${projectId}:${item.path}`;
       try {
@@ -222,8 +325,6 @@ async function importIteration(projectId) {
       } catch (_) { return false; }
     });
 
-    // If multiple new subdirs at once → they are parallel versions (all roots)
-    // If single new subdir → chain to latest (normal iteration)
     const isParallelBatch = newItems.length > 1;
 
     for (const item of subdirHtmls) {
@@ -234,15 +335,14 @@ async function importIteration(projectId) {
       if (fileHashes.get(hashKey) !== hash) {
         const vMatch = item.subdir.match(/(?:version-?|v)(\d+)/i);
         const title = vMatch ? `V${vMatch[1]}` : item.subdir;
-        // Parallel batch → force root (null), single → auto-detect (undefined)
         const parentOverride = isParallelBatch ? null : undefined;
-        const result = await importSingleHtml(projectId, item.path, title, parentOverride);
+        const result = await handleSubdirHtmlChange(projectId, item.path, title, parentOverride);
         if (result) imported = result;
       }
     }
   }
 
-  // Then: check ALL root-level HTML files
+  // Then: check root-level HTML files (use active-iteration pattern)
   if (fs.existsSync(wsDir)) {
     let rootHtmlFiles;
     try {
@@ -255,42 +355,28 @@ async function importIteration(projectId) {
         });
     } catch (_) { rootHtmlFiles = []; }
 
-    const isParallelRootBatch = rootHtmlFiles.filter(f => {
-      const fp = path.join(wsDir, f);
-      const hashKey = `${projectId}:${fp}`;
-      try {
-        const content = fs.readFileSync(fp, 'utf-8');
-        return fileHashes.get(hashKey) !== hashContent(content);
-      } catch (_) { return false; }
-    }).length > 1;
-
     for (const f of rootHtmlFiles) {
       const fp = path.join(wsDir, f);
-      const baseName = f.replace(/\.html$/, '');
-
-      // Derive title: index.html → null (auto V{n}), version-1.html → V1, other.html → other
-      let title = null; // null = auto V{n}
-      if (baseName !== 'index') {
-        const vMatch = baseName.match(/(?:version-?|v)(\d+)/i);
-        title = vMatch ? `V${vMatch[1]}` : baseName;
-      }
-
-      const parentOverride = isParallelRootBatch ? null : undefined;
-      const result = await importSingleHtml(projectId, fp, title, parentOverride);
+      const result = await handleRootHtmlChange(projectId, fp);
       if (result) imported = result;
     }
   }
 
-  // Refresh CLAUDE.md once after all imports
-  if (imported) {
+  // Refresh CLAUDE.md when a NEW iteration was created (not just updated)
+  // If we didn't have an active iteration before but do now, it means a new one was created
+  if (imported && !hadActiveIterBefore && activeIterations.has(projectId)) {
     try { await generateWorkspaceContext(projectId); } catch (_) {}
   }
 
   return imported;
 }
 
+// How long the file must be stable (unchanged) before we import
+const STABILITY_DELAY_MS = 10000; // 10 seconds (was 30s - shorter since we update in place now)
+
 /**
- * Debounced trigger for import
+ * Debounced trigger for import with stability check.
+ * Only imports when the HTML file hasn't changed for STABILITY_DELAY_MS.
  */
 function triggerImport(projectId) {
   if (debounceTimers.has(projectId)) {
@@ -303,17 +389,32 @@ function triggerImport(projectId) {
     } catch (err) {
       console.error(`[Watcher] Import error for ${projectId}:`, err.message);
     }
-  }, 2000));
+  }, STABILITY_DELAY_MS));
 }
 
 /**
- * Poll all watched workspaces for new/changed HTML files
- * This is the reliable fallback when fs.watch doesn't fire (Railway, Docker, NFS, etc.)
+ * Poll all watched workspaces for new/changed HTML files.
  */
 async function pollAllWorkspaces() {
   for (const projectId of watchers.keys()) {
     try {
-      await importIteration(projectId);
+      const wsDir = path.join(WORKSPACES_DIR, projectId);
+      const htmlFiles = scanWorkspaceHtmlFiles(wsDir);
+      let hasChanges = false;
+      for (const item of htmlFiles) {
+        try {
+          const content = fs.readFileSync(item.path, 'utf-8');
+          const hash = hashContent(content);
+          const hashKey = `${projectId}:${item.path}`;
+          if (fileHashes.get(hashKey) !== hash) {
+            hasChanges = true;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (hasChanges) {
+        triggerImport(projectId);
+      }
     } catch (err) {
       console.error(`[Watcher/Poll] Error scanning ${projectId}:`, err.message);
     }
@@ -386,6 +487,10 @@ function watchProject(projectId) {
     } catch (_) {}
   }
 
+  // Restore active iteration from DB: the latest iteration is the "active" one
+  // (so after restarts, we continue updating the last iteration instead of creating new)
+  _restoreActiveIteration(projectId);
+
   const projectWatchers = [];
 
   try {
@@ -430,6 +535,19 @@ function watchProject(projectId) {
   }
 
   watchers.set(projectId, projectWatchers);
+}
+
+/**
+ * Restore active iteration from DB on startup
+ */
+async function _restoreActiveIteration(projectId) {
+  try {
+    const iterations = await db.getIterationsByProject(projectId);
+    if (iterations.length > 0) {
+      const latest = iterations[iterations.length - 1];
+      activeIterations.set(projectId, { iterationId: latest.id });
+    }
+  } catch (_) {}
 }
 
 /**
@@ -513,8 +631,6 @@ async function initWatchers(io) {
  * (knownContentHashes) still prevents duplicate iterations.
  */
 async function manualImport(projectId) {
-  // Reset file-path hashes so workspace files are re-checked
-  // Content hashes (knownContentHashes) are NOT cleared — prevents duplicates
   for (const key of fileHashes.keys()) {
     if (key.startsWith(`${projectId}:`)) {
       fileHashes.delete(key);
@@ -525,11 +641,9 @@ async function manualImport(projectId) {
 
 /**
  * Scan a specific project NOW (called when terminal exits, agent finishes, etc.)
- * Unlike manualImport, this doesn't clear hashes — it just checks for new/changed files.
  */
 async function scanProject(projectId) {
   try {
-    // Ensure we're watching this project
     if (!watchers.has(projectId)) {
       watchProject(projectId);
     }
@@ -540,6 +654,66 @@ async function scanProject(projectId) {
   }
 }
 
+/**
+ * Explicitly create a new version for a project.
+ * Clears the active iteration so the next file change creates a fresh iteration.
+ * Called from the API when user clicks "New Version".
+ */
+async function createNewVersion(projectId) {
+  // Clear active iteration → import will create a new one
+  activeIterations.delete(projectId);
+  logChange(projectId, 'snapshot', 'Snapshot created — next edit will start a new version');
+
+  // If there's already an HTML file in the workspace, import it now as a new iteration
+  const wsDir = path.join(WORKSPACES_DIR, projectId);
+  if (!fs.existsSync(wsDir)) return null;
+
+  const htmlFiles = fs.readdirSync(wsDir).filter(f => f.endsWith('.html') && !f.startsWith('.'));
+  if (htmlFiles.length === 0) return null;
+
+  // Clear hashes for root files so they get re-imported as new iterations
+  for (const f of htmlFiles) {
+    const fp = path.join(wsDir, f);
+    fileHashes.delete(`${projectId}:${fp}`);
+    // Also clear the content hash so dedup doesn't block it
+    try {
+      const content = fs.readFileSync(fp, 'utf-8');
+      const hash = hashContent(content);
+      knownContentHashes.delete(`${projectId}:${hash}`);
+    } catch (_) {}
+  }
+
+  const result = await importIteration(projectId);
+
+  // IMPORTANT: Clear active iteration AGAIN after the snapshot import.
+  // The snapshot should be frozen — the next edit should create a NEW iteration.
+  activeIterations.delete(projectId);
+
+  // Refresh workspace CLAUDE.md after new version
+  if (result) {
+    try { await generateWorkspaceContext(projectId); } catch (_) {}
+  }
+
+  return result;
+}
+
+/**
+ * Reset active iteration for a project (e.g., when branch context changes).
+ * Next file change will create a new iteration.
+ */
+function resetActiveIteration(projectId) {
+  activeIterations.delete(projectId);
+  logChange(projectId, 'reset', 'Active iteration reset — next edit creates new version');
+}
+
+/**
+ * Get the current active iteration ID for a project
+ */
+function getActiveIterationId(projectId) {
+  const active = activeIterations.get(projectId);
+  return active ? active.iterationId : null;
+}
+
 module.exports = {
   initWatchers,
   watchProject,
@@ -547,4 +721,8 @@ module.exports = {
   importIteration,
   manualImport,
   scanProject,
+  createNewVersion,
+  resetActiveIteration,
+  getActiveIterationId,
+  getChangeLogs,
 };

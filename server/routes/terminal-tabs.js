@@ -89,6 +89,8 @@ router.post('/:projectId/branch-context', async (req, res) => {
     const projectId = req.params.projectId;
     // Write branch context file
     writeBranchContext(projectId, parentId !== undefined ? parentId : null);
+    // Reset active iteration so next edit creates a new version for this branch
+    if (watcher) watcher.resetActiveIteration(projectId);
     // Regenerate CLAUDE.md with branch context
     await generateWorkspaceContext(projectId, { parentId: parentId !== undefined ? parentId : null });
     res.json({ ok: true });
@@ -106,6 +108,33 @@ router.post('/:projectId/refresh-context', async (req, res) => {
     res.json({ ok: true, path: result });
   } catch (err) {
     console.error('[TerminalTabs] Refresh context error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/terminal-tabs/:projectId/new-version — explicitly create a new iteration version
+router.post('/:projectId/new-version', async (req, res) => {
+  try {
+    if (!watcher) return res.status(503).json({ error: 'Watcher not available' });
+    const projectId = req.params.projectId;
+    watcher.watchProject(projectId);
+    const iterationId = await watcher.createNewVersion(projectId);
+    res.json({ ok: true, iterationId: iterationId || null });
+  } catch (err) {
+    console.error('[TerminalTabs] New version error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/terminal-tabs/:projectId/logs — get watcher change logs
+router.get('/:projectId/logs', async (req, res) => {
+  try {
+    if (!watcher) return res.json([]);
+    const limit = parseInt(req.query.limit) || 50;
+    const logs = watcher.getChangeLogs(req.params.projectId, limit);
+    res.json(logs);
+  } catch (err) {
+    console.error('[TerminalTabs] Logs error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
