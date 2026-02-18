@@ -249,7 +249,13 @@ router.post('/llm-keys/:provider/test', async (req, res) => {
 
 // Stripe webhook handler for wallet credit purchases (mounted before JSON parser in index.js)
 async function stripeWalletWebhookHandler(req, res) {
-  const stripe = getStripe();
+  let stripe;
+  try {
+    stripe = getStripe();
+  } catch (err) {
+    console.error('[Wallet Webhook] Stripe not configured:', err.message);
+    return res.status(500).send('Stripe not configured');
+  }
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WALLET_WEBHOOK_SECRET;
 
