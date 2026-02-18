@@ -162,6 +162,46 @@ function CredentialModal({ platform, onClose, onSaved }) {
           </button>
         </div>
 
+        {/* Token URL - prominent link */}
+        {authConfig.token_url && (
+          <a
+            href={authConfig.token_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '12px 16px', borderRadius: '8px', marginBottom: '16px',
+              background: 'rgba(139,92,246,0.08)', border: `1px solid ${t.violetM}`,
+              textDecoration: 'none', transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(139,92,246,0.15)';
+              e.currentTarget.style.borderColor = t.violet;
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(139,92,246,0.08)';
+              e.currentTarget.style.borderColor = t.violetM;
+            }}
+          >
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '8px',
+              background: t.violetG, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Key size={14} style={{ color: t.violet }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: t.violet }}>
+                Get your {authConfig.token_label || 'API Token'}
+              </div>
+              <div style={{ fontSize: '11px', color: t.ts, marginTop: '2px' }}>
+                {authConfig.token_url.replace(/^https?:\/\//, '').split('/')[0]}
+              </div>
+            </div>
+            <ExternalLink size={14} style={{ color: t.violet, flexShrink: 0 }} />
+          </a>
+        )}
+
         {/* Help text */}
         {authConfig.token_help && (
           <div style={{
@@ -240,11 +280,14 @@ function CredentialModal({ platform, onClose, onSaved }) {
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              fontSize: '12px', color: t.violet, textDecoration: 'none', marginBottom: '20px',
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              fontSize: '11px', color: t.tm, textDecoration: 'none', marginBottom: '20px',
+              padding: '4px 0',
             }}
+            onMouseEnter={e => e.currentTarget.style.color = t.violet}
+            onMouseLeave={e => e.currentTarget.style.color = t.tm}
           >
-            <ExternalLink size={12} /> {platform.name} API Documentation
+            <ExternalLink size={11} /> {platform.name} API Documentation
           </a>
         )}
 
