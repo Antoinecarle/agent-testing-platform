@@ -5,7 +5,7 @@ import { getToken } from '../api';
 /**
  * React hook for bulk file import into a knowledge base.
  * Manages: idle -> uploading -> processing -> done lifecycle.
- * Connects to /knowledge Socket.IO namespace for real-time progress.
+ * Uses Socket.IO for real-time progress + polling fallback.
  */
 export default function useBulkImport(knowledgeBaseId) {
   const [phase, setPhase] = useState('idle'); // idle | uploading | processing | done | error
@@ -14,17 +14,71 @@ export default function useBulkImport(knowledgeBaseId) {
   const [stats, setStats] = useState({ total: 0, completed: 0, failed: 0, processing: 0 });
   const [jobId, setJobId] = useState(null);
   const socketRef = useRef(null);
+  const pollRef = useRef(null);
   const cancelledRef = useRef(false);
+  const jobIdRef = useRef(null);
 
-  // Clean up socket on unmount
+  // Clean up socket + polling on unmount
   useEffect(() => {
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  // Polling fallback: fetch job status every 2s
+  const startPolling = useCallback((kbId, jId) => {
+    stopPolling();
+    const token = getToken();
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/knowledge/${kbId}/bulk-import/${jId}/status`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Update stats
+        if (data.stats) setStats(data.stats);
+
+        // Update file statuses
+        if (data.files) {
+          setFiles(prev => {
+            const serverMap = new Map(data.files.map(f => [f.id, f]));
+            return prev.map(f => {
+              const sf = serverMap.get(f.id);
+              if (sf && sf.status !== f.status) {
+                return { ...f, status: sf.status, error: sf.error || f.error };
+              }
+              return f;
+            });
+          });
+        }
+
+        // Check if done
+        if (data.status === 'done' || data.status === 'cancelled') {
+          setPhase('done');
+          stopPolling();
+        }
+      } catch (_) {
+        // Ignore polling errors
+      }
+    }, 2000);
+  }, [stopPolling]);
 
   const connectSocket = useCallback((jId) => {
     if (socketRef.current) {
@@ -51,11 +105,16 @@ export default function useBulkImport(knowledgeBaseId) {
       setStats(newStats);
       if (status === 'done' || status === 'cancelled') {
         setPhase('done');
+        stopPolling();
       }
     });
 
+    socket.on('connect_error', (err) => {
+      console.warn('[BulkImport] Socket connect error, relying on polling:', err.message);
+    });
+
     socketRef.current = socket;
-  }, []);
+  }, [stopPolling]);
 
   const startImport = useCallback(async (selectedFiles) => {
     if (!knowledgeBaseId || !selectedFiles.length) return;
@@ -84,6 +143,7 @@ export default function useBulkImport(knowledgeBaseId) {
       if (!startRes.ok) throw new Error('Failed to create import job');
       const { jobId: jId } = await startRes.json();
       setJobId(jId);
+      jobIdRef.current = jId;
 
       // Step 2: Connect socket for progress
       connectSocket(jId);
@@ -128,8 +188,10 @@ export default function useBulkImport(knowledgeBaseId) {
 
       if (cancelledRef.current) return;
 
-      // Step 4: Start processing
+      // Step 4: Start processing + polling fallback
       setPhase('processing');
+      startPolling(knowledgeBaseId, jId);
+
       const processRes = await fetch(
         `/api/knowledge/${knowledgeBaseId}/bulk-import/${jId}/process`,
         { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' } }
@@ -138,36 +200,41 @@ export default function useBulkImport(knowledgeBaseId) {
 
     } catch (err) {
       setPhase('error');
+      stopPolling();
       console.error('[BulkImport] Error:', err.message);
     }
-  }, [knowledgeBaseId, connectSocket]);
+  }, [knowledgeBaseId, connectSocket, startPolling, stopPolling]);
 
   const cancelImport = useCallback(async () => {
     cancelledRef.current = true;
-    if (jobId && knowledgeBaseId) {
+    stopPolling();
+    const jId = jobIdRef.current;
+    if (jId && knowledgeBaseId) {
       const token = getToken();
       try {
-        await fetch(`/api/knowledge/${knowledgeBaseId}/bulk-import/${jobId}/cancel`, {
+        await fetch(`/api/knowledge/${knowledgeBaseId}/bulk-import/${jId}/cancel`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         });
       } catch (_) {}
     }
     setPhase('done');
-  }, [jobId, knowledgeBaseId]);
+  }, [knowledgeBaseId, stopPolling]);
 
   const reset = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.disconnect();
       socketRef.current = null;
     }
+    stopPolling();
     setPhase('idle');
     setFiles([]);
     setUploadProgress({ current: 0, total: 0 });
     setStats({ total: 0, completed: 0, failed: 0, processing: 0 });
     setJobId(null);
+    jobIdRef.current = null;
     cancelledRef.current = false;
-  }, []);
+  }, [stopPolling]);
 
   return { phase, files, uploadProgress, stats, jobId, startImport, cancelImport, reset };
 }

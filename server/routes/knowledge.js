@@ -366,6 +366,7 @@ router.post('/:id/bulk-import/:jobId/process', async (req, res) => {
     if (job.status === 'processing') return res.status(409).json({ error: 'Already processing' });
 
     // Fire-and-forget processing
+    console.log(`[Knowledge] Starting bulk processing for job ${job.id}: ${job.files.length} files`);
     bulkQueue.processJob(
       job,
       extractFileContent,
@@ -373,11 +374,14 @@ router.post('/:id/bulk-import/:jobId/process', async (req, res) => {
       db,
       (j, ft) => {
         if (ft) {
+          console.log(`[Knowledge] File ${ft.originalName}: ${ft.status}${ft.error ? ' - ' + ft.error : ''}`);
           emitProgress(j.id, 'file-progress', { fileId: ft.id, status: ft.status, error: ft.error });
         }
         emitProgress(j.id, 'job-progress', { stats: j.stats, status: j.status });
       }
-    ).catch(err => {
+    ).then(() => {
+      console.log(`[Knowledge] Bulk job ${job.id} finished: ${job.stats.completed} ok, ${job.stats.failed} failed`);
+    }).catch(err => {
       console.error(`[Knowledge] Bulk import process error for job ${job.id}:`, err.message);
     });
 
