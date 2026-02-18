@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
@@ -16,16 +16,30 @@ const t = {
   tp: '#F4F4F5', ts: '#A1A1AA', tm: '#52525B',
 };
 
-function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, isLast = false }) {
+function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, onRename, isLast = false, multiSelect = false, selectedIds, onToggleSelect }) {
   const isSelected = selected?.id === node.id;
+  const isChecked = selectedIds?.has(node.id);
   const [hovered, setHovered] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
   const hasChildren = node.children && node.children.length > 0;
   const isRoot = level === 0;
 
+  const startRename = () => {
+    setEditTitle(node.title || `V${node.version}`);
+    setEditing(true);
+  };
+
+  const commitRename = () => {
+    if (editTitle.trim() && editTitle !== (node.title || `V${node.version}`)) {
+      onRename?.(node.id, editTitle.trim());
+    }
+    setEditing(false);
+  };
+
   return (
     <div style={{ position: 'relative' }}>
-      {/* Vertical connector line from parent */}
       {!isRoot && (
         <div style={{
           position: 'absolute', left: `${(level - 1) * 20 + 9}px`, top: 0,
@@ -33,7 +47,6 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
           background: 'rgba(139,92,246,0.15)',
         }} />
       )}
-      {/* Horizontal connector to node */}
       {!isRoot && (
         <div style={{
           position: 'absolute', left: `${(level - 1) * 20 + 9}px`, top: '16px',
@@ -44,20 +57,34 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
 
       <div style={{ marginLeft: `${level * 20}px` }}>
         <div
-          onClick={() => onSelect(node)}
+          onClick={() => multiSelect ? onToggleSelect?.(node.id) : onSelect(node)}
+          onDoubleClick={e => { e.stopPropagation(); startRename(); }}
           onContextMenu={e => { e.preventDefault(); onContext({ x: e.clientX, y: e.clientY, node }); }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
+          title={node.prompt ? `Prompt: ${node.prompt}` : undefined}
           style={{
             padding: '4px 8px', margin: '1px 0', borderRadius: '6px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px',
-            background: isSelected ? 'rgba(139,92,246,0.12)' : hovered ? 'rgba(255,255,255,0.03)' : 'transparent',
-            border: isSelected ? '1px solid rgba(139,92,246,0.3)' : '1px solid transparent',
+            background: isChecked ? 'rgba(239,68,68,0.08)' : isSelected ? 'rgba(139,92,246,0.12)' : hovered ? 'rgba(255,255,255,0.03)' : 'transparent',
+            border: isChecked ? '1px solid rgba(239,68,68,0.3)' : isSelected ? '1px solid rgba(139,92,246,0.3)' : '1px solid transparent',
             transition: 'all 0.15s',
           }}
         >
-          {/* Collapse/expand or dot indicator */}
-          {hasChildren ? (
+          {/* Multi-select checkbox */}
+          {multiSelect && (
+            <span style={{
+              width: '14px', height: '14px', borderRadius: '3px', flexShrink: 0,
+              border: isChecked ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.2)',
+              background: isChecked ? '#ef4444' : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {isChecked && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+            </span>
+          )}
+
+          {/* Collapse/expand or dot */}
+          {!multiSelect && (hasChildren ? (
             <span onClick={e => { e.stopPropagation(); setCollapsed(!collapsed); }}
               style={{ width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', borderRadius: '3px', background: hovered ? 'rgba(255,255,255,0.06)' : 'transparent' }}>
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke={t.tm} strokeWidth="1.5">
@@ -68,18 +95,33 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
             <span style={{ width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: isSelected ? t.violet : 'rgba(255,255,255,0.15)' }} />
             </span>
+          ))}
+
+          {/* Title — inline editing */}
+          {editing ? (
+            <input
+              autoFocus
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false); }}
+              onBlur={commitRename}
+              onClick={e => e.stopPropagation()}
+              style={{
+                flex: 1, background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '3px',
+                padding: '1px 4px', color: t.tp, fontSize: '12px', outline: 'none', minWidth: 0,
+              }}
+            />
+          ) : (
+            <span style={{
+              color: isSelected ? t.tp : t.ts, flex: 1, overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isRoot ? '500' : '400',
+            }}>
+              {node.title || `V${node.version}`}
+            </span>
           )}
 
-          {/* Title */}
-          <span style={{
-            color: isSelected ? t.tp : t.ts, flex: 1, overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isRoot ? '500' : '400',
-          }}>
-            {node.title || `V${node.version}`}
-          </span>
-
-          {/* Branch button on hover */}
-          {hovered && (
+          {/* Branch button */}
+          {hovered && !multiSelect && !editing && (
             <span
               onClick={e => { e.stopPropagation(); onBranch(node); }}
               title={`Branch from ${node.title || 'V' + node.version}`}
@@ -102,7 +144,6 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
             {(node.agent_name || '').split('-').slice(0, 2).join('-')}
           </span>
 
-          {/* Children count badge */}
           {hasChildren && collapsed && (
             <span style={{ background: 'rgba(255,255,255,0.06)', color: t.tm, padding: '0 4px', borderRadius: '3px', fontSize: '9px', fontWeight: '600' }}>
               {node.children.length}
@@ -111,13 +152,13 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
         </div>
       </div>
 
-      {/* Children */}
       {hasChildren && !collapsed && (
         <div>
           {node.children.map((child, i) => (
             <TreeNode key={child.id} node={child} level={level + 1} selected={selected}
-              onSelect={onSelect} onContext={onContext} onBranch={onBranch}
-              isLast={i === node.children.length - 1} />
+              onSelect={onSelect} onContext={onContext} onBranch={onBranch} onRename={onRename}
+              isLast={i === node.children.length - 1}
+              multiSelect={multiSelect} selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
           ))}
         </div>
       )}
@@ -125,7 +166,7 @@ function TreeNode({ node, level = 0, selected, onSelect, onContext, onBranch, is
   );
 }
 
-function IterationCarousel({ allIterations, selected, onSelect, projectId }) {
+function IterationCarousel({ allIterations, selected, onSelect, projectId, previewKey = 0 }) {
   const scrollRef = useRef(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
@@ -141,6 +182,10 @@ function IterationCarousel({ allIterations, selected, onSelect, projectId }) {
   useEffect(() => {
     checkScroll();
     window.addEventListener('resize', checkScroll);
+    // Auto-scroll to end when new iterations arrive
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ left: scrollRef.current.scrollWidth, behavior: 'smooth' });
+    }
     return () => window.removeEventListener('resize', checkScroll);
   }, [allIterations]);
 
@@ -200,7 +245,7 @@ function IterationCarousel({ allIterations, selected, onSelect, projectId }) {
                   width: '1280px', height: '720px', transform: 'scale(0.125)',
                   transformOrigin: 'top left', pointerEvents: 'none', backgroundColor: t.surface,
                 }}>
-                  <iframe src={`/api/preview/${projectId}/${iteration.id}`}
+                  <iframe src={`/api/preview/${projectId}/${iteration.id}?v=${previewKey}`}
                     style={{ width: '100%', height: '100%', border: 'none' }}
                     title={`Preview V${iteration.version}`} loading="lazy" sandbox="allow-same-origin" />
                 </div>
@@ -277,9 +322,19 @@ export default function ProjectView() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
+  // Multi-select for bulk delete
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  // Fullscreen preview
+  const [fullscreen, setFullscreen] = useState(false);
+  // Agent working indicator
+  const [agentWorking, setAgentWorking] = useState(false);
+  const agentWorkingTimer = useRef(null);
+
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
   const promptRef = useRef(null);
+  const carouselRef = useRef(null);
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 900);
@@ -379,11 +434,47 @@ export default function ProjectView() {
     socket.on('watcher-log', (data) => {
       if (data.projectId === projectId) {
         setWatcherLogs(prev => [...prev.slice(-49), { timestamp: data.timestamp, type: data.type, message: data.message }]);
+        // Show agent working indicator for 15s after any watcher activity
+        setAgentWorking(true);
+        if (agentWorkingTimer.current) clearTimeout(agentWorkingTimer.current);
+        agentWorkingTimer.current = setTimeout(() => setAgentWorking(false), 15000);
       }
     });
 
     return () => socket.disconnect();
   }, [projectId]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e) => {
+      // Ctrl+Enter → Generate
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (prompt.trim() && terminalRef.current) {
+          const escaped = prompt.replace(/'/g, "'\\''");
+          terminalRef.current.sendInput(`claude -p '${escaped}'\n`);
+          setPrompt('');
+        }
+      }
+      // Escape → exit fullscreen or multi-select
+      if (e.key === 'Escape') {
+        if (fullscreen) { setFullscreen(false); e.preventDefault(); }
+        if (multiSelect) { setMultiSelect(false); setSelectedIds(new Set()); e.preventDefault(); }
+      }
+      // Arrow up/down to navigate iterations (when not in input)
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        e.preventDefault();
+        const idx = allIterations.findIndex(it => it.id === selected?.id);
+        if (e.key === 'ArrowUp' && idx > 0) {
+          handleSelect(allIterations[idx - 1]);
+        } else if (e.key === 'ArrowDown' && idx < allIterations.length - 1) {
+          handleSelect(allIterations[idx + 1]);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [prompt, fullscreen, multiSelect, allIterations, selected, handleSelect]);
 
   const handleMouseMove = useCallback(e => {
     if (resizing === 'left') setLeftW(Math.max(150, Math.min(500, e.clientX)));
@@ -490,6 +581,53 @@ export default function ProjectView() {
     setEditingDesc(false);
   }, [editDesc, projectId]);
 
+  // Rename iteration inline
+  const handleRename = useCallback(async (iterationId, newTitle) => {
+    try {
+      await api(`/api/iterations/detail/${iterationId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: newTitle }),
+      });
+      // Refresh tree
+      const tree = await api(`/api/iterations/${projectId}/tree`);
+      setTreeData(tree || []);
+    } catch (err) { console.error('[Rename]', err); }
+  }, [projectId]);
+
+  // Multi-select toggle
+  const handleToggleSelect = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Bulk delete
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} iteration(s)?`)) return;
+    try {
+      await api(`/api/iterations/${projectId}/batch-delete`, {
+        method: 'POST',
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      setSelectedIds(new Set());
+      setMultiSelect(false);
+      const tree = await api(`/api/iterations/${projectId}/tree`);
+      setTreeData(tree || []);
+      if (selectedIds.has(selected?.id)) setSelected(null);
+    } catch (err) { console.error('[BulkDelete]', err); }
+  }, [selectedIds, projectId, selected]);
+
+  // Restore iteration to workspace
+  const handleRestore = useCallback(async (iterationId) => {
+    try {
+      const result = await api(`/api/iterations/detail/${iterationId}/restore`, { method: 'POST' });
+      if (result.ok) alert(result.message || 'Restored!');
+    } catch (err) { console.error('[Restore]', err); }
+  }, []);
+
   // File explorer handler
   const handleFileSelect = useCallback((node) => {
     setViewingFile(node.path);
@@ -562,33 +700,63 @@ export default function ProjectView() {
       <aside style={{
         width: isMobile ? '100%' : `${leftW}px`,
         background: t.surface, borderRight: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: isMobile && mobilePanel !== 'tree' ? 'none' : 'flex',
+        display: fullscreen ? 'none' : (isMobile && mobilePanel !== 'tree' ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        <div style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', borderBottom: `1px solid ${t.border}` }}>
-          <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button
-              onClick={() => {
-                api(`/api/terminal-tabs/${projectId}/new-version`, { method: 'POST' })
-                  .then(() => {
-                    api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
-                  })
-                  .catch(err => console.error('[NewVersion]', err));
-              }}
-              title="Snapshot current state as a new version"
-              style={{ background: 'rgba(139,92,246,0.15)', color: t.violet, border: `1px solid rgba(139,92,246,0.3)`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              Snapshot
-            </button>
-            <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              New
-            </button>
+        <div style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 0 12px', borderBottom: `1px solid ${t.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
+            {agentWorking && (
+              <span title="Agent is working..." style={{
+                width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', flexShrink: 0,
+                animation: 'pulse 1.5s infinite',
+              }} />
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {multiSelect ? (
+              <>
+                <button onClick={handleBulkDelete} disabled={selectedIds.size === 0}
+                  title={`Delete ${selectedIds.size} selected`}
+                  style={{ background: selectedIds.size > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.05)', color: selectedIds.size > 0 ? '#ef4444' : t.tm, border: `1px solid ${selectedIds.size > 0 ? 'rgba(239,68,68,0.3)' : t.border}`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: selectedIds.size > 0 ? 'pointer' : 'default' }}>
+                  <Trash2 size={11} /> {selectedIds.size}
+                </button>
+                <button onClick={() => { setMultiSelect(false); setSelectedIds(new Set()); }}
+                  style={{ background: 'rgba(255,255,255,0.05)', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '4px 6px', fontSize: '11px', cursor: 'pointer' }}>
+                  <X size={11} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setMultiSelect(true)} title="Select multiple to delete"
+                  style={{ background: 'transparent', color: t.tm, border: 'none', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <Trash2 size={12} />
+                </button>
+                <button
+                  onClick={() => {
+                    api(`/api/terminal-tabs/${projectId}/new-version`, { method: 'POST' })
+                      .then(() => {
+                        api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
+                      })
+                      .catch(err => console.error('[NewVersion]', err));
+                  }}
+                  title="Snapshot current state as a new version"
+                  style={{ background: 'rgba(139,92,246,0.15)', color: t.violet, border: `1px solid rgba(139,92,246,0.3)`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Snap
+                </button>
+                <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New
+                </button>
+              </>
+            )}
           </div>
         </div>
+        {/* CSS for pulse animation */}
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
         {branchParent !== undefined && (
           <div style={{
             padding: '6px 12px', borderBottom: `1px solid ${t.border}`, display: 'flex',
@@ -607,7 +775,9 @@ export default function ProjectView() {
         )}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
           {treeData.map(node => (
-            <TreeNode key={node.id} node={node} selected={selected} onSelect={handleSelect} onContext={setContextMenu} onBranch={handleBranch} />
+            <TreeNode key={node.id} node={node} selected={selected} onSelect={handleSelect}
+              onContext={setContextMenu} onBranch={handleBranch} onRename={handleRename}
+              multiSelect={multiSelect} selectedIds={selectedIds} onToggleSelect={handleToggleSelect} />
           ))}
           {treeData.length === 0 && (
             <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: t.tm }}>No iterations yet</div>
@@ -636,7 +806,7 @@ export default function ProjectView() {
       </aside>
 
       {/* Left Resizer */}
-      {!isMobile && (
+      {!isMobile && !fullscreen && (
         <div onMouseDown={() => setResizing('left')} style={{
           width: '4px', cursor: 'col-resize', background: resizing === 'left' ? t.violet : 'transparent',
           transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
@@ -732,6 +902,23 @@ export default function ProjectView() {
             }}>FULLSTACK</span>
           )}
           <div style={{ flex: 1 }} />
+          {/* Compare button */}
+          {allIterations.length >= 2 && (
+            <button onClick={() => navigate(`/compare/${projectId}`)} title="Compare iterations side by side"
+              style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <GitCompare size={12} /> Compare
+            </button>
+          )}
+          {/* Export all ZIP */}
+          <a href={`/api/preview/download-all/${projectId}`} title="Download all iterations as ZIP"
+            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <Download size={12} /> Export
+          </a>
+          {/* Fullscreen toggle */}
+          <button onClick={() => setFullscreen(!fullscreen)} title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
+            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
           <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
             style={{
               color: '#fff', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px',
@@ -739,7 +926,7 @@ export default function ProjectView() {
               fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`, flexShrink: 0, whiteSpace: 'nowrap',
             }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Client Preview
+            Client
           </a>
           {selected && (
             <a href={`/api/preview/${projectId}/${selected.id}`} target="_blank" rel="noreferrer"
@@ -762,14 +949,15 @@ export default function ProjectView() {
         </div>
 
         {/* Thumbnail Carousel */}
-        <IterationCarousel
+        {!fullscreen && <IterationCarousel
           allIterations={allIterations}
           selected={selected}
           onSelect={handleSelect}
           projectId={projectId}
-        />
+          previewKey={previewKey}
+        />}
 
-        <div style={{ padding: '12px 16px', borderTop: `1px solid ${t.border}`, background: t.surface, flexShrink: 0 }}>
+        {!fullscreen && <div style={{ padding: '12px 16px', borderTop: `1px solid ${t.border}`, background: t.surface, flexShrink: 0 }}>
           {branchParent !== undefined && (
             <div style={{ fontSize: '10px', color: t.violet, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
@@ -793,11 +981,11 @@ export default function ProjectView() {
               Generate
             </button>
           </div>
-        </div>
+        </div>}
       </main>
 
       {/* Right Resizer */}
-      {!isMobile && (
+      {!isMobile && !fullscreen && (
         <div onMouseDown={() => setResizing('right')} style={{
           width: '4px', cursor: 'col-resize', background: resizing === 'right' ? t.violet : 'transparent',
           transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
@@ -808,7 +996,7 @@ export default function ProjectView() {
       <aside style={{
         width: isMobile ? '100%' : `${rightW}px`,
         background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' && mobilePanel !== 'orchestra' ? 'none' : 'flex',
+        display: fullscreen ? 'none' : (isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' && mobilePanel !== 'orchestra' ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
@@ -1002,6 +1190,36 @@ export default function ProjectView() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
             Branch from here
           </div>
+          <div onClick={() => {
+              const node = contextMenu.node;
+              setContextMenu(null);
+              const newTitle = window.prompt('Rename iteration:', node.title || `V${node.version}`);
+              if (newTitle && newTitle.trim()) handleRename(node.id, newTitle.trim());
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', color: t.ts, cursor: 'pointer', borderRadius: '4px' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <Pencil size={14} />
+            Rename
+          </div>
+          <div onClick={() => {
+              handleRestore(contextMenu.node.id);
+              setContextMenu(null);
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', color: t.ts, cursor: 'pointer', borderRadius: '4px' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <RotateCcw size={14} />
+            Restore to workspace
+          </div>
+          <a href={`/api/preview/download/${projectId}/${contextMenu.node.id}`}
+            onClick={() => setContextMenu(null)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', color: t.ts, cursor: 'pointer', borderRadius: '4px', textDecoration: 'none' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <Download size={14} />
+            Download ZIP
+          </a>
           <div onClick={async () => {
               const node = contextMenu.node;
               setContextMenu(null);

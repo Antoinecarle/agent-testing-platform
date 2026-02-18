@@ -123,6 +123,41 @@ router.get('/download/:projectId/:iterationId', async (req, res) => {
   }
 });
 
+// GET /api/preview/download-all/:projectId — download all iterations as ZIP
+router.get('/download-all/:projectId', async (req, res) => {
+  if (!validateIds(req, res)) return;
+  const archiver = require('archiver');
+  try {
+    const project = await db.getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const iterations = await db.getIterationsByProject(req.params.projectId);
+    if (!iterations.length) return res.status(404).json({ error: 'No iterations' });
+
+    const name = (project.name || 'project').replace(/[^a-zA-Z0-9-_]/g, '-');
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="${name}-all-versions.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', err => { throw err; });
+    archive.pipe(res);
+
+    for (const iter of iterations) {
+      if (!iter.file_path) continue;
+      const htmlPath = path.join(ITERATIONS_DIR, iter.file_path);
+      if (fs.existsSync(htmlPath)) {
+        const label = (iter.title || `V${iter.version}`).replace(/[^a-zA-Z0-9-_ ]/g, '');
+        archive.file(htmlPath, { name: `${label}/index.html` });
+      }
+    }
+
+    archive.finalize();
+  } catch (err) {
+    console.error('[Preview] Download-all error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/preview/raw/:projectId/:iterationId — MUST be before wildcard routes
 router.get('/raw/:projectId/:iterationId', (req, res) => {
   if (!validateIds(req, res)) return;

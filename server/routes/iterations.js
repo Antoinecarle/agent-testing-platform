@@ -121,6 +121,80 @@ router.delete('/detail/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/iterations/detail/:id — rename iteration (update title)
+router.patch('/detail/:id', async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (title === undefined) return res.status(400).json({ error: 'title required' });
+    const iteration = await db.getIteration(req.params.id);
+    if (!iteration) return res.status(404).json({ error: 'Iteration not found' });
+    await db.updateIteration(req.params.id, title, iteration.prompt, iteration.status, iteration.metadata);
+    res.json(await db.getIteration(req.params.id));
+  } catch (err) {
+    console.error('[Iterations] Rename error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/iterations/detail/:id/restore — copy iteration HTML back to workspace
+router.post('/detail/:id/restore', async (req, res) => {
+  try {
+    const iteration = await db.getIteration(req.params.id);
+    if (!iteration) return res.status(404).json({ error: 'Iteration not found' });
+    if (!iteration.file_path) return res.status(400).json({ error: 'No file to restore' });
+
+    const htmlPath = path.join(ITERATIONS_DIR, iteration.file_path);
+    if (!fs.existsSync(htmlPath)) return res.status(404).json({ error: 'HTML file not found' });
+
+    const WORKSPACES_DIR = path.join(DATA_DIR, 'workspaces');
+    const wsDir = path.join(WORKSPACES_DIR, iteration.project_id);
+    if (!fs.existsSync(wsDir)) fs.mkdirSync(wsDir, { recursive: true });
+
+    const content = fs.readFileSync(htmlPath, 'utf-8');
+    fs.writeFileSync(path.join(wsDir, 'index.html'), content);
+
+    res.json({ ok: true, message: `Restored ${iteration.title || 'V' + iteration.version} to workspace` });
+  } catch (err) {
+    console.error('[Iterations] Restore error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/iterations/:projectId/batch-delete — delete multiple iterations
+router.post('/:projectId/batch-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required' });
+    }
+
+    let deleted = 0;
+    for (const id of ids) {
+      try {
+        const iteration = await db.getIteration(id);
+        if (!iteration || iteration.project_id !== req.params.projectId) continue;
+        if (iteration.file_path) {
+          const fullPath = path.join(ITERATIONS_DIR, path.dirname(iteration.file_path));
+          if (fs.existsSync(fullPath)) {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+          }
+        }
+        await db.deleteIteration(id);
+        deleted++;
+      } catch (_) {}
+    }
+
+    const count = await db.countIterations(req.params.projectId);
+    await db.updateProjectIterationCount(req.params.projectId, count);
+    try { await generateWorkspaceContext(req.params.projectId); } catch (_) {}
+
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    console.error('[Iterations] Batch delete error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/iterations/:projectId — list iterations for a project (MUST be last due to wildcard param)
 router.get('/:projectId', async (req, res) => {
   try {
