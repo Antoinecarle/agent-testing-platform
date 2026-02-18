@@ -65,17 +65,15 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// POST /api/terminal-tabs/:projectId/import — manually import index.html as iteration
+// POST /api/terminal-tabs/:projectId/import — manually import ALL workspace html files as iterations
 router.post('/:projectId/import', async (req, res) => {
   try {
     if (!watcher) return res.status(503).json({ error: 'Terminal/watcher not available in this environment' });
     // Ensure watcher is running
     watcher.watchProject(req.params.projectId);
     const iterationId = await watcher.manualImport(req.params.projectId);
-    if (!iterationId) {
-      return res.status(404).json({ error: 'No new index.html found or no changes detected' });
-    }
-    res.json({ ok: true, iterationId });
+    // Always return ok — even if nothing new, the tree refresh will show current state
+    res.json({ ok: true, iterationId: iterationId || null });
   } catch (err) {
     console.error('[TerminalTabs] Import error:', err.message);
     res.status(500).json({ error: 'Server error' });

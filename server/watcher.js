@@ -372,7 +372,7 @@ async function importIteration(projectId) {
 }
 
 // How long the file must be stable (unchanged) before we import
-const STABILITY_DELAY_MS = 10000; // 10 seconds (was 30s - shorter since we update in place now)
+const STABILITY_DELAY_MS = 3000; // 3 seconds — fast since we update in place now
 
 /**
  * Debounced trigger for import with stability check.
@@ -515,8 +515,15 @@ function watchProject(projectId) {
       const exists = fs.existsSync(fullPath);
       emitFileChange(projectId, filename, exists ? (eventType === 'rename' ? 'created' : 'modified') : 'deleted');
 
+      // Trigger import for .html files OR new directories (which may contain .html files)
       if (filename.endsWith('.html')) {
         triggerImport(projectId);
+      } else if (eventType === 'rename' && exists) {
+        try {
+          if (fs.statSync(fullPath).isDirectory()) {
+            triggerImport(projectId);
+          }
+        } catch (_) {}
       }
     });
     projectWatchers.push(rootWatcher);
@@ -627,15 +634,24 @@ async function initWatchers(io) {
 
 /**
  * Manually trigger import for a project (API use)
- * Clears file-path hashes to re-check workspace files, but content dedup
- * (knownContentHashes) still prevents duplicate iterations.
+ * Clears BOTH file-path hashes and content hashes so ALL workspace files
+ * get re-imported as new iterations regardless of dedup.
  */
 async function manualImport(projectId) {
+  // Clear file hashes
   for (const key of fileHashes.keys()) {
     if (key.startsWith(`${projectId}:`)) {
       fileHashes.delete(key);
     }
   }
+  // Clear content hashes so dedup doesn't block
+  for (const key of knownContentHashes.keys()) {
+    if (key.startsWith(`${projectId}:`)) {
+      knownContentHashes.delete(key);
+    }
+  }
+  // Clear active iteration so new ones get created
+  activeIterations.delete(projectId);
   return await importIteration(projectId);
 }
 
@@ -664,22 +680,20 @@ async function createNewVersion(projectId) {
   activeIterations.delete(projectId);
   logChange(projectId, 'snapshot', 'Snapshot created — next edit will start a new version');
 
-  // If there's already an HTML file in the workspace, import it now as a new iteration
+  // If there are already HTML files in the workspace, import them now
   const wsDir = path.join(WORKSPACES_DIR, projectId);
   if (!fs.existsSync(wsDir)) return null;
 
-  const htmlFiles = fs.readdirSync(wsDir).filter(f => f.endsWith('.html') && !f.startsWith('.'));
-  if (htmlFiles.length === 0) return null;
+  // Scan ALL html files: root + subdirectories
+  const allHtmlFiles = scanWorkspaceHtmlFiles(wsDir);
+  if (allHtmlFiles.length === 0) return null;
 
-  // Clear hashes for root files so they get re-imported as new iterations
-  for (const f of htmlFiles) {
-    const fp = path.join(wsDir, f);
-    fileHashes.delete(`${projectId}:${fp}`);
-    // Also clear the content hash so dedup doesn't block it
+  // Clear ALL hashes (file + content) so everything gets re-imported
+  for (const item of allHtmlFiles) {
+    fileHashes.delete(`${projectId}:${item.path}`);
     try {
-      const content = fs.readFileSync(fp, 'utf-8');
-      const hash = hashContent(content);
-      knownContentHashes.delete(`${projectId}:${hash}`);
+      const content = fs.readFileSync(item.path, 'utf-8');
+      knownContentHashes.delete(`${projectId}:${hashContent(content)}`);
     } catch (_) {}
   }
 
