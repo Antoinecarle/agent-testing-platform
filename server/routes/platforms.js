@@ -237,7 +237,8 @@ router.post('/:slug/test', async (req, res) => {
     const cred = await db.getPlatformCredential(req.user.userId, platform.id);
     if (!cred) return res.status(400).json({ error: 'No credentials saved for this platform' });
 
-    const result = await testPlatformCredentials(platform.slug, cred.encrypted_credentials);
+    const context = { userId: req.user.userId, platformId: platform.id };
+    const result = await testPlatformCredentials(platform.slug, cred.encrypted_credentials, context);
     res.json(result);
   } catch (err) {
     console.error('[Platforms] Test credentials error:', err.message);
@@ -258,7 +259,8 @@ router.post('/:slug/execute', async (req, res) => {
     const cred = await db.getPlatformCredential(req.user.userId, platform.id);
     if (!cred) return res.status(400).json({ error: 'No credentials for this platform. Connect it first.' });
 
-    const result = await executePlatformAction(platform.slug, action, cred.encrypted_credentials, params || {});
+    const context = { userId: req.user.userId, platformId: platform.id };
+    const result = await executePlatformAction(platform.slug, action, cred.encrypted_credentials, params || {}, context);
     res.json(result);
   } catch (err) {
     console.error('[Platforms] Execute error:', err.message);

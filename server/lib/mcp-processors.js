@@ -937,9 +937,10 @@ const PROCESSORS = {
 
       // Get credentials: first try from context (deployment creator), then from agent owner
       let credential = null;
+      let platform = null;
       const userId = context?.user_id || context?.deployed_by;
       if (userId) {
-        const platform = await db.getPlatformBySlug(platformSlug);
+        platform = await db.getPlatformBySlug(platformSlug);
         if (!platform) {
           data.__platform_error__ = `Platform "${platformSlug}" not found`;
           return;
@@ -955,7 +956,8 @@ const PROCESSORS = {
 
       console.log(`[MCP Processor] platform_action: ${platformSlug}/${action} with params:`, JSON.stringify(actionParams).slice(0, 200));
 
-      const result = await executePlatformAction(platformSlug, action, credential.encrypted_credentials, actionParams);
+      const execContext = { userId, platformId: platform?.id };
+      const result = await executePlatformAction(platformSlug, action, credential.encrypted_credentials, actionParams, execContext);
       data.__platform_result__ = result;
       data.__platform_formatted__ = formatPlatformResult(result);
     } catch (err) {
@@ -1293,6 +1295,171 @@ const SYSTEM_TOOLS = [
  * These are injected into the MCP tools/list alongside system tools.
  */
 const PLATFORM_TOOL_DEFINITIONS = {
+  'google-drive': {
+    search: {
+      tool_name: 'gdrive_search',
+      description: 'Search for files in Google Drive by name or content. Returns file names, types, sizes, and links.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query (searches file names and content)' },
+          file_type: { type: 'string', enum: ['document', 'spreadsheet', 'presentation', 'folder', 'pdf', 'image'], description: 'Filter by file type (optional)' },
+          limit: { type: 'number', description: 'Max results (default 10, max 25)' },
+        },
+        required: ['query'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'search' }],
+    },
+    list_files: {
+      tool_name: 'gdrive_list_files',
+      description: 'List files in a Google Drive folder. Use folder_id "root" for the top-level My Drive.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          folder_id: { type: 'string', description: 'Folder ID to list (default: "root" for My Drive)' },
+          limit: { type: 'number', description: 'Max results (default 20, max 50)' },
+        },
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'list_files' }],
+    },
+    read_file: {
+      tool_name: 'gdrive_read_file',
+      description: 'Read a file from Google Drive. Returns metadata and text content for Google Docs, Sheets (CSV), Slides, and plain text files.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: 'The Google Drive file ID (found in the file URL)' },
+        },
+        required: ['file_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'read_file' }],
+    },
+    create_file: {
+      tool_name: 'gdrive_create_file',
+      description: 'Create a new file in Google Drive. By default creates a Google Doc. Can also create plain text files.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'File name' },
+          content: { type: 'string', description: 'Text content to write into the file' },
+          folder_id: { type: 'string', description: 'Parent folder ID (optional, defaults to My Drive root)' },
+          mime_type: { type: 'string', description: 'MIME type (default: application/vnd.google-apps.document for Google Doc)' },
+        },
+        required: ['name'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'create_file' }],
+    },
+    create_folder: {
+      tool_name: 'gdrive_create_folder',
+      description: 'Create a new folder in Google Drive.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Folder name' },
+          parent_folder_id: { type: 'string', description: 'Parent folder ID (optional, defaults to My Drive root)' },
+        },
+        required: ['name'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'create_folder' }],
+    },
+    share_file: {
+      tool_name: 'gdrive_share_file',
+      description: 'Share a Google Drive file with a specific person (by email) or with anyone who has the link.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: 'The file ID to share' },
+          email: { type: 'string', description: 'Email address to share with (provide this OR set anyone=true)' },
+          role: { type: 'string', enum: ['reader', 'writer', 'commenter'], description: 'Permission level (default: reader)' },
+          anyone: { type: 'boolean', description: 'Set to true to make the file accessible to anyone with the link' },
+        },
+        required: ['file_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'google-drive', action: 'share_file' }],
+    },
+  },
+  gmail: {
+    search: {
+      tool_name: 'gmail_search',
+      description: 'Search emails using Gmail search syntax (e.g. "from:user@example.com", "subject:invoice", "after:2024/01/01"). Returns subjects, senders, dates, and snippets.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Gmail search query (supports Gmail search operators like from:, to:, subject:, has:attachment, after:, before:, is:unread)' },
+          limit: { type: 'number', description: 'Max results (default 10, max 20)' },
+          label: { type: 'string', description: 'Filter by label ID (e.g. INBOX, SENT, DRAFT)' },
+        },
+        required: ['query'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'search' }],
+    },
+    read_email: {
+      tool_name: 'gmail_read_email',
+      description: 'Read the full content of an email including body text, headers, and attachment info.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          message_id: { type: 'string', description: 'The Gmail message ID (from search results)' },
+        },
+        required: ['message_id'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'read_email' }],
+    },
+    send_email: {
+      tool_name: 'gmail_send_email',
+      description: 'Send an email from the connected Gmail account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string', description: 'Email subject line' },
+          body: { type: 'string', description: 'Email body (plain text)' },
+          cc: { type: 'string', description: 'CC recipients (comma-separated, optional)' },
+          bcc: { type: 'string', description: 'BCC recipients (comma-separated, optional)' },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'send_email' }],
+    },
+    reply_email: {
+      tool_name: 'gmail_reply_email',
+      description: 'Reply to an existing email thread. Automatically sets the correct subject, thread, and In-Reply-To headers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          message_id: { type: 'string', description: 'The message ID to reply to' },
+          body: { type: 'string', description: 'Reply body text' },
+        },
+        required: ['message_id', 'body'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'reply_email' }],
+    },
+    list_labels: {
+      tool_name: 'gmail_list_labels',
+      description: 'List all Gmail labels (folders) with message counts. Includes system labels (INBOX, SENT, DRAFT) and custom labels.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'list_labels' }],
+    },
+    create_draft: {
+      tool_name: 'gmail_create_draft',
+      description: 'Create a draft email without sending it. The draft will appear in Gmail\'s Drafts folder.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string', description: 'Email subject line' },
+          body: { type: 'string', description: 'Email body (plain text)' },
+          cc: { type: 'string', description: 'CC recipients (comma-separated, optional)' },
+          bcc: { type: 'string', description: 'BCC recipients (comma-separated, optional)' },
+        },
+        required: ['to'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'gmail', action: 'create_draft' }],
+    },
+  },
   notion: {
     search: {
       tool_name: 'notion_search',

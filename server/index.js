@@ -248,6 +248,27 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   };
   app.use('/api/github', githubAuth, githubRoutes);
 
+  // Google OAuth routes (/auth requires JWT via query param since it's a browser redirect,
+  // /callback is unauthenticated — comes from Google redirect)
+  const googleOAuthRoutes = require('./routes/google-oauth');
+  const jwt = require('jsonwebtoken');
+  const googleOAuthAuth = (req, res, next) => {
+    if (req.path === '/callback') return next();
+    // For /auth: accept JWT from query param (browser redirects can't set headers)
+    if (req.path === '/auth' && req.query.token) {
+      try {
+        const decoded = jwt.verify(req.query.token, process.env.JWT_SECRET);
+        if (decoded.type === 'refresh') return res.status(401).json({ error: 'Invalid token type' });
+        req.user = decoded;
+        return next();
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+    }
+    return verifyToken(req, res, next);
+  };
+  app.use('/api/google-oauth', googleOAuthAuth, googleOAuthRoutes);
+
   // Internal API key for workspace CLI calls (save-iteration, etc.)
   // Generate a per-boot key if not set in env — workspace CLAUDE.md injects it
   const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || crypto.randomUUID();

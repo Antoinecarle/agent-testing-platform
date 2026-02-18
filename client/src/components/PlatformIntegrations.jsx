@@ -417,10 +417,16 @@ function PlatformCard({ platform, agentLinked, onConnect, onDisconnect, onLink, 
           ) : (
             <button onClick={() => onConnect(platform)} style={{
               flex: 1, padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-              background: t.violetG, color: t.violet, border: `1px solid ${t.violetM}`,
+              background: (platform.auth_config?.auth_type === 'oauth2') ? 'rgba(66,133,244,0.12)' : t.violetG,
+              color: (platform.auth_config?.auth_type === 'oauth2') ? '#4285f4' : t.violet,
+              border: `1px solid ${(platform.auth_config?.auth_type === 'oauth2') ? 'rgba(66,133,244,0.3)' : t.violetM}`,
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
             }}>
-              <Key size={12} /> Connect
+              {(platform.auth_config?.auth_type === 'oauth2') ? (
+                <><Globe size={12} /> Connect with Google</>
+              ) : (
+                <><Key size={12} /> Connect</>
+              )}
             </button>
           )}
 
@@ -492,9 +498,38 @@ export default function PlatformIntegrations({ agentName }) {
     }
   }, [agentName]);
 
+  // Check for google=connected query param on mount (after OAuth redirect)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') === 'connected') {
+      // Clean up URL
+      const url = new URL(window.location);
+      url.searchParams.delete('google');
+      url.searchParams.delete('tab');
+      window.history.replaceState({}, '', url.pathname + url.search);
+      // Refresh data to show newly connected platform
+      loadData();
+    }
+  }, [loadData]);
+
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleConnect = (platform) => setConnectModal(platform);
+  const handleConnect = (platform) => {
+    const authConfig = platform.auth_config || {};
+    if (authConfig.auth_type === 'oauth2') {
+      // Redirect to OAuth flow — JWT is sent via query param for the redirect
+      // The /auth route requires JWT auth, so we pass the token as a Bearer header via fetch redirect
+      const token = localStorage.getItem('token');
+      if (token) {
+        // Use a temporary approach: open the auth URL with the JWT in Authorization header
+        // Since this is a redirect flow, we pass the token as a query param that the backend
+        // middleware can extract (verifyToken already checks Authorization header)
+        window.location.href = `/api/google-oauth/auth?platform=${platform.slug}&token=${encodeURIComponent(token)}`;
+        return;
+      }
+    }
+    setConnectModal(platform);
+  };
 
   const handleDisconnect = async (platform) => {
     if (!confirm(`Disconnect ${platform.name}? This will remove your credentials.`)) return;
