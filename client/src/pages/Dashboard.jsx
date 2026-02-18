@@ -114,7 +114,7 @@ const ProjectCard = ({ project, navigate, onDelete, t }) => {
               transform: 'scale(0.22)', transformOrigin: 'top left',
               pointerEvents: 'none',
             }}
-            sandbox="allow-same-origin"
+            sandbox="allow-same-origin allow-scripts"
             loading="lazy"
           />
         </div>

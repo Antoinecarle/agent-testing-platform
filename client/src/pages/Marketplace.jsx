@@ -99,7 +99,7 @@ function AgentCard({ agent, onFork, onDownload, navigate }) {
               style={{ width: '100%', height: '100%', border: 'none' }}
               title={`Preview ${agent.name}`}
               loading="lazy"
-              sandbox="allow-same-origin"
+              sandbox="allow-same-origin allow-scripts"
             />
           </div>
         ) : (

@@ -153,7 +153,7 @@ function ProjectIterationCarousel({ iterations, projectId, projectName, onSelect
                 }}>
                   <iframe src={`/api/preview/${projectId}/${iter.id}`}
                     style={{ width: '100%', height: '100%', border: 'none' }}
-                    title={`Preview V${iter.version}`} loading="lazy" sandbox="allow-same-origin" />
+                    title={`Preview V${iter.version}`} loading="lazy" sandbox="allow-same-origin allow-scripts" />
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px 0' }}>
@@ -1515,7 +1515,7 @@ export default function AgentDetail() {
                                   }}>
                                     <iframe src={`/api/preview/${project.id}/${iter.id}`}
                                       style={{ width: '100%', height: '100%', border: 'none' }}
-                                      title={`Preview v${iter.version}`} loading="lazy" sandbox="allow-same-origin" />
+                                      title={`Preview v${iter.version}`} loading="lazy" sandbox="allow-same-origin allow-scripts" />
                                   </div>
                                   {isSelected && (
                                     <div style={{

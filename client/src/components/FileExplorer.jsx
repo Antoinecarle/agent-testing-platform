@@ -62,7 +62,7 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
 }
 
-function FileTreeNode({ node, level = 0, onFileSelect, selectedFile, recentChanges }) {
+function FileTreeNode({ node, level = 0, onFileSelect, onContextMenu, selectedFile, recentChanges }) {
   const [expanded, setExpanded] = useState(level < 2 && !node.skipped);
   const [hovered, setHovered] = useState(false);
   const isDir = node.type === 'directory';
@@ -75,6 +75,11 @@ function FileTreeNode({ node, level = 0, onFileSelect, selectedFile, recentChang
         onClick={() => {
           if (isDir) setExpanded(!expanded);
           else onFileSelect(node);
+        }}
+        onContextMenu={e => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu({ x: e.clientX, y: e.clientY, node });
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -130,6 +135,7 @@ function FileTreeNode({ node, level = 0, onFileSelect, selectedFile, recentChang
               node={child}
               level={level + 1}
               onFileSelect={onFileSelect}
+              onContextMenu={onContextMenu}
               selectedFile={selectedFile}
               recentChanges={recentChanges}
             />
@@ -145,7 +151,7 @@ function FileTreeNode({ node, level = 0, onFileSelect, selectedFile, recentChang
   );
 }
 
-export default function FileExplorer({ projectId, onFileSelect, selectedFile }) {
+export default function FileExplorer({ projectId, onFileSelect, selectedFile, onAddToWorktree }) {
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(true);
   const [recentChanges, setRecentChanges] = useState(new Map()); // path -> timestamp
@@ -155,6 +161,9 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
   const [newFilePath, setNewFilePath] = useState('');
   const [createError, setCreateError] = useState('');
   const newFileRef = useRef(null);
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, node }
+  const [addingToWorktree, setAddingToWorktree] = useState(null); // path being added
 
   // Load file tree
   const loadTree = useCallback(async () => {
@@ -184,6 +193,33 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
       setCreateError(err.message || 'Error');
     }
   }, [projectId, newFilePath, loadTree]);
+
+  // Add file to worktree (create iteration from file)
+  const handleAddToWorktree = useCallback(async (filePath) => {
+    setAddingToWorktree(filePath);
+    try {
+      const result = await api(`/api/projects/${projectId}/files/add-to-worktree`, {
+        method: 'POST',
+        body: JSON.stringify({ path: filePath }),
+      });
+      if (result.ok) {
+        onAddToWorktree?.(result);
+      }
+    } catch (err) {
+      console.error('[FileExplorer] Add to worktree error:', err);
+      alert(`Error: ${err.message || 'Failed to add to worktree'}`);
+    } finally {
+      setAddingToWorktree(null);
+    }
+  }, [projectId, onAddToWorktree]);
+
+  // Close context menu on click anywhere
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [ctxMenu]);
 
   useEffect(() => {
     loadTree();
@@ -232,6 +268,8 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
 
     return () => socket.disconnect();
   }, [projectId, loadTree]);
+
+  const isHtmlFile = (name) => name?.endsWith('.html') || name?.endsWith('.htm');
 
   if (loading) {
     return (
@@ -325,6 +363,7 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
               key={node.path || i}
               node={node}
               onFileSelect={onFileSelect || (() => {})}
+              onContextMenu={setCtxMenu}
               selectedFile={selectedFile}
               recentChanges={recentChanges}
             />
@@ -364,13 +403,109 @@ export default function FileExplorer({ projectId, onFileSelect, selectedFile }) 
         </div>
       )}
 
-      {/* CSS animation for pulse */}
+      {/* Right-click context menu */}
+      {ctxMenu && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999,
+            background: t.surfaceEl, border: `1px solid ${t.borderS}`, borderRadius: '8px',
+            padding: '4px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', minWidth: '180px',
+          }}
+        >
+          {/* View file */}
+          <div
+            onClick={() => { onFileSelect?.(ctxMenu.node); setCtxMenu(null); }}
+            style={ctxItemStyle}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span>View file</span>
+          </div>
+
+          {/* Add to Worktree — only for HTML files */}
+          {ctxMenu.node.type !== 'directory' && isHtmlFile(ctxMenu.node.name) && (
+            <>
+              <div style={{ height: '1px', background: t.border, margin: '2px 4px' }} />
+              <div
+                onClick={() => {
+                  handleAddToWorktree(ctxMenu.node.path);
+                  setCtxMenu(null);
+                }}
+                style={{ ...ctxItemStyle, color: t.success }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(34,197,94,0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {addingToWorktree === ctxMenu.node.path ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14"/><path d="M5 12h14"/>
+                  </svg>
+                )}
+                <span>Add to Worktree</span>
+              </div>
+            </>
+          )}
+
+          {/* Preview HTML in new tab */}
+          {ctxMenu.node.type !== 'directory' && isHtmlFile(ctxMenu.node.name) && (
+            <div
+              onClick={() => {
+                window.open(`/api/projects/${projectId}/files/preview?path=${encodeURIComponent(ctxMenu.node.path)}`, '_blank');
+                setCtxMenu(null);
+              }}
+              style={ctxItemStyle}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+              <span>Preview in new tab</span>
+            </div>
+          )}
+
+          {/* Copy path */}
+          <div
+            onClick={() => {
+              navigator.clipboard?.writeText(ctxMenu.node.path);
+              setCtxMenu(null);
+            }}
+            style={ctxItemStyle}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span>Copy path</span>
+          </div>
+        </div>
+      )}
+
+      {/* CSS animations */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
         }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
     </div>
   );
 }
+
+const ctxItemStyle = {
+  display: 'flex', alignItems: 'center', gap: '8px',
+  padding: '8px 12px', fontSize: '12px', color: '#A1A1AA',
+  cursor: 'pointer', borderRadius: '4px', transition: 'background 0.1s',
+};

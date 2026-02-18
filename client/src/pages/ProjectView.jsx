@@ -1192,7 +1192,18 @@ export default function ProjectView() {
           /* FILE EXPLORER PANEL */
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: viewingFile ? '200px' : '100%', minWidth: '160px', overflow: 'hidden', borderRight: viewingFile ? `1px solid ${t.border}` : 'none', flexShrink: 0 }}>
-              <FileExplorer projectId={projectId} onFileSelect={handleFileSelect} selectedFile={viewingFile} />
+              <FileExplorer projectId={projectId} onFileSelect={handleFileSelect} selectedFile={viewingFile} onAddToWorktree={(result) => {
+                // Refresh iteration tree when file is added to worktree
+                api(`/api/iterations/${projectId}/tree`).then(tree => {
+                  setTreeData(tree || []);
+                  // Select the new iteration if one was created
+                  if (result.iterationId) {
+                    api(`/api/iterations/detail/${result.iterationId}`).then(iter => {
+                      if (iter) setSelected(iter);
+                    }).catch(() => {});
+                  }
+                }).catch(() => {});
+              }} />
             </div>
             {viewingFile && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>

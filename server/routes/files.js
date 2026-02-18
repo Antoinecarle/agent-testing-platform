@@ -125,6 +125,37 @@ router.get('/:projectId/files', async (req, res) => {
   }
 });
 
+// GET /api/projects/:projectId/files/preview — serve HTML file for preview
+router.get('/:projectId/files/preview', async (req, res) => {
+  try {
+    const project = await db.getProject(req.params.projectId);
+    if (!project) return res.status(404).send('Project not found');
+    if (project.user_id && project.user_id !== req.user.userId) {
+      return res.status(403).send('Access denied');
+    }
+
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).send('path query parameter required');
+
+    // Prevent path traversal
+    const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
+    const fullPath = path.resolve(wsDir, filePath);
+    if (!fullPath.startsWith(wsDir)) {
+      return res.status(403).send('Path traversal not allowed');
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).send('File not found');
+    }
+
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(fullPath);
+  } catch (err) {
+    console.error('[Files] Preview error:', err.message);
+    res.status(500).send('Server error');
+  }
+});
+
 // GET /api/projects/:projectId/files/read — read file content
 router.get('/:projectId/files/read', async (req, res) => {
   try {
@@ -229,6 +260,87 @@ router.post('/:projectId/files/write', async (req, res) => {
     });
   } catch (err) {
     console.error('[Files] Write error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/projects/:projectId/files/add-to-worktree — import a workspace file as a new iteration
+router.post('/:projectId/files/add-to-worktree', async (req, res) => {
+  let watcher;
+  try { watcher = require('../watcher'); } catch (_) {}
+
+  try {
+    const project = await db.getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.user_id && project.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { path: filePath } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+
+    // Only allow .html files
+    if (!filePath.endsWith('.html') && !filePath.endsWith('.htm')) {
+      return res.status(400).json({ error: 'Only HTML files can be added as iterations' });
+    }
+
+    // Prevent path traversal
+    const wsDir = path.join(WORKSPACES_DIR, req.params.projectId);
+    const fullPath = path.resolve(wsDir, filePath);
+    if (!fullPath.startsWith(wsDir)) {
+      return res.status(403).json({ error: 'Path traversal not allowed' });
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    if (!content || content.trim().length < 20) {
+      return res.status(400).json({ error: 'File is empty or too small' });
+    }
+
+    // Use watcher to create a proper iteration
+    if (watcher) {
+      watcher.watchProject(req.params.projectId);
+      // Reset active iteration so it creates a new one
+      watcher.resetActiveIteration(req.params.projectId);
+      const iterationId = await watcher.manualImport(req.params.projectId);
+      return res.json({ ok: true, iterationId: iterationId || null, method: 'watcher' });
+    }
+
+    // Fallback: create iteration directly via DB
+    const crypto = require('crypto');
+    const id = crypto.randomUUID();
+    const ITERATIONS_DIR = path.join(DATA_DIR, 'iterations');
+    const version = await db.getNextVersion(req.params.projectId);
+    const agentName = project.agent_name || 'unknown';
+
+    // Determine title from filename or path
+    const basename = path.basename(filePath, path.extname(filePath));
+    const title = basename === 'index' ? `V${version}` : basename;
+
+    // Copy to iterations dir
+    const projectIterDir = path.join(ITERATIONS_DIR, req.params.projectId);
+    if (!fs.existsSync(projectIterDir)) fs.mkdirSync(projectIterDir, { recursive: true });
+    const iterDir = path.join(projectIterDir, id);
+    fs.mkdirSync(iterDir, { recursive: true });
+    fs.writeFileSync(path.join(iterDir, 'index.html'), content);
+
+    const iterFilePath = `${req.params.projectId}/${id}/index.html`;
+
+    // Get parent (latest iteration)
+    const iterations = await db.getIterationsByProject(req.params.projectId);
+    const parentId = iterations.length > 0 ? iterations[iterations.length - 1].id : null;
+
+    await db.createIteration(id, req.params.projectId, agentName, version, title, '', parentId, iterFilePath, '', 'completed', {});
+
+    const count = await db.countIterations(req.params.projectId);
+    await db.updateProjectIterationCount(req.params.projectId, count);
+
+    res.json({ ok: true, iterationId: id, method: 'direct' });
+  } catch (err) {
+    console.error('[Files] Add to worktree error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

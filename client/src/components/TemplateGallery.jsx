@@ -149,7 +149,7 @@ function TemplateCard({ tmpl, compact, creating, onUse }) {
             transformOrigin: 'top left',
             pointerEvents: 'none',
           }}
-          sandbox="allow-same-origin"
+          sandbox="allow-same-origin allow-scripts"
           loading="lazy"
         />
         {/* Category badge */}
