@@ -3,14 +3,15 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { getToken } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
 
-// Eager-load critical path (login, layout)
+// Eager-load critical path (login, layout) and heavy pages with complex deps
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ProjectView from './pages/ProjectView'; // Eager: uses xterm + xyflow (TDZ issues when lazy)
+import Dashboard from './pages/Dashboard'; // Eager: landing page, always needed
 
 // Lazy-load everything else for code splitting
 const ClaudeSetup = React.lazy(() => import('./pages/ClaudeSetup'));
-const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const AgentBrowser = React.lazy(() => import('./pages/AgentBrowser'));
 const AgentCreate = React.lazy(() => import('./pages/AgentCreate'));
 const AgentDetail = React.lazy(() => import('./pages/AgentDetail'));
@@ -18,7 +19,6 @@ const AgentEdit = React.lazy(() => import('./pages/AgentEdit'));
 const AgentMcpTools = React.lazy(() => import('./pages/AgentMcpTools'));
 const AgentTeams = React.lazy(() => import('./pages/AgentTeams'));
 const AgentStats = React.lazy(() => import('./pages/AgentStats'));
-const ProjectView = React.lazy(() => import('./pages/ProjectView'));
 const Comparison = React.lazy(() => import('./pages/Comparison'));
 const Sessions = React.lazy(() => import('./pages/Sessions'));
 const ClientPreview = React.lazy(() => import('./pages/ClientPreview'));
