@@ -75,6 +75,7 @@ export default function AgentChat() {
           agentName={agentName}
           agentDisplayName={agent?.name || agentName}
           height="100%"
+          isFullScreen={true}
         />
       </div>
     </div>

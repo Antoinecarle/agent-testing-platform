@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Plus, Trash2, MessageCircle, Bot, User, BookOpen, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Send, Plus, Trash2, MessageCircle, Bot, User, BookOpen, X, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
 const t = {
@@ -91,7 +92,8 @@ function ChatMessage({ msg }) {
   );
 }
 
-export default function AgentChatPanel({ agentName, agentDisplayName, height = '500px' }) {
+export default function AgentChatPanel({ agentName, agentDisplayName, height = '500px', isFullScreen = false }) {
+  const navigate = useNavigate();
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -275,7 +277,23 @@ export default function AgentChatPanel({ agentName, agentDisplayName, height = '
           }}>
             <Bot size={12} color={t.violet} />
           </div>
-          <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp }}>{displayName}</span>
+          <span style={{ fontSize: '12px', fontWeight: '600', color: t.tp, flex: 1 }}>{displayName}</span>
+          {!isFullScreen && (
+            <button
+              onClick={() => navigate(`/chat/${encodeURIComponent(agentName)}`)}
+              title="Open full screen"
+              style={{
+                background: 'none', border: `1px solid ${t.border}`, borderRadius: '4px',
+                cursor: 'pointer', color: t.ts, display: 'flex', alignItems: 'center',
+                gap: '4px', padding: '3px 8px', fontSize: '10px', fontWeight: '500',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => { e.target.style.borderColor = t.violet; e.target.style.color = t.violet; }}
+              onMouseLeave={e => { e.target.style.borderColor = t.border; e.target.style.color = t.ts; }}
+            >
+              <Maximize2 size={10} /> Full Screen
+            </button>
+          )}
         </div>
 
         {/* Messages Area */}

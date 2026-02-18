@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Sparkles, MessageCircle, Server, Plug } from 'lucide-react';
+import { ArrowLeft, Star, Edit3, Trash2, ExternalLink, Plus, Clock, Calendar, Download, Copy, Package, ChevronLeft, ChevronRight, Eye, ArrowUp, ArrowDown, X, Zap, Sparkles, MessageCircle, Server, Plug, Maximize2 } from 'lucide-react';
 import { api, getUser } from '../api';
 import AgentVersionHistory from '../components/AgentVersionHistory';
 import AgentCreator from '../components/AgentCreator';
@@ -557,13 +557,13 @@ export default function AgentDetail() {
           }}>
             <ExternalLink size={13} />Test
           </button>
-          <button onClick={() => setShowTestChat(v => !v)} style={{
-            backgroundColor: showTestChat ? t.violetG : t.violet, color: showTestChat ? t.violet : '#fff',
-            border: showTestChat ? `1px solid ${t.violet}` : 'none',
+          <button onClick={() => navigate(`/chat/${encodeURIComponent(name)}`)} style={{
+            backgroundColor: t.violet, color: '#fff',
+            border: 'none',
             padding: '8px 16px', fontSize: '12px', fontWeight: '600', borderRadius: '4px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '6px',
           }}>
-            <MessageCircle size={13} />{showTestChat ? 'Close Chat' : 'Chat'}
+            <MessageCircle size={13} />Chat
           </button>
           <button onClick={handleDuplicate} style={{
             backgroundColor: t.surfaceEl, color: t.ts, border: `1px solid ${t.borderS}`,
@@ -1302,23 +1302,35 @@ export default function AgentDetail() {
                 <MessageCircle size={14} style={{ color: t.violet }} />
                 Test Agent
               </h2>
-              <button
-                onClick={() => setShowTestChat(!showTestChat)}
-                style={{
-                  background: showTestChat ? t.violetG : t.surfaceEl, border: `1px solid ${showTestChat ? t.violet : t.border}`,
-                  color: showTestChat ? t.violet : t.ts, padding: '4px 10px', fontSize: '10px', fontWeight: '600',
-                  borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
-                }}
-              >
-                <MessageCircle size={10} /> {showTestChat ? 'Close' : 'Open Chat'}
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  onClick={() => navigate(`/chat/${encodeURIComponent(name)}`)}
+                  style={{
+                    background: t.violetG, border: `1px solid ${t.violet}40`,
+                    color: t.violet, padding: '4px 10px', fontSize: '10px', fontWeight: '600',
+                    borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                  }}
+                >
+                  <Maximize2 size={10} /> Full Screen
+                </button>
+                <button
+                  onClick={() => setShowTestChat(!showTestChat)}
+                  style={{
+                    background: showTestChat ? t.violetG : t.surfaceEl, border: `1px solid ${showTestChat ? t.violet : t.border}`,
+                    color: showTestChat ? t.violet : t.ts, padding: '4px 10px', fontSize: '10px', fontWeight: '600',
+                    borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                  }}
+                >
+                  <MessageCircle size={10} /> {showTestChat ? 'Close' : 'Open Chat'}
+                </button>
+              </div>
             </div>
 
             {showTestChat && (
               <AgentChatPanel
                 agentName={name}
                 agentDisplayName={agent.name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                height="500px"
+                height="650px"
               />
             )}
           </div>
