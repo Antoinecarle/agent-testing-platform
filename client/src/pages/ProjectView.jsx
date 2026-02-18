@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2, Plus, GitFork, UserX } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
@@ -1607,7 +1607,9 @@ export default function ProjectView() {
 const TYPE_ICONS = { Palette, Code, Settings, Megaphone, BarChart3, Wrench };
 
 function NewProjectForm({ onCreated }) {
-  const [mode, setMode] = useState(null); // null | 'solo' | 'orchestra' | 'github'
+  // Flow: source → (picker) → mode → config
+  const [source, setSource] = useState(null); // null | 'empty' | 'github' | 'iteration'
+  const [mode, setMode] = useState(null); // null | 'solo' | 'orchestra' | 'none'
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [agent, setAgent] = useState('');
@@ -1618,13 +1620,20 @@ function NewProjectForm({ onCreated }) {
   const [projectType, setProjectType] = useState('html'); // 'html' | 'fullstack'
   // Orchestra state
   const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [] });
-  const [orchestraReady, setOrchestraReady] = useState(false); // team built, show form
+  const [orchestraReady, setOrchestraReady] = useState(false);
   // GitHub import state
   const [ghStatus, setGhStatus] = useState(null);
   const [ghRepos, setGhRepos] = useState([]);
   const [ghLoading, setGhLoading] = useState(false);
   const [ghSelectedRepo, setGhSelectedRepo] = useState(null);
   const [ghSearch, setGhSearch] = useState('');
+  // Iteration fork state
+  const [iterProjects, setIterProjects] = useState([]);
+  const [iterSelectedProject, setIterSelectedProject] = useState(null);
+  const [iterIterations, setIterIterations] = useState([]);
+  const [iterSelectedIteration, setIterSelectedIteration] = useState(null);
+  const [iterLoading, setIterLoading] = useState(false);
+  const [iterSearch, setIterSearch] = useState('');
 
   useEffect(() => {
     api('/api/agents').then(a => setAgents(a || [])).catch(() => {});
@@ -1632,12 +1641,13 @@ function NewProjectForm({ onCreated }) {
     const params = new URLSearchParams(window.location.search);
     if (params.get('agent')) {
       setAgent(params.get('agent'));
+      setSource('empty');
       setMode('solo');
       setSelectedType({ id: 'preselected', label: 'Agent', color: t.violet, icon: 'Wrench', defaults: { category: '' } });
     }
   }, []);
 
-  // Load GitHub repos when entering GitHub mode
+  // Load GitHub repos
   const loadGhRepos = async () => {
     setGhLoading(true);
     try {
@@ -1654,33 +1664,29 @@ function NewProjectForm({ onCreated }) {
     }
   };
 
-  const handleGitHubImportCreate = async (e) => {
-    e.preventDefault();
-    if (!name.trim() || !ghSelectedRepo) return;
-    setSaving(true);
+  // Load projects for iteration picker
+  const loadIterProjects = async () => {
+    setIterLoading(true);
     try {
-      // 1. Create the project
-      const body = {
-        name,
-        description: desc || ghSelectedRepo.description || '',
-        mode: 'solo',
-        agent_name: agent || '',
-        project_type: projectType,
-      };
-      const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
-
-      // 2. Import files from the GitHub repo
-      await api(`/api/github/import/${p.id}`, {
-        method: 'POST',
-        body: JSON.stringify({ repoFullName: ghSelectedRepo.full_name }),
-      });
-
-      onCreated(p.id);
-    } catch (err) {
-      console.error('GitHub import error:', err);
-      alert(err.message || 'Failed to import from GitHub');
+      const projects = await api('/api/projects');
+      setIterProjects(projects || []);
+    } catch (_) {
+      setIterProjects([]);
     } finally {
-      setSaving(false);
+      setIterLoading(false);
+    }
+  };
+
+  // Load iterations for a project
+  const loadIterations = async (projectId) => {
+    setIterLoading(true);
+    try {
+      const iters = await api(`/api/iterations/${projectId}`);
+      setIterIterations(iters || []);
+    } catch (_) {
+      setIterIterations([]);
+    } finally {
+      setIterLoading(false);
     }
   };
 
@@ -1694,7 +1700,7 @@ function NewProjectForm({ onCreated }) {
     if (!name) return;
     setSaving(true);
     try {
-      const body = { name, description: desc, mode: mode || 'solo', project_type: projectType };
+      const body = { name, description: desc, mode: mode === 'none' ? 'solo' : (mode || 'solo'), project_type: projectType };
 
       if (mode === 'orchestra') {
         body.agent_name = orchestraTeam.orchestrator;
@@ -1704,14 +1710,46 @@ function NewProjectForm({ onCreated }) {
           orchestrator: orchestraTeam.orchestrator,
           workers: orchestraTeam.workers.map(w => ({ agent_name: w.agent_name })),
         };
+      } else if (mode === 'none') {
+        body.agent_name = '';
       } else {
         body.agent_name = agent;
       }
 
+      // If GitHub source, create project then import
+      if (source === 'github' && ghSelectedRepo) {
+        const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+        await api(`/api/github/import/${p.id}`, {
+          method: 'POST',
+          body: JSON.stringify({ repoFullName: ghSelectedRepo.full_name }),
+        });
+        onCreated(p.id);
+        return;
+      }
+
+      // If iteration source, use fork API
+      if (source === 'iteration' && iterSelectedIteration) {
+        const forkBody = {
+          name,
+          description: desc,
+          agent_name: mode === 'none' ? '' : agent,
+          source_project_id: iterSelectedProject.id,
+          source_iteration_id: iterSelectedIteration.id,
+        };
+        const result = await api('/api/projects/fork', { method: 'POST', body: JSON.stringify(forkBody) });
+        onCreated(result.project.id);
+        return;
+      }
+
+      // Default: empty project
       const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
       onCreated(p.id);
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+    } catch (err) {
+      console.error('Create project error:', err);
+      alert(err.message || 'Failed to create project');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputBase = {
@@ -1720,21 +1758,19 @@ function NewProjectForm({ onCreated }) {
     width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s',
   };
 
-  // ── Step 0: Mode selector ─────────────────────────────────────────
-  if (!mode) {
-    const modes = [
-      {
-        id: 'solo', label: 'Solo', icon: User, color: t.violet,
-        desc: 'Un seul agent travaille sur le projet',
-      },
-      {
-        id: 'orchestra', label: 'Orchestra', icon: Users, color: '#F59E0B',
-        desc: 'Plusieurs agents coordonnes par un orchestrateur',
-      },
-      {
-        id: 'github', label: 'Import GitHub', icon: Github, color: '#F4F4F5',
-        desc: 'Importer un repo GitHub existant',
-      },
+  const backBtn = (onClick) => (
+    <button onClick={onClick}
+      style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
+      <ArrowLeft size={18} />
+    </button>
+  );
+
+  // ── Step 0: Source selector ─────────────────────────────────────────
+  if (!source) {
+    const sources = [
+      { id: 'empty', label: 'Projet vide', icon: Plus, color: t.violet, desc: 'Demarrer un nouveau projet de zero' },
+      { id: 'github', label: 'GitHub', icon: Github, color: '#F4F4F5', desc: 'Importer depuis un repo GitHub' },
+      { id: 'iteration', label: 'From Iteration', icon: GitFork, color: '#22C55E', desc: 'Dupliquer une iteration existante' },
     ];
     return (
       <div style={{ maxWidth: '680px', width: '100%' }}>
@@ -1743,22 +1779,23 @@ function NewProjectForm({ onCreated }) {
             Nouveau projet
           </h1>
           <p style={{ fontSize: '14px', color: t.ts, margin: 0, lineHeight: 1.6 }}>
-            Choisissez le mode de votre projet
+            Comment souhaitez-vous demarrer ?
           </p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
-          {modes.map(m => {
-            const IconComp = m.icon;
+          {sources.map(s => {
+            const IconComp = s.icon;
             return (
               <button
-                key={m.id}
+                key={s.id}
                 onClick={() => {
-                  setMode(m.id);
-                  if (m.id === 'github') loadGhRepos();
+                  setSource(s.id);
+                  if (s.id === 'github') loadGhRepos();
+                  if (s.id === 'iteration') loadIterProjects();
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = m.color + '60';
-                  e.currentTarget.style.backgroundColor = m.color + '08';
+                  e.currentTarget.style.borderColor = s.color + '60';
+                  e.currentTarget.style.backgroundColor = s.color + '08';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={e => {
@@ -1778,19 +1815,15 @@ function NewProjectForm({ onCreated }) {
               >
                 <div style={{
                   width: 56, height: 56, borderRadius: '14px',
-                  backgroundColor: m.color + '15',
-                  border: `1.5px solid ${m.color}30`,
+                  backgroundColor: s.color + '15',
+                  border: `1.5px solid ${s.color}30`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <IconComp size={26} color={m.color} />
+                  <IconComp size={26} color={s.color} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
-                    {m.label}
-                  </div>
-                  <div style={{ fontSize: '12px', color: t.tm, lineHeight: 1.5 }}>
-                    {m.desc}
-                  </div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>{s.label}</div>
+                  <div style={{ fontSize: '12px', color: t.tm, lineHeight: 1.5 }}>{s.desc}</div>
                 </div>
               </button>
             );
@@ -1800,8 +1833,8 @@ function NewProjectForm({ onCreated }) {
     );
   }
 
-  // ── GitHub Import: repo picker + project form ─────────────────────
-  if (mode === 'github') {
+  // ── GitHub: repo picker (before mode selection) ────────────────────
+  if (source === 'github' && !ghSelectedRepo) {
     const ghFilteredRepos = ghSearch
       ? ghRepos.filter(r => r.full_name.toLowerCase().includes(ghSearch.toLowerCase()) || (r.description || '').toLowerCase().includes(ghSearch.toLowerCase()))
       : ghRepos;
@@ -1811,10 +1844,7 @@ function NewProjectForm({ onCreated }) {
       return (
         <div style={{ maxWidth: '480px', width: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <button onClick={() => { setMode(null); setGhSelectedRepo(null); }}
-              style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
-              <ArrowLeft size={18} />
-            </button>
+            {backBtn(() => { setSource(null); setGhSelectedRepo(null); })}
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Import GitHub</h1>
           </div>
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
@@ -1834,83 +1864,108 @@ function NewProjectForm({ onCreated }) {
       );
     }
 
-    // Step 1: Pick a repo
-    if (!ghSelectedRepo) {
+    return (
+      <div style={{ maxWidth: '580px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          {backBtn(() => { setSource(null); setGhSearch(''); })}
+          <div>
+            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px', color: t.tp }}>Import GitHub</h1>
+            <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Selectionnez un repository</p>
+          </div>
+        </div>
+        <div style={{ marginBottom: '16px' }}>
+          <input value={ghSearch} onChange={e => setGhSearch(e.target.value)} placeholder="Rechercher un repo..."
+            style={{ width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = t.violet} onBlur={e => e.target.style.borderColor = t.border} />
+        </div>
+        {ghLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: t.ts }}>
+            <Loader2 size={20} style={{ animation: 'spin 0.8s linear infinite', marginBottom: '8px' }} />
+            <div style={{ fontSize: '13px' }}>Chargement des repos...</div>
+          </div>
+        ) : (
+          <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {ghFilteredRepos.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px', color: t.tm, fontSize: '13px' }}>Aucun repo trouve</div>
+            )}
+            {ghFilteredRepos.map(repo => (
+              <button key={repo.id}
+                onClick={() => { setGhSelectedRepo(repo); setName(repo.name); setDesc(repo.description || ''); }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = t.violet + '60'; e.currentTarget.style.backgroundColor = t.violet + '06'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.backgroundColor = t.surface; }}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px',
+                  backgroundColor: t.surface, border: `1px solid ${t.border}`,
+                  borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s',
+                  textAlign: 'left', color: t.tp, width: '100%',
+                }}>
+                <Github size={18} style={{ color: t.ts, marginTop: '2px', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>{repo.full_name}</div>
+                  {repo.description && <div style={{ fontSize: '11px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repo.description}</div>}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px', fontSize: '10px', color: t.tm }}>
+                    {repo.language && <span>{repo.language}</span>}
+                    <span>{repo.private ? 'Private' : 'Public'}</span>
+                    <span>{new Date(repo.updated_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Iteration: project + iteration picker (before mode selection) ──
+  if (source === 'iteration' && !iterSelectedIteration) {
+    // Step A: pick a project
+    if (!iterSelectedProject) {
+      const filteredProjects = iterSearch
+        ? iterProjects.filter(p => p.name.toLowerCase().includes(iterSearch.toLowerCase()))
+        : iterProjects;
+
       return (
         <div style={{ maxWidth: '580px', width: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <button onClick={() => { setMode(null); setGhSearch(''); }}
-              style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
-              <ArrowLeft size={18} />
-            </button>
+            {backBtn(() => { setSource(null); setIterSearch(''); })}
             <div>
-              <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px', color: t.tp }}>Import GitHub</h1>
-              <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Selectionnez un repository a importer</p>
+              <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px', color: t.tp }}>From Iteration</h1>
+              <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Selectionnez un projet</p>
             </div>
           </div>
-
-          {/* Search */}
           <div style={{ marginBottom: '16px' }}>
-            <input
-              value={ghSearch} onChange={e => setGhSearch(e.target.value)}
-              placeholder="Rechercher un repo..."
-              style={{
-                width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`,
-                borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-              onFocus={e => e.target.style.borderColor = t.violet}
-              onBlur={e => e.target.style.borderColor = t.border}
-            />
+            <input value={iterSearch} onChange={e => setIterSearch(e.target.value)} placeholder="Rechercher un projet..."
+              style={{ width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+              onFocus={e => e.target.style.borderColor = '#22C55E'} onBlur={e => e.target.style.borderColor = t.border} />
           </div>
-
-          {ghLoading ? (
+          {iterLoading ? (
             <div style={{ textAlign: 'center', padding: '40px', color: t.ts }}>
               <Loader2 size={20} style={{ animation: 'spin 0.8s linear infinite', marginBottom: '8px' }} />
-              <div style={{ fontSize: '13px' }}>Chargement des repos...</div>
+              <div style={{ fontSize: '13px' }}>Chargement des projets...</div>
             </div>
           ) : (
             <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {ghFilteredRepos.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '30px', color: t.tm, fontSize: '13px' }}>
-                  Aucun repo trouve
-                </div>
+              {filteredProjects.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '30px', color: t.tm, fontSize: '13px' }}>Aucun projet trouve</div>
               )}
-              {ghFilteredRepos.map(repo => (
-                <button
-                  key={repo.id}
-                  onClick={() => {
-                    setGhSelectedRepo(repo);
-                    setName(repo.name);
-                    setDesc(repo.description || '');
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = t.violet + '60';
-                    e.currentTarget.style.backgroundColor = t.violet + '06';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = t.border;
-                    e.currentTarget.style.backgroundColor = t.surface;
-                  }}
+              {filteredProjects.map(p => (
+                <button key={p.id}
+                  onClick={() => { setIterSelectedProject(p); loadIterations(p.id); setIterSearch(''); }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#22C55E60'; e.currentTarget.style.backgroundColor = '#22C55E06'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.backgroundColor = t.surface; }}
                   style={{
-                    display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px',
+                    display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
                     backgroundColor: t.surface, border: `1px solid ${t.border}`,
                     borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s',
                     textAlign: 'left', color: t.tp, width: '100%',
-                  }}
-                >
-                  <Github size={18} style={{ color: t.ts, marginTop: '2px', flexShrink: 0 }} />
+                  }}>
+                  <FolderTree size={18} style={{ color: '#22C55E', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>{repo.full_name}</div>
-                    {repo.description && (
-                      <div style={{ fontSize: '11px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {repo.description}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px', fontSize: '10px', color: t.tm }}>
-                      {repo.language && <span>{repo.language}</span>}
-                      <span>{repo.private ? 'Private' : 'Public'}</span>
-                      <span>{new Date(repo.updated_at).toLocaleDateString()}</span>
+                    <div style={{ fontSize: '13px', fontWeight: 600 }}>{p.name}</div>
+                    {p.description && <div style={{ fontSize: '11px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.description}</div>}
+                    <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px' }}>
+                      {p.iteration_count || 0} iteration{(p.iteration_count || 0) !== 1 ? 's' : ''} · {p.agent_name || 'Sans agent'}
                     </div>
                   </div>
                 </button>
@@ -1921,57 +1976,247 @@ function NewProjectForm({ onCreated }) {
       );
     }
 
-    // Step 2: Configure project from selected repo
-    const inputGh = {
-      backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '8px',
-      padding: '11px 14px', color: '#fff', fontSize: '13px', outline: 'none',
-      width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s',
-    };
+    // Step B: pick an iteration from the selected project
+    return (
+      <div style={{ maxWidth: '580px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          {backBtn(() => { setIterSelectedProject(null); setIterIterations([]); })}
+          <div>
+            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px', color: t.tp }}>{iterSelectedProject.name}</h1>
+            <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Selectionnez une iteration a dupliquer</p>
+          </div>
+        </div>
+        {iterLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: t.ts }}>
+            <Loader2 size={20} style={{ animation: 'spin 0.8s linear infinite', marginBottom: '8px' }} />
+            <div style={{ fontSize: '13px' }}>Chargement des iterations...</div>
+          </div>
+        ) : (
+          <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {iterIterations.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px', color: t.tm, fontSize: '13px' }}>Aucune iteration dans ce projet</div>
+            )}
+            {iterIterations.map(iter => (
+              <button key={iter.id}
+                onClick={() => { setIterSelectedIteration(iter); setName(iterSelectedProject.name + ' (copy)'); setDesc(iterSelectedProject.description || ''); }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#22C55E60'; e.currentTarget.style.backgroundColor = '#22C55E06'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.backgroundColor = t.surface; }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px', padding: '14px',
+                  backgroundColor: t.surface, border: `1px solid ${t.border}`,
+                  borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s',
+                  textAlign: 'left', color: t.tp, width: '100%',
+                }}>
+                <GitFork size={16} style={{ color: '#22C55E', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600 }}>{iter.title || `Version ${iter.version}`}</div>
+                  <div style={{ fontSize: '10px', color: t.tm, marginTop: '2px' }}>
+                    v{iter.version} · {iter.status} · {new Date(iter.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
+  // ── Step 1: Mode selector (Solo / Orchestra / Without Agent) ────────
+  if (!mode) {
+    const modes = [
+      { id: 'solo', label: 'Solo', icon: User, color: t.violet, desc: 'Un seul agent travaille sur le projet' },
+      { id: 'orchestra', label: 'Orchestra', icon: Users, color: '#F59E0B', desc: 'Plusieurs agents coordonnes' },
+      { id: 'none', label: 'Sans agent', icon: UserX, color: t.tm, desc: 'Juste un workspace, pas d\'agent' },
+    ];
+
+    // Source summary badge
+    const sourceBadge = source === 'github' && ghSelectedRepo
+      ? { icon: Github, label: ghSelectedRepo.full_name, color: '#F4F4F5' }
+      : source === 'iteration' && iterSelectedIteration
+        ? { icon: GitFork, label: `${iterSelectedProject.name} v${iterSelectedIteration.version}`, color: '#22C55E' }
+        : null;
+
+    return (
+      <div style={{ maxWidth: '680px', width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: t.tp }}>
+            Choisissez le mode
+          </h1>
+          <p style={{ fontSize: '14px', color: t.ts, margin: 0, lineHeight: 1.6 }}>
+            Comment souhaitez-vous travailler sur ce projet ?
+          </p>
+          {sourceBadge && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '5px 12px', borderRadius: '100px', fontSize: '11px', fontWeight: 600, backgroundColor: sourceBadge.color + '12', color: sourceBadge.color, border: `1px solid ${sourceBadge.color}25` }}>
+              <sourceBadge.icon size={12} /> {sourceBadge.label}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
+          {modes.map(m => {
+            const IconComp = m.icon;
+            return (
+              <button key={m.id}
+                onClick={() => setMode(m.id)}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = m.color + '60'; e.currentTarget.style.backgroundColor = m.color + '08'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.transform = 'translateY(0)'; }}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: '16px', padding: '32px 24px',
+                  backgroundColor: t.surface, border: `1.5px solid ${t.border}`,
+                  borderRadius: '14px', cursor: 'pointer',
+                  transition: 'all 0.25s ease', textAlign: 'center', color: t.tp,
+                }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: '14px',
+                  backgroundColor: m.color + '15', border: `1.5px solid ${m.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <IconComp size={26} color={m.color} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>{m.label}</div>
+                  <div style={{ fontSize: '12px', color: t.tm, lineHeight: 1.5 }}>{m.desc}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '16px' }}>
+          <button onClick={() => {
+            setSource(null); setMode(null); setGhSelectedRepo(null); setGhSearch('');
+            setIterSelectedProject(null); setIterSelectedIteration(null); setIterSearch('');
+            setName(''); setDesc('');
+          }} style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', fontSize: '12px' }}>
+            <ArrowLeft size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+            Changer la source
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Orchestra: Team builder ────────────────────────────────────────
+  if (mode === 'orchestra' && !orchestraReady) {
+    return (
+      <OrchestraBuilder
+        agents={agents}
+        team={orchestraTeam}
+        onUpdate={setOrchestraTeam}
+        onBack={() => { setMode(null); setOrchestraTeam({ orchestrator: null, workers: [] }); }}
+        onNext={() => setOrchestraReady(true)}
+      />
+    );
+  }
+
+  // ── Orchestra: Name/desc form ──────────────────────────────────────
+  if (mode === 'orchestra' && orchestraReady) {
     return (
       <div style={{ maxWidth: '480px', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-          <button onClick={() => { setGhSelectedRepo(null); setName(''); setDesc(''); }}
-            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
-            <ArrowLeft size={18} />
-          </button>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Configurer le projet</h1>
-        </div>
-
-        {/* Selected repo summary */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
-          background: t.surfaceEl, borderRadius: '10px', marginBottom: '20px',
-          border: `1px solid ${t.border}`,
-        }}>
-          <Github size={16} style={{ color: t.ts, flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{ghSelectedRepo.full_name}</div>
-            <div style={{ fontSize: '11px', color: t.tm }}>{ghSelectedRepo.private ? 'Private' : 'Public'} {ghSelectedRepo.language ? `· ${ghSelectedRepo.language}` : ''}</div>
+          {backBtn(() => setOrchestraReady(false))}
+          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+            backgroundColor: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30',
+          }}>
+            <Shield size={11} /> Orchestra
           </div>
-          <button onClick={() => { setGhSelectedRepo(null); setName(''); setDesc(''); }}
-            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', fontSize: '11px' }}>
-            Changer
-          </button>
         </div>
 
-        <form onSubmit={handleGitHubImportCreate} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        {/* Source summary if github/iteration */}
+        {source === 'github' && ghSelectedRepo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+            <Github size={16} style={{ color: t.ts, flexShrink: 0 }} />
+            <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{ghSelectedRepo.full_name}</div>
+          </div>
+        )}
+        {source === 'iteration' && iterSelectedIteration && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+            <GitFork size={16} style={{ color: '#22C55E', flexShrink: 0 }} />
+            <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{iterSelectedProject.name} v{iterSelectedIteration.version}</div>
+          </div>
+        )}
+
+        {/* Team summary */}
+        <div style={{ background: t.surfaceEl, borderRadius: '10px', padding: '14px', marginBottom: '20px', border: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Equipe</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600, background: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30' }}>
+              <Shield size={10} /> {orchestraTeam.orchestrator}
+            </span>
+            {orchestraTeam.workers.map(w => (
+              <span key={w.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 500, background: t.violet + '15', color: t.violet, border: `1px solid ${t.violet}30` }}>
+                <User size={10} /> {w.agent_name}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
-            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Mon projet..." style={inputGh}
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Mon super projet..." style={inputBase}
+              onFocus={e => e.target.style.borderColor = '#F59E0B'} onBlur={e => e.target.style.borderColor = t.border} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optionnel..." style={inputBase}
+              onFocus={e => e.target.style.borderColor = '#F59E0B'} onBlur={e => e.target.style.borderColor = t.border} />
+          </div>
+          <button type="submit" disabled={saving || !name.trim()} style={{
+            background: name.trim() ? '#F59E0B' : t.surfaceEl,
+            color: name.trim() ? '#000' : '#fff', border: 'none', borderRadius: '10px',
+            padding: '12px', fontSize: '14px', fontWeight: 600,
+            opacity: saving || !name.trim() ? 0.5 : 1, cursor: name.trim() ? 'pointer' : 'default',
+            transition: 'all 0.2s', marginTop: '4px',
+          }}>{saving ? 'Creation...' : 'Creer le projet Orchestra'}</button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── "Sans agent" mode: simple name/desc form ──────────────────────
+  if (mode === 'none') {
+    return (
+      <div style={{ maxWidth: '480px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          {backBtn(() => setMode(null))}
+          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
+            backgroundColor: 'rgba(255,255,255,0.06)', color: t.ts, border: `1px solid ${t.border}`,
+          }}>
+            <UserX size={11} /> Sans agent
+          </div>
+        </div>
+
+        {/* Source summary */}
+        {source === 'github' && ghSelectedRepo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+            <Github size={16} style={{ color: t.ts, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}><div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{ghSelectedRepo.full_name}</div></div>
+          </div>
+        )}
+        {source === 'iteration' && iterSelectedIteration && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+            <GitFork size={16} style={{ color: '#22C55E', flexShrink: 0 }} />
+            <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{iterSelectedProject.name} v{iterSelectedIteration.version}</div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Mon projet..." style={inputBase}
               onFocus={e => e.target.style.borderColor = t.violet} onBlur={e => e.target.style.borderColor = t.border} />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
-            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optionnel..." style={inputGh}
+            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optionnel..." style={inputBase}
               onFocus={e => e.target.style.borderColor = t.violet} onBlur={e => e.target.style.borderColor = t.border} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agent</label>
-            <select value={agent} onChange={e => setAgent(e.target.value)} style={{ ...inputGh, cursor: 'pointer' }}>
-              <option value="">Choisir un agent (optionnel)...</option>
-              {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-            </select>
           </div>
           {/* Project Type */}
           <div>
@@ -1999,127 +2244,20 @@ function NewProjectForm({ onCreated }) {
             background: name.trim() ? t.violet : t.surfaceEl,
             color: '#fff', border: 'none', borderRadius: '10px',
             padding: '12px', fontSize: '14px', fontWeight: 600,
-            opacity: saving || !name.trim() ? 0.5 : 1,
-            cursor: name.trim() ? 'pointer' : 'default',
-            transition: 'all 0.2s', marginTop: '4px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-          }}>
-            {saving ? (
-              <><Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> Import en cours...</>
-            ) : (
-              <><Github size={16} /> Creer et importer</>
-            )}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ── Orchestra: Step 1b — Team builder ──────────────────────────────
-  if (mode === 'orchestra' && !orchestraReady) {
-    return (
-      <OrchestraBuilder
-        agents={agents}
-        team={orchestraTeam}
-        onUpdate={setOrchestraTeam}
-        onBack={() => { setMode(null); setOrchestraTeam({ orchestrator: null, workers: [] }); }}
-        onNext={() => setOrchestraReady(true)}
-      />
-    );
-  }
-
-  // ── Orchestra: Step 2b — Name/desc form ────────────────────────────
-  if (mode === 'orchestra' && orchestraReady) {
-    return (
-      <div style={{ maxWidth: '480px', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-          <button
-            onClick={() => setOrchestraReady(false)}
-            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '5px',
-            padding: '3px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
-            backgroundColor: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30',
-          }}>
-            <Shield size={11} />
-            Orchestra
-          </div>
-        </div>
-
-        {/* Team summary */}
-        <div style={{
-          background: t.surfaceEl, borderRadius: '10px', padding: '14px', marginBottom: '20px',
-          border: `1px solid ${t.border}`,
-        }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Equipe</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600,
-              background: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30',
-            }}>
-              <Shield size={10} /> {orchestraTeam.orchestrator}
-            </span>
-            {orchestraTeam.workers.map(w => (
-              <span key={w.id} style={{
-                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 500,
-                background: t.violet + '15', color: t.violet, border: `1px solid ${t.violet}30`,
-              }}>
-                <User size={10} /> {w.agent_name}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
-            <input
-              value={name} onChange={e => setName(e.target.value)} required
-              placeholder="Mon super projet..."
-              style={inputBase}
-              onFocus={e => e.target.style.borderColor = '#F59E0B'}
-              onBlur={e => e.target.style.borderColor = t.border}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
-            <input
-              value={desc} onChange={e => setDesc(e.target.value)}
-              placeholder="Optionnel..."
-              style={inputBase}
-              onFocus={e => e.target.style.borderColor = '#F59E0B'}
-              onBlur={e => e.target.style.borderColor = t.border}
-            />
-          </div>
-          <button type="submit" disabled={saving || !name.trim()} style={{
-            background: name.trim() ? '#F59E0B' : t.surfaceEl,
-            color: name.trim() ? '#000' : '#fff', border: 'none', borderRadius: '10px',
-            padding: '12px', fontSize: '14px', fontWeight: 600,
             opacity: saving || !name.trim() ? 0.5 : 1, cursor: name.trim() ? 'pointer' : 'default',
             transition: 'all 0.2s', marginTop: '4px',
-          }}>{saving ? 'Creation...' : 'Creer le projet Orchestra'}</button>
+          }}>{saving ? 'Creation...' : 'Creer le projet'}</button>
         </form>
       </div>
     );
   }
 
-  // ── Solo: Step 1a — Type selector ──────────────────────────────────
+  // ── Solo: Type selector ────────────────────────────────────────────
   if (!selectedType) {
     return (
       <div style={{ maxWidth: '700px', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-          <button
-            onClick={() => setMode(null)}
-            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
-          >
-            <ArrowLeft size={18} />
-          </button>
+          {backBtn(() => setMode(null))}
           <div>
             <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 4px', letterSpacing: '-0.02em', color: t.tp }}>
               Nouveau projet Solo
@@ -2180,7 +2318,7 @@ function NewProjectForm({ onCreated }) {
     );
   }
 
-  // ── Solo: Step 2a — Project form ───────────────────────────────────
+  // ── Solo: Project form ─────────────────────────────────────────────
   const typeColor = selectedType.color || t.violet;
   const TypeIcon = TYPE_ICONS[selectedType.icon] || Wrench;
 
@@ -2188,12 +2326,7 @@ function NewProjectForm({ onCreated }) {
     <div style={{ maxWidth: '480px', width: '100%' }}>
       {/* Header with back + type badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-        <button
-          onClick={() => { setSelectedType(null); setAgent(''); }}
-          style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}
-        >
-          <ArrowLeft size={18} />
-        </button>
+        {backBtn(() => { setSelectedType(null); setAgent(''); })}
         <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Nouveau projet</h1>
         <div style={{
           display: 'flex', alignItems: 'center', gap: '5px',
@@ -2204,6 +2337,20 @@ function NewProjectForm({ onCreated }) {
           {selectedType.label}
         </div>
       </div>
+
+      {/* Source summary */}
+      {source === 'github' && ghSelectedRepo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+          <Github size={16} style={{ color: t.ts, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}><div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{ghSelectedRepo.full_name}</div></div>
+        </div>
+      )}
+      {source === 'iteration' && iterSelectedIteration && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: t.surfaceEl, borderRadius: '10px', marginBottom: '16px', border: `1px solid ${t.border}` }}>
+          <GitFork size={16} style={{ color: '#22C55E', flexShrink: 0 }} />
+          <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{iterSelectedProject.name} v{iterSelectedIteration.version}</div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <div>
@@ -2235,7 +2382,6 @@ function NewProjectForm({ onCreated }) {
             style={{ ...inputBase, cursor: 'pointer' }}
           >
             <option value="">Choisir un agent...</option>
-            {/* Show matching agents first, then all others */}
             {selectedType.defaults?.category && filteredAgents.filter(a => a.category === selectedType.defaults.category).length > 0 && (
               <optgroup label={`${selectedType.label}`}>
                 {filteredAgents.filter(a => a.category === selectedType.defaults.category).map(a => (
