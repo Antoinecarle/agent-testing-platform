@@ -26,8 +26,13 @@ const upload = multer({
       'text/plain', 'text/csv', 'text/markdown',
       'application/json', 'application/pdf',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.ms-powerpoint',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
-    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(txt|md|csv|json|pdf|xlsx)$/i)) {
+    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(txt|md|csv|json|pdf|xlsx|xls|pptx|ppt|docx|doc)$/i)) {
       cb(null, true);
     } else {
       cb(new Error('Unsupported file type'));
@@ -773,6 +778,7 @@ function extractTitleFromUrl(url) {
 }
 
 async function extractFileContent(filePath, mimeType) {
+  // PDF extraction
   if (mimeType === 'application/pdf') {
     try {
       const pdfParse = require('pdf-parse');
@@ -780,13 +786,57 @@ async function extractFileContent(filePath, mimeType) {
       const result = await pdfParse(buffer);
       const text = (result.text || '').replace(/\n-- \d+ of \d+ --\n/g, '\n').trim();
       if (!text) throw new Error('PDF parsed but no text extracted');
-      return text.slice(0, 500000); // Cap at 500K chars
+      return text.slice(0, 500000);
     } catch (err) {
       console.error('[Knowledge] PDF parse failed:', err.message);
       throw new Error(`PDF text extraction failed: ${err.message}`);
     }
   }
 
+  // Excel extraction (xlsx/xls)
+  const excelTypes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+  ];
+  if (excelTypes.includes(mimeType) || filePath.match(/\.xlsx?$/i)) {
+    try {
+      const XLSX = require('xlsx');
+      const workbook = XLSX.readFile(filePath);
+      const sheets = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        if (csv.trim()) sheets.push(`## Sheet: ${sheetName}\n${csv}`);
+      }
+      const text = sheets.join('\n\n').trim();
+      if (!text) throw new Error('Excel parsed but no text extracted');
+      return text.slice(0, 500000);
+    } catch (err) {
+      console.error('[Knowledge] Excel parse failed:', err.message);
+      throw new Error(`Excel text extraction failed: ${err.message}`);
+    }
+  }
+
+  // PowerPoint / Word extraction (pptx/ppt/docx/doc) via officeparser
+  const officeTypes = [
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ];
+  if (officeTypes.includes(mimeType) || filePath.match(/\.(pptx?|docx?)$/i)) {
+    try {
+      const { parseOffice } = require('officeparser');
+      const text = await parseOffice(filePath);
+      if (!text || !text.trim()) throw new Error('Office file parsed but no text extracted');
+      return text.trim().slice(0, 500000);
+    } catch (err) {
+      console.error('[Knowledge] Office parse failed:', err.message);
+      throw new Error(`Office text extraction failed: ${err.message}`);
+    }
+  }
+
+  // Plain text / JSON / CSV / Markdown
   const raw = fs.readFileSync(filePath, 'utf-8');
 
   if (mimeType === 'application/json') {
