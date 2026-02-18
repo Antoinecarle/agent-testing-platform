@@ -530,6 +530,14 @@ const STEPS = [
     cta: { label: 'Create Knowledge', path: '/knowledge' },
   },
   {
+    id: 'deploy',
+    icon: Rocket,
+    title: 'Deploy Everywhere',
+    description: 'Deploy any agent as an MCP server in one click. Use it in VS Code, Cursor, Slack, via API, or any MCP client.',
+    visual: DeployEverywhereVisual,
+    cta: { label: 'View Agents', path: '/agents' },
+  },
+  {
     id: 'complete',
     title: null, // complete has custom layout
   },
@@ -758,7 +766,7 @@ export default function OnboardingWizard({ onComplete, onNavigate }) {
         transition={{ delay: 0.55 }}
         style={{ fontSize: '15px', color: t.ts, marginTop: '10px', maxWidth: '360px', lineHeight: 1.5 }}
       >
-        Start building amazing things with GURU.
+        Build, deploy, and share your AI agents everywhere.
         <br />
         Your agents are ready.
       </motion.p>
