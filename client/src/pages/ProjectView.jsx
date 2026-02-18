@@ -1607,7 +1607,7 @@ export default function ProjectView() {
 const TYPE_ICONS = { Palette, Code, Settings, Megaphone, BarChart3, Wrench };
 
 function NewProjectForm({ onCreated }) {
-  const [mode, setMode] = useState(null); // null | 'solo' | 'orchestra'
+  const [mode, setMode] = useState(null); // null | 'solo' | 'orchestra' | 'github'
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [agent, setAgent] = useState('');
@@ -1619,6 +1619,12 @@ function NewProjectForm({ onCreated }) {
   // Orchestra state
   const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [] });
   const [orchestraReady, setOrchestraReady] = useState(false); // team built, show form
+  // GitHub import state
+  const [ghStatus, setGhStatus] = useState(null);
+  const [ghRepos, setGhRepos] = useState([]);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghSelectedRepo, setGhSelectedRepo] = useState(null);
+  const [ghSearch, setGhSearch] = useState('');
 
   useEffect(() => {
     api('/api/agents').then(a => setAgents(a || [])).catch(() => {});
@@ -1630,6 +1636,53 @@ function NewProjectForm({ onCreated }) {
       setSelectedType({ id: 'preselected', label: 'Agent', color: t.violet, icon: 'Wrench', defaults: { category: '' } });
     }
   }, []);
+
+  // Load GitHub repos when entering GitHub mode
+  const loadGhRepos = async () => {
+    setGhLoading(true);
+    try {
+      const [status, repos] = await Promise.all([
+        api('/api/github/status'),
+        api('/api/github/repos').catch(() => []),
+      ]);
+      setGhStatus(status);
+      setGhRepos(repos || []);
+    } catch (_) {
+      setGhStatus({ connected: false });
+    } finally {
+      setGhLoading(false);
+    }
+  };
+
+  const handleGitHubImportCreate = async (e) => {
+    e.preventDefault();
+    if (!name.trim() || !ghSelectedRepo) return;
+    setSaving(true);
+    try {
+      // 1. Create the project
+      const body = {
+        name,
+        description: desc || ghSelectedRepo.description || '',
+        mode: 'solo',
+        agent_name: agent || '',
+        project_type: projectType,
+      };
+      const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+
+      // 2. Import files from the GitHub repo
+      await api(`/api/github/import/${p.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ repoFullName: ghSelectedRepo.full_name }),
+      });
+
+      onCreated(p.id);
+    } catch (err) {
+      console.error('GitHub import error:', err);
+      alert(err.message || 'Failed to import from GitHub');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Filter agents by type's category
   const filteredAgents = selectedType?.defaults?.category
@@ -1678,9 +1731,13 @@ function NewProjectForm({ onCreated }) {
         id: 'orchestra', label: 'Orchestra', icon: Users, color: '#F59E0B',
         desc: 'Plusieurs agents coordonnes par un orchestrateur',
       },
+      {
+        id: 'github', label: 'Import GitHub', icon: Github, color: '#F4F4F5',
+        desc: 'Importer un repo GitHub existant',
+      },
     ];
     return (
-      <div style={{ maxWidth: '520px', width: '100%' }}>
+      <div style={{ maxWidth: '680px', width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: t.tp }}>
             Nouveau projet
@@ -1689,13 +1746,16 @@ function NewProjectForm({ onCreated }) {
             Choisissez le mode de votre projet
           </p>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
           {modes.map(m => {
             const IconComp = m.icon;
             return (
               <button
                 key={m.id}
-                onClick={() => setMode(m.id)}
+                onClick={() => {
+                  setMode(m.id);
+                  if (m.id === 'github') loadGhRepos();
+                }}
                 onMouseEnter={e => {
                   e.currentTarget.style.borderColor = m.color + '60';
                   e.currentTarget.style.backgroundColor = m.color + '08';
@@ -1736,6 +1796,221 @@ function NewProjectForm({ onCreated }) {
             );
           })}
         </div>
+      </div>
+    );
+  }
+
+  // ── GitHub Import: repo picker + project form ─────────────────────
+  if (mode === 'github') {
+    const ghFilteredRepos = ghSearch
+      ? ghRepos.filter(r => r.full_name.toLowerCase().includes(ghSearch.toLowerCase()) || (r.description || '').toLowerCase().includes(ghSearch.toLowerCase()))
+      : ghRepos;
+
+    // Not connected
+    if (ghStatus && !ghStatus.connected) {
+      return (
+        <div style={{ maxWidth: '480px', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+            <button onClick={() => { setMode(null); setGhSelectedRepo(null); }}
+              style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <ArrowLeft size={18} />
+            </button>
+            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Import GitHub</h1>
+          </div>
+          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+            <Github size={40} style={{ color: t.tm, marginBottom: '16px' }} />
+            <p style={{ fontSize: '14px', color: t.ts, marginBottom: '20px' }}>
+              Connectez votre compte GitHub pour importer un repo.
+            </p>
+            <a href="/settings?tab=connections" style={{
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+              padding: '10px 20px', background: t.violet, color: '#fff',
+              borderRadius: '8px', textDecoration: 'none', fontSize: '13px', fontWeight: 600,
+            }}>
+              <Github size={16} /> Connecter GitHub
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    // Step 1: Pick a repo
+    if (!ghSelectedRepo) {
+      return (
+        <div style={{ maxWidth: '580px', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+            <button onClick={() => { setMode(null); setGhSearch(''); }}
+              style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <ArrowLeft size={18} />
+            </button>
+            <div>
+              <h1 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 4px', color: t.tp }}>Import GitHub</h1>
+              <p style={{ fontSize: '13px', color: t.ts, margin: 0 }}>Selectionnez un repository a importer</p>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div style={{ marginBottom: '16px' }}>
+            <input
+              value={ghSearch} onChange={e => setGhSearch(e.target.value)}
+              placeholder="Rechercher un repo..."
+              style={{
+                width: '100%', backgroundColor: t.bg, border: `1px solid ${t.border}`,
+                borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+              onFocus={e => e.target.style.borderColor = t.violet}
+              onBlur={e => e.target.style.borderColor = t.border}
+            />
+          </div>
+
+          {ghLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: t.ts }}>
+              <Loader2 size={20} style={{ animation: 'spin 0.8s linear infinite', marginBottom: '8px' }} />
+              <div style={{ fontSize: '13px' }}>Chargement des repos...</div>
+            </div>
+          ) : (
+            <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {ghFilteredRepos.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '30px', color: t.tm, fontSize: '13px' }}>
+                  Aucun repo trouve
+                </div>
+              )}
+              {ghFilteredRepos.map(repo => (
+                <button
+                  key={repo.id}
+                  onClick={() => {
+                    setGhSelectedRepo(repo);
+                    setName(repo.name);
+                    setDesc(repo.description || '');
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = t.violet + '60';
+                    e.currentTarget.style.backgroundColor = t.violet + '06';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = t.border;
+                    e.currentTarget.style.backgroundColor = t.surface;
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px',
+                    backgroundColor: t.surface, border: `1px solid ${t.border}`,
+                    borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s',
+                    textAlign: 'left', color: t.tp, width: '100%',
+                  }}
+                >
+                  <Github size={18} style={{ color: t.ts, marginTop: '2px', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>{repo.full_name}</div>
+                    {repo.description && (
+                      <div style={{ fontSize: '11px', color: t.tm, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {repo.description}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px', fontSize: '10px', color: t.tm }}>
+                      {repo.language && <span>{repo.language}</span>}
+                      <span>{repo.private ? 'Private' : 'Public'}</span>
+                      <span>{new Date(repo.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Step 2: Configure project from selected repo
+    const inputGh = {
+      backgroundColor: t.bg, border: `1px solid ${t.border}`, borderRadius: '8px',
+      padding: '11px 14px', color: '#fff', fontSize: '13px', outline: 'none',
+      width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s',
+    };
+
+    return (
+      <div style={{ maxWidth: '480px', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          <button onClick={() => { setGhSelectedRepo(null); setName(''); setDesc(''); }}
+            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: 0, display: 'flex' }}>
+            <ArrowLeft size={18} />
+          </button>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: t.tp }}>Configurer le projet</h1>
+        </div>
+
+        {/* Selected repo summary */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
+          background: t.surfaceEl, borderRadius: '10px', marginBottom: '20px',
+          border: `1px solid ${t.border}`,
+        }}>
+          <Github size={16} style={{ color: t.ts, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp }}>{ghSelectedRepo.full_name}</div>
+            <div style={{ fontSize: '11px', color: t.tm }}>{ghSelectedRepo.private ? 'Private' : 'Public'} {ghSelectedRepo.language ? `· ${ghSelectedRepo.language}` : ''}</div>
+          </div>
+          <button onClick={() => { setGhSelectedRepo(null); setName(''); setDesc(''); }}
+            style={{ background: 'none', border: 'none', color: t.tm, cursor: 'pointer', fontSize: '11px' }}>
+            Changer
+          </button>
+        </div>
+
+        <form onSubmit={handleGitHubImportCreate} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nom du projet</label>
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Mon projet..." style={inputGh}
+              onFocus={e => e.target.style.borderColor = t.violet} onBlur={e => e.target.style.borderColor = t.border} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optionnel..." style={inputGh}
+              onFocus={e => e.target.style.borderColor = t.violet} onBlur={e => e.target.style.borderColor = t.border} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agent</label>
+            <select value={agent} onChange={e => setAgent(e.target.value)} style={{ ...inputGh, cursor: 'pointer' }}>
+              <option value="">Choisir un agent (optionnel)...</option>
+              {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+            </select>
+          </div>
+          {/* Project Type */}
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: t.tm, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type de projet</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              {[
+                { id: 'html', label: 'HTML', desc: 'Fichier unique', icon: '<>', color: '#e34f26' },
+                { id: 'fullstack', label: 'Fullstack', desc: 'Projet complet', icon: 'FS', color: '#22c55e' },
+              ].map(pt => (
+                <button key={pt.id} type="button" onClick={() => setProjectType(pt.id)} style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                  padding: '12px', borderRadius: '8px', cursor: 'pointer',
+                  background: projectType === pt.id ? `${pt.color}10` : t.bg,
+                  border: projectType === pt.id ? `2px solid ${pt.color}60` : `1px solid ${t.border}`,
+                  color: projectType === pt.id ? pt.color : t.tm, transition: 'all 0.2s',
+                }}>
+                  <span style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'monospace' }}>{pt.icon}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>{pt.label}</span>
+                  <span style={{ fontSize: '10px', color: t.tm, textAlign: 'center' }}>{pt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <button type="submit" disabled={saving || !name.trim()} style={{
+            background: name.trim() ? t.violet : t.surfaceEl,
+            color: '#fff', border: 'none', borderRadius: '10px',
+            padding: '12px', fontSize: '14px', fontWeight: 600,
+            opacity: saving || !name.trim() ? 0.5 : 1,
+            cursor: name.trim() ? 'pointer' : 'default',
+            transition: 'all 0.2s', marginTop: '4px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+          }}>
+            {saving ? (
+              <><Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> Import en cours...</>
+            ) : (
+              <><Github size={16} /> Creer et importer</>
+            )}
+          </button>
+        </form>
       </div>
     );
   }
