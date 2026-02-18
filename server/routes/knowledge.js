@@ -117,6 +117,16 @@ router.post('/auto-populate', async (req, res) => {
     }
     if (!agent_name) return res.status(400).json({ error: 'agent_name is required' });
 
+    // Validate args string lengths (prevent token bombing via oversized prompts)
+    if (args && typeof args === 'object') {
+      const MAX_FIELD_LEN = 5000;
+      for (const [key, val] of Object.entries(args)) {
+        if (typeof val === 'string' && val.length > MAX_FIELD_LEN) {
+          return res.status(400).json({ error: `args.${key} exceeds maximum length of ${MAX_FIELD_LEN} characters` });
+        }
+      }
+    }
+
     // Validate agent exists
     const agent = await db.getAgent(agent_name);
     if (!agent) return res.status(404).json({ error: `Agent "${agent_name}" not found` });
@@ -765,11 +775,9 @@ function extractTitleFromUrl(url) {
 async function extractFileContent(filePath, mimeType) {
   if (mimeType === 'application/pdf') {
     try {
-      const { PDFParse } = require('pdf-parse');
+      const pdfParse = require('pdf-parse');
       const buffer = fs.readFileSync(filePath);
-      const parser = new PDFParse({ data: buffer });
-      await parser.load();
-      const result = await parser.getText();
+      const result = await pdfParse(buffer);
       const text = (result.text || '').replace(/\n-- \d+ of \d+ --\n/g, '\n').trim();
       if (!text) throw new Error('PDF parsed but no text extracted');
       return text.slice(0, 500000); // Cap at 500K chars

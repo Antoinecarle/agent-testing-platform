@@ -254,6 +254,12 @@ router.post('/:slug/mcp', async (req, res) => {
 
 // GET /mcp/:slug/mcp — SSE notifications stream for Streamable HTTP
 router.get('/:slug/mcp', async (req, res) => {
+  // Require valid session ID to prevent unauthenticated DoS via SSE connections
+  const sessionId = req.headers['mcp-session-id'];
+  if (!sessionId || !streamableSessions.has(sessionId)) {
+    return res.status(401).json({ error: 'Valid MCP session required. POST first to initialize.' });
+  }
+
   // Streamable HTTP allows GET for server-initiated notifications
   // For now, just keep the connection open for session keepalive
   res.writeHead(200, {
@@ -309,7 +315,7 @@ router.post('/:slug/messages', async (req, res) => {
     }
   } catch (err) {
     console.error('[MCP Messages] Error:', err.message);
-    if (msg.id) {
+    if (msg.id !== undefined && msg.id !== null) {
       const errResp = {
         jsonrpc: '2.0', id: msg.id,
         error: { code: -32603, message: err.message },
@@ -665,7 +671,7 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   let llmResult;
   let maxTokens;
   if (toolDef.max_tokens && toolDef.max_tokens > 0) {
-    maxTokens = toolDef.max_tokens; // Per-tool DB override
+    maxTokens = Math.min(toolDef.max_tokens, 128000); // Per-tool DB override (capped)
   } else {
     const highTokenTools = ['create_page'];
     const generativeTools = ['interaction_layer', 'create_section_template', 'generate_component'];

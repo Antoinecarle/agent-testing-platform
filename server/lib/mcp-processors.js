@@ -21,7 +21,25 @@ const { extractHtmlInfo, formatHtmlAnalysis } = require('./mcp-agent-tools');
  * Fetch a URL and return the HTML content.
  * Handles redirects, timeouts, and common errors.
  */
+// SSRF protection — block requests to internal/private networks
+const BLOCKED_HOST_PATTERNS = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|fc00:|fe80:|0x|0\d)/i;
+
+function validatePublicUrl(urlStr) {
+  let parsed;
+  try { parsed = new URL(urlStr); } catch { throw new Error(`Invalid URL: ${urlStr}`); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`Protocol not allowed: ${parsed.protocol}`);
+  }
+  if (BLOCKED_HOST_PATTERNS.test(parsed.hostname)) {
+    throw new Error('Requests to private/internal addresses are not allowed');
+  }
+  return parsed;
+}
+
 async function fetchUrl(url, options = {}) {
+  // Validate URL is public (SSRF protection)
+  validatePublicUrl(url);
+
   const timeout = options.timeout || 15000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);

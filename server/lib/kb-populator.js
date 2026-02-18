@@ -186,7 +186,7 @@ Each entry must be:
 
 ${args.brief}
 
-${args.entry_count ? `Generate exactly ${args.entry_count} entries.` : 'Generate 8-15 entries.'}
+${(() => { const n = parseInt(args.entry_count, 10); return (n > 0 && n <= 50) ? `Generate exactly ${n} entries.` : 'Generate 8-15 entries.'; })()}
 
 Return JSON: {"entries": [{"title": "category: topic", "content": "detailed entry content", "tags": ["tag1", "tag2"]}]}`
   }
@@ -302,13 +302,17 @@ async function populateKnowledgeBase(config) {
       entries = Object.values(parsed).find(v => Array.isArray(v)) || [];
     }
   } catch (e) {
-    // Try to extract JSON from response
-    const match = response.match(/\[[\s\S]*\]/);
-    if (match) {
-      try { entries = JSON.parse(match[0]); }
-      catch { throw new Error(`Failed to parse AI response as JSON`); }
+    // Try to extract JSON from response (object or array)
+    const objMatch = response.match(/\{[\s\S]*\}/);
+    const arrMatch = response.match(/\[[\s\S]*\]/);
+    const raw = objMatch?.[0] || arrMatch?.[0];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        entries = parsed.entries || (Array.isArray(parsed) ? parsed : Object.values(parsed).find(v => Array.isArray(v))) || [];
+      } catch { throw new Error('Failed to parse AI response as JSON'); }
     } else {
-      throw new Error(`AI returned non-JSON response`);
+      throw new Error('AI returned non-JSON response');
     }
   }
 
