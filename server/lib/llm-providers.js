@@ -268,7 +268,21 @@ async function callGoogle(apiKey, model, messages, maxTokens) {
   });
   const result = await response.json();
   if (result.error) throw new Error(result.error.message);
-  const text = result.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+
+  // Check for blocked/empty responses (Gemini safety filters)
+  const candidate = result.candidates?.[0];
+  if (!candidate || !candidate.content) {
+    const blockReason = result.promptFeedback?.blockReason
+      || candidate?.finishReason
+      || 'unknown';
+    throw new Error(`Gemini returned empty response (reason: ${blockReason})`);
+  }
+
+  const text = candidate.content.parts?.map(p => p.text).join('') || '';
+  if (!text && candidate.finishReason && candidate.finishReason !== 'STOP') {
+    throw new Error(`Gemini response blocked (finishReason: ${candidate.finishReason})`);
+  }
+
   const usageMeta = result.usageMetadata || {};
   return {
     text,
