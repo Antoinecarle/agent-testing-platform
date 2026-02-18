@@ -24,7 +24,7 @@ function getStripePromise() {
   return stripePromise;
 }
 
-function CheckoutForm({ onSuccess, onError, agentName, amountCents }) {
+function CheckoutForm({ onSuccess, onError, agentName, amountCents, paymentIntentId }) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -51,7 +51,15 @@ function CheckoutForm({ onSuccess, onError, agentName, amountCents }) {
       setProcessing(false);
       if (onError) onError(submitError.message);
     } else {
-      // Payment succeeded without redirect
+      // Payment succeeded — verify and record purchase on server
+      try {
+        await api('/api/stripe-connect/verify-payment', {
+          method: 'POST',
+          body: JSON.stringify({ payment_intent_id: paymentIntentId }),
+        });
+      } catch (verifyErr) {
+        console.warn('[StripePayment] verify-payment call failed (webhook will handle):', verifyErr.message);
+      }
       if (onSuccess) onSuccess();
     }
   };
@@ -104,6 +112,7 @@ function CheckoutForm({ onSuccess, onError, agentName, amountCents }) {
 
 export default function StripePaymentModal({ isOpen, onClose, onSuccess, agentName, agentDisplayName, amountCents, priceCurrency }) {
   const [clientSecret, setClientSecret] = useState(null);
+  const [paymentIntentId, setPaymentIntentId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -112,6 +121,7 @@ export default function StripePaymentModal({ isOpen, onClose, onSuccess, agentNa
     setLoading(true);
     setError(null);
     setClientSecret(null);
+    setPaymentIntentId(null);
 
     api('/api/stripe-connect/create-payment', {
       method: 'POST',
@@ -123,6 +133,7 @@ export default function StripePaymentModal({ isOpen, onClose, onSuccess, agentNa
     })
       .then((data) => {
         setClientSecret(data.client_secret);
+        setPaymentIntentId(data.payment_intent_id);
       })
       .catch((err) => {
         setError(err.message || 'Failed to create payment');
@@ -242,6 +253,7 @@ export default function StripePaymentModal({ isOpen, onClose, onSuccess, agentNa
               onError={(msg) => setError(msg)}
               agentName={agentName}
               amountCents={amountCents}
+              paymentIntentId={paymentIntentId}
             />
           </Elements>
         )}

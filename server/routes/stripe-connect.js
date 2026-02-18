@@ -254,6 +254,62 @@ router.post('/create-payment', async (req, res) => {
   }
 });
 
+// POST /api/stripe-connect/verify-payment — verify payment succeeded and record purchase (called by client after confirmPayment)
+router.post('/verify-payment', async (req, res) => {
+  try {
+    const stripe = getStripe();
+    const buyerUserId = req.user.userId;
+    const { payment_intent_id } = req.body;
+
+    if (!payment_intent_id) {
+      return res.status(400).json({ error: 'payment_intent_id is required' });
+    }
+
+    // Retrieve PaymentIntent from Stripe to verify it actually succeeded
+    const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent_id);
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({ error: `Payment not succeeded (status: ${paymentIntent.status})` });
+    }
+
+    const { buyer_user_id, seller_user_id, agent_name } = paymentIntent.metadata || {};
+
+    // Security: verify the buyer matches the authenticated user
+    if (buyer_user_id !== buyerUserId) {
+      return res.status(403).json({ error: 'Payment does not belong to this user' });
+    }
+
+    if (!agent_name) {
+      return res.status(400).json({ error: 'No agent_name in payment metadata' });
+    }
+
+    // Mark payment as completed in DB
+    const { data: payments } = await db.supabase.from('stripe_connect_payments')
+      .select('id')
+      .eq('stripe_payment_intent_id', paymentIntent.id)
+      .limit(1);
+    if (payments && payments.length > 0) {
+      await db.updateConnectPayment(payments[0].id, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      });
+    }
+
+    // Create purchase record + generate API token (idempotent)
+    const alreadyPurchased = await db.hasUserPurchased(buyer_user_id, agent_name);
+    if (!alreadyPurchased) {
+      await db.purchaseAgent(buyer_user_id, agent_name, 0); // 0 credits since paid with real money
+      await db.generateAgentToken(buyer_user_id, agent_name);
+    }
+
+    console.log(`[StripeConnect] Payment verified & purchase recorded: ${agent_name} by user ${buyer_user_id}`);
+    res.json({ success: true, agent_name, purchased: true });
+  } catch (err) {
+    console.error('[StripeConnect] Verify payment error:', err.message);
+    res.status(500).json({ error: 'Failed to verify payment' });
+  }
+});
+
 // GET /api/stripe-connect/earnings — seller earnings summary + recent transactions
 router.get('/earnings', async (req, res) => {
   try {
