@@ -225,9 +225,8 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res) =
 
 function verifyToken(req, res, next) {
   const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ error: 'No token provided' });
-
-  const token = header.split(' ')[1];
+  // Support token via query param for browser-opened previews (window.open)
+  const token = header?.split(' ')[1] || req.query.token;
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
   try {

@@ -474,14 +474,14 @@ ${projectInstructions}
 - Professional, production-ready quality
 - All text content should be realistic (no lorem ipsum)
 
-### AI Services (Proxy API)
+### Agent Proxy API (AI + Database)
 
-If you need AI capabilities (chat completion, image generation, embeddings), use the **Agent Proxy API** via the environment variables:
+Use the **Agent Proxy API** for AI capabilities AND database storage via the environment variables:
 
 - \`AGENT_PROXY_URL\` — base URL of the proxy (e.g. \`http://localhost:4000/api/agent-proxy\`)
 - \`AGENT_SESSION_TOKEN\` — your scoped auth token
 
-**You do NOT have direct API keys.** All AI requests go through the proxy.
+**You do NOT have direct API keys or DB credentials.** All requests go through the proxy.
 
 \`\`\`bash
 # Check available capabilities
@@ -504,6 +504,33 @@ curl -s "$AGENT_PROXY_URL/embed" \\
   -H "x-agent-token: $AGENT_SESSION_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"input":"text to embed"}'
+\`\`\`
+
+#### Database / Storage (via Proxy)
+
+You can **save and retrieve data** for this project using the storage API:
+
+\`\`\`bash
+# Get project info
+curl -s "$AGENT_PROXY_URL/project" -H "x-agent-token: $AGENT_SESSION_TOKEN"
+
+# List iterations
+curl -s "$AGENT_PROXY_URL/iterations" -H "x-agent-token: $AGENT_SESSION_TOKEN"
+
+# Save data (key-value, value is any JSON)
+curl -s "$AGENT_PROXY_URL/storage" \\
+  -H "x-agent-token: $AGENT_SESSION_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"key":"config","value":{"theme":"dark","lang":"fr"}}'
+
+# Read data
+curl -s "$AGENT_PROXY_URL/storage/config" -H "x-agent-token: $AGENT_SESSION_TOKEN"
+
+# List all saved keys
+curl -s "$AGENT_PROXY_URL/storage" -H "x-agent-token: $AGENT_SESSION_TOKEN"
+
+# Delete data
+curl -s -X DELETE "$AGENT_PROXY_URL/storage/config" -H "x-agent-token: $AGENT_SESSION_TOKEN"
 \`\`\`
 
 **NEVER** try to read environment variables like OPENAI_API_KEY, SUPABASE_SERVICE_ROLE_KEY, etc. — they are not available in your environment.

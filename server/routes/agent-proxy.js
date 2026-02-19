@@ -1,5 +1,5 @@
 /**
- * Agent Proxy API — secure proxy for AI services
+ * Agent Proxy API — secure proxy for AI services + project database
  *
  * SECURITY: Agent terminals have NO access to platform secrets (API keys, DB creds, etc.).
  * Instead, they receive a scoped AGENT_SESSION_TOKEN that grants access to these
@@ -10,11 +10,18 @@
  *   POST /api/agent-proxy/image       — Gemini image generation proxy
  *   POST /api/agent-proxy/embed       — OpenAI embeddings proxy
  *   GET  /api/agent-proxy/status      — Check proxy availability + capabilities
+ *   GET  /api/agent-proxy/project     — Get current project info
+ *   GET  /api/agent-proxy/iterations  — List project iterations
+ *   GET  /api/agent-proxy/storage     — List all storage keys
+ *   GET  /api/agent-proxy/storage/:key — Get storage value
+ *   POST /api/agent-proxy/storage     — Save storage key-value
+ *   DELETE /api/agent-proxy/storage/:key — Delete storage key
  */
 
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const db = require('../db');
 const { createLogger } = require('../lib/logger');
 const log = createLogger('agent-proxy');
 
@@ -100,6 +107,9 @@ router.get('/status', (req, res) => {
       'ai-chat': !!process.env.OPENAI_API_KEY,
       image: !!process.env.GOOGLE_AI_API_KEY,
       embed: !!process.env.OPENAI_API_KEY,
+      project: true,
+      iterations: true,
+      storage: true,
     },
   });
 });
@@ -292,6 +302,145 @@ router.post('/embed', async (req, res) => {
   } catch (err) {
     log.error(`[embed] Fetch error:`, err.message);
     res.status(500).json({ error: 'Failed to reach embedding service' });
+  }
+});
+
+// ── GET /project — Current project info ──────────────────────────────────────
+
+router.get('/project', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  try {
+    const project = await db.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      agent_name: project.agent_name,
+      project_type: project.project_type,
+      status: project.status,
+      iteration_count: project.iteration_count,
+      created_at: project.created_at,
+    });
+  } catch (err) {
+    log.error(`[project] Error:`, err.message);
+    res.status(500).json({ error: 'Failed to fetch project' });
+  }
+});
+
+// ── GET /iterations — List project iterations ────────────────────────────────
+
+router.get('/iterations', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  try {
+    const iterations = await db.getIterationsByProject(projectId);
+    res.json(iterations.map(it => ({
+      id: it.id,
+      version: it.version,
+      title: it.title,
+      prompt: it.prompt,
+      agent_name: it.agent_name,
+      parent_id: it.parent_id,
+      status: it.status,
+      file_path: it.file_path,
+      created_at: it.created_at,
+    })));
+  } catch (err) {
+    log.error(`[iterations] Error:`, err.message);
+    res.status(500).json({ error: 'Failed to fetch iterations' });
+  }
+});
+
+// ── GET /storage — List all storage keys for project ─────────────────────────
+
+router.get('/storage', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  try {
+    const items = await db.listProjectStorage(projectId);
+    res.json(items);
+  } catch (err) {
+    log.error(`[storage] List error:`, err.message);
+    res.status(500).json({ error: 'Failed to list storage' });
+  }
+});
+
+// ── GET /storage/:key — Get a specific storage value ─────────────────────────
+
+router.get('/storage/:key', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  try {
+    const item = await db.getProjectStorage(projectId, req.params.key);
+    if (!item) {
+      return res.status(404).json({ error: 'Key not found' });
+    }
+    res.json({ key: item.key, value: item.value, updated_at: item.updated_at });
+  } catch (err) {
+    log.error(`[storage] Get error:`, err.message);
+    res.status(500).json({ error: 'Failed to get storage value' });
+  }
+});
+
+// ── POST /storage — Save a key-value pair ────────────────────────────────────
+
+router.post('/storage', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  const { key, value } = req.body;
+  if (!key || typeof key !== 'string') {
+    return res.status(400).json({ error: 'key (string) is required' });
+  }
+  if (key.length > 255) {
+    return res.status(400).json({ error: 'key must be 255 characters or less' });
+  }
+  if (value === undefined) {
+    return res.status(400).json({ error: 'value is required (any JSON value)' });
+  }
+
+  try {
+    const item = await db.upsertProjectStorage(projectId, key, value);
+    res.json({ ok: true, key: item.key, value: item.value, updated_at: item.updated_at });
+  } catch (err) {
+    log.error(`[storage] Save error:`, err.message);
+    res.status(500).json({ error: 'Failed to save storage value' });
+  }
+});
+
+// ── DELETE /storage/:key — Delete a storage key ──────────────────────────────
+
+router.delete('/storage/:key', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  try {
+    await db.deleteProjectStorage(projectId, req.params.key);
+    res.json({ ok: true });
+  } catch (err) {
+    log.error(`[storage] Delete error:`, err.message);
+    res.status(500).json({ error: 'Failed to delete storage value' });
   }
 });
 

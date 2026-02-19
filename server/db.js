@@ -2329,6 +2329,46 @@ async function updateProjectGithub(projectId, fields) {
   await supabase.from('projects').update(update).eq('id', projectId);
 }
 
+// ===================== PROJECT STORAGE =====================
+
+async function getProjectStorage(projectId, key) {
+  const { data } = await supabase.from('project_storage')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('key', key)
+    .single();
+  return data;
+}
+
+async function listProjectStorage(projectId) {
+  const { data } = await supabase.from('project_storage')
+    .select('key, value, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('key');
+  return data || [];
+}
+
+async function upsertProjectStorage(projectId, key, value) {
+  const { data, error } = await supabase.from('project_storage')
+    .upsert({
+      project_id: projectId,
+      key,
+      value,
+      updated_at: now(),
+    }, { onConflict: 'project_id,key' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function deleteProjectStorage(projectId, key) {
+  await supabase.from('project_storage')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('key', key);
+}
+
 // ===================== EXPORTS =====================
 
 module.exports = {
@@ -2451,4 +2491,6 @@ module.exports = {
   getSellerPayments, getSellerEarningsSummary,
   // GitHub
   getUserByGithubId, updateUserGithub, clearUserGithub, updateProjectGithub,
+  // Project Storage
+  getProjectStorage, listProjectStorage, upsertProjectStorage, deleteProjectStorage,
 };
