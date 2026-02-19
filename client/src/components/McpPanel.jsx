@@ -4,7 +4,7 @@ import {
   Plus, Trash2, Copy, Pause, Play, Eye, EyeOff, RefreshCw,
   AlertCircle, CheckCircle, Clock, Activity, Server, Shield,
   ChevronRight, ChevronDown, X, Zap, TrendingUp, Database, Cpu,
-  HardDrive, Mail, Calendar, FileSpreadsheet, Link2
+  HardDrive, Mail, Calendar, FileSpreadsheet, Link2, Code, Terminal
 } from 'lucide-react';
 import { api } from '../api';
 import McpToolsManager from './McpToolsManager';
@@ -47,6 +47,205 @@ const MENU_ITEMS = [
   { id: 'logs', label: 'Logs & Analytics', icon: BarChart3, color: '#06b6d4' },
   { id: 'settings', label: 'Settings', icon: Settings, color: t.ts },
 ];
+
+// ----- Available LLM Models -----
+const LLM_MODELS = [
+  { provider: 'openai', id: 'gpt-5-mini-2025-08-07', name: 'GPT-5 Mini', default: true },
+  { provider: 'openai', id: 'gpt-4o', name: 'GPT-4o' },
+  { provider: 'openai', id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+  { provider: 'anthropic', id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+  { provider: 'anthropic', id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5' },
+  { provider: 'anthropic', id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+  { provider: 'google', id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  { provider: 'google', id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+];
+
+const PROVIDER_COLORS = {
+  openai: '#10a37f',
+  anthropic: '#d97706',
+  google: '#4285F4',
+};
+
+// ----- Copyable Code Block -----
+function CodeBlock({ label, code, copiedField, copyToClipboard, icon: Icon }) {
+  const fieldKey = `snippet-${label}`;
+  const isCopied = copiedField === fieldKey;
+  return (
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+        <span style={{ fontSize: '11px', fontWeight: '600', color: t.ts, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {Icon && <Icon size={12} style={{ color: t.violet }} />}
+          {label}
+        </span>
+        <button onClick={() => copyToClipboard(code, fieldKey)} style={{
+          background: isCopied ? 'rgba(34,197,94,0.15)' : t.surfaceEl,
+          border: `1px solid ${isCopied ? 'rgba(34,197,94,0.3)' : t.border}`,
+          color: isCopied ? t.success : t.ts,
+          padding: '4px 10px', borderRadius: '4px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', fontWeight: '500',
+        }}>
+          {isCopied ? <><CheckCircle size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+        </button>
+      </div>
+      <pre style={{
+        background: '#0a0a0a', border: `1px solid ${t.border}`, borderRadius: '8px',
+        padding: '14px 16px', margin: 0, overflowX: 'auto', fontSize: '11px',
+        fontFamily: t.mono, color: '#e4e4e7', lineHeight: 1.7,
+        whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+      }}>
+        {code}
+      </pre>
+    </div>
+  );
+}
+
+// ----- Config Snippets Section -----
+function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
+  const [activeTab, setActiveTab] = useState('claude-code');
+  if (!deployment) return null;
+
+  const mcpUrl = `${baseUrl}/mcp/${deployment.slug}/mcp`;
+  const sseUrl = `${baseUrl}/mcp/${deployment.slug}/sse`;
+  const chatUrl = `${baseUrl}/mcp/${deployment.slug}/api/chat`;
+  const apiKeyPlaceholder = 'YOUR_API_KEY';
+
+  const snippets = {
+    'claude-code': {
+      label: 'Claude Code',
+      icon: Terminal,
+      blocks: [
+        {
+          label: 'claude_desktop_config.json (Streamable HTTP)',
+          code: JSON.stringify({
+            mcpServers: {
+              [deployment.slug]: {
+                url: mcpUrl,
+                headers: { Authorization: `Bearer ${apiKeyPlaceholder}` },
+              },
+            },
+          }, null, 2),
+        },
+        {
+          label: 'claude_desktop_config.json (SSE fallback)',
+          code: JSON.stringify({
+            mcpServers: {
+              [deployment.slug]: {
+                url: sseUrl,
+                headers: { Authorization: `Bearer ${apiKeyPlaceholder}` },
+              },
+            },
+          }, null, 2),
+        },
+      ],
+    },
+    curl: {
+      label: 'cURL',
+      icon: Code,
+      blocks: [
+        {
+          label: 'Chat API',
+          code: `curl -X POST "${chatUrl}" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKeyPlaceholder}" \\
+  -d '{
+    "message": "Hello, how can you help me?"
+  }'`,
+        },
+        {
+          label: 'MCP JSON-RPC (initialize)',
+          code: `curl -X POST "${mcpUrl}" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKeyPlaceholder}" \\
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": { "name": "my-client", "version": "1.0.0" }
+    }
+  }'`,
+        },
+      ],
+    },
+    javascript: {
+      label: 'JavaScript',
+      icon: Code,
+      blocks: [
+        {
+          label: 'Fetch (Chat API)',
+          code: `const response = await fetch("${chatUrl}", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer ${apiKeyPlaceholder}",
+  },
+  body: JSON.stringify({
+    message: "Hello, how can you help me?",
+  }),
+});
+const data = await response.json();
+console.log(data.response);`,
+        },
+      ],
+    },
+  };
+
+  const current = snippets[activeTab];
+
+  return (
+    <div style={{
+      background: t.surface, border: `1px solid ${t.border}`, borderRadius: '10px',
+      overflow: 'hidden', marginTop: '24px',
+    }}>
+      <div style={{
+        padding: '14px 16px', borderBottom: `1px solid ${t.border}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Code size={14} style={{ color: t.violet }} />
+          Quick Start
+        </span>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {Object.entries(snippets).map(([key, s]) => (
+            <button key={key} onClick={() => setActiveTab(key)} style={{
+              background: activeTab === key ? `${t.violet}20` : 'transparent',
+              border: `1px solid ${activeTab === key ? t.violet + '40' : t.border}`,
+              color: activeTab === key ? t.tp : t.tm,
+              padding: '4px 10px', borderRadius: '4px', cursor: 'pointer',
+              fontSize: '10px', fontWeight: '600',
+            }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: '16px' }}>
+        <div style={{
+          background: 'rgba(139,92,246,0.04)', border: `1px solid ${t.violet}20`,
+          borderRadius: '6px', padding: '8px 12px', marginBottom: '14px',
+          display: 'flex', alignItems: 'center', gap: '6px',
+        }}>
+          <AlertCircle size={11} style={{ color: t.violet, flexShrink: 0 }} />
+          <span style={{ fontSize: '10px', color: t.ts, lineHeight: 1.4 }}>
+            Replace <code style={{ fontFamily: t.mono, color: t.violet, fontWeight: '600' }}>YOUR_API_KEY</code> with a key from the API Keys section.
+          </span>
+        </div>
+        {current.blocks.map((block, i) => (
+          <CodeBlock
+            key={i}
+            label={block.label}
+            code={block.code}
+            copiedField={copiedField}
+            copyToClipboard={copyToClipboard}
+            icon={current.icon}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ----- Overview Section -----
 function OverviewSection({ deployment, agent, onDeploy, deployLoading, onRefresh }) {
@@ -231,6 +430,9 @@ function OverviewSection({ deployment, agent, onDeploy, deployLoading, onRefresh
           </div>
         ))}
       </div>
+
+      {/* Quick Start Config Snippets */}
+      <ConfigSnippets deployment={deployment} baseUrl={baseUrl} copiedField={copiedField} copyToClipboard={copyToClipboard} />
     </div>
   );
 }
@@ -625,22 +827,28 @@ function LogsSection({ agentName, deployment }) {
 
 // ----- Settings Section -----
 function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLoading }) {
+  const config = deployment?.config || {};
   const [form, setForm] = useState({
     description: deployment?.description || '',
     tagline: deployment?.tagline || '',
     primary_color: deployment?.primary_color || '#8B5CF6',
     tier: deployment?.tier || 'starter',
+    llm_provider: config.llm_provider || 'openai',
+    llm_model: config.llm_model || 'gpt-5-mini-2025-08-07',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (deployment) {
+      const cfg = deployment.config || {};
       setForm({
         description: deployment.description || '',
         tagline: deployment.tagline || '',
         primary_color: deployment.primary_color || '#8B5CF6',
         tier: deployment.tier || 'starter',
+        llm_provider: cfg.llm_provider || 'openai',
+        llm_model: cfg.llm_model || 'gpt-5-mini-2025-08-07',
       });
     }
   }, [deployment]);
@@ -648,9 +856,13 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
   const handleSave = async () => {
     setSaving(true);
     try {
+      const { llm_provider, llm_model, ...rest } = form;
       await api(`/api/agent-deploy/${agentName}/deployment`, {
         method: 'PUT',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...rest,
+          config: { ...(deployment?.config || {}), llm_provider, llm_model },
+        }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -736,6 +948,52 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
                 <div style={{ fontSize: '10px', color: t.tm }}>{tier.limit}</div>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* LLM Model Selection */}
+        <div style={{
+          background: t.surface, border: `1px solid ${t.border}`, borderRadius: '10px', padding: '16px',
+        }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Cpu size={14} style={{ color: t.violet }} />
+            LLM Model
+          </div>
+          <p style={{ fontSize: '11px', color: t.tm, margin: '0 0 12px', lineHeight: 1.5 }}>
+            Model used for the MCP chat tool and specialized tools.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {LLM_MODELS.map(m => {
+              const isSelected = form.llm_model === m.id;
+              const pColor = PROVIDER_COLORS[m.provider] || t.violet;
+              return (
+                <button key={m.id} onClick={() => setForm(f => ({ ...f, llm_model: m.id, llm_provider: m.provider }))} style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', textAlign: 'left', width: '100%',
+                  background: isSelected ? `${pColor}12` : t.surfaceEl,
+                  border: `1px solid ${isSelected ? pColor + '50' : t.border}`,
+                  transition: 'all 0.15s',
+                }}>
+                  <div style={{
+                    width: '8px', height: '8px', borderRadius: '50%',
+                    background: isSelected ? pColor : 'transparent',
+                    border: `2px solid ${isSelected ? pColor : t.tm}`,
+                    flexShrink: 0,
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: isSelected ? t.tp : t.ts }}>{m.name}</div>
+                    <div style={{ fontSize: '10px', fontFamily: t.mono, color: t.tm }}>{m.id}</div>
+                  </div>
+                  <span style={{
+                    fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '2px 8px',
+                    borderRadius: '100px', letterSpacing: '0.04em',
+                    background: `${pColor}15`, color: pColor,
+                  }}>
+                    {m.provider}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -27,15 +27,26 @@ async function resolveByokProvider(deploymentId) {
 
   try {
     const deployment = await db.getDeployment(deploymentId);
-    if (deployment && deployment.deployed_by) {
-      const creatorKey = await db.getActiveUserLlmKey(deployment.deployed_by);
-      if (creatorKey && creatorKey.encrypted_key) {
-        provider = creatorKey.provider;
-        apiKey = decryptApiKey(creatorKey.encrypted_key);
-        model = creatorKey.model;
-        userLlmKeyId = creatorKey.id;
-        usingByok = true;
+    if (deployment) {
+      // Check deployment-level model override (set via MCP settings UI)
+      const config = deployment.config || {};
+      const deployModel = config.llm_model;
+      const deployProvider = config.llm_provider;
+
+      if (deployment.deployed_by) {
+        const creatorKey = await db.getActiveUserLlmKey(deployment.deployed_by);
+        if (creatorKey && creatorKey.encrypted_key) {
+          provider = creatorKey.provider;
+          apiKey = decryptApiKey(creatorKey.encrypted_key);
+          model = creatorKey.model;
+          userLlmKeyId = creatorKey.id;
+          usingByok = true;
+        }
       }
+
+      // Deployment-level model/provider overrides BYOK and server defaults
+      if (deployModel) model = deployModel;
+      if (deployProvider) provider = deployProvider;
     }
   } catch (err) {
     console.warn('[BYOK] Resolution failed, using server key:', err.message);
