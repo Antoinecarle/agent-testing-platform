@@ -337,22 +337,48 @@ async function handleMcpMessage(msg, session) {
   if (id === undefined || id === null) return null;
 
   switch (method) {
-    case 'initialize':
-      return {
-        jsonrpc: '2.0', id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: {
-            tools: { listChanged: false },
-            resources: { subscribe: false, listChanged: false },
-            prompts: { listChanged: false },
-          },
-          serverInfo: {
-            name: `guru-${session.agentName}`,
-            version: '1.0.0',
-          },
+    case 'initialize': {
+      // Load agent prompt to inject as MCP instructions — this makes the client (Claude Code)
+      // adopt the agent's personality instead of responding as default Claude
+      let instructions = '';
+      try {
+        const agent = await db.getAgent(session.agentName);
+        if (agent) {
+          instructions = agent.full_prompt || agent.prompt_preview || '';
+          // Append skills if any
+          try {
+            const skills = await db.getAgentSkills(session.agentName);
+            if (skills?.length > 0) {
+              instructions += '\n\n## Assigned Skills\n\n';
+              for (const skill of skills) {
+                instructions += `### ${skill.name}\n`;
+                if (skill.description) instructions += `${skill.description}\n\n`;
+                if (skill.prompt) instructions += `${skill.prompt}\n\n`;
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (err) {
+        console.warn(`[MCP] Failed to load agent prompt for instructions:`, err.message);
+      }
+
+      const initResult = {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
+          prompts: { listChanged: false },
+        },
+        serverInfo: {
+          name: `guru-${session.agentName}`,
+          version: '1.0.0',
         },
       };
+      if (instructions) {
+        initResult.instructions = instructions;
+      }
+      return { jsonrpc: '2.0', id, result: initResult };
+    }
 
     case 'tools/list': {
       // Load per-agent specialized tools from DB, fallback to default chat + get_agent_info
