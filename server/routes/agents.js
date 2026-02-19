@@ -897,6 +897,16 @@ router.post('/:name/duplicate', validate(duplicateAgentSchema), async (req, res)
     if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true });
     fs.writeFileSync(path.join(AGENTS_DIR, `${new_name}.md`), fullPrompt, 'utf-8');
 
+    // Copy skills from source agent
+    try {
+      const skills = await db.getAgentSkills(req.params.name);
+      if (skills.length > 0) {
+        await db.bulkAssignSkillsToAgent(new_name, skills.map(s => s.id));
+      }
+    } catch (skillErr) {
+      console.warn('[Agents] Failed to copy skills during duplicate:', skillErr.message);
+    }
+
     const created = await db.getAgent(new_name);
     res.status(201).json(created);
   } catch (err) {
