@@ -6,7 +6,7 @@ import {
   User, Shield, Building2, CreditCard, Settings as SettingsIcon,
   Check, AlertCircle, Mail, Lock, Eye, EyeOff, Plus, Trash2,
   Crown, Users, ChevronRight, Loader2, ExternalLink, Landmark,
-  DollarSign, TrendingUp, Zap, Link2, Unlink,
+  DollarSign, TrendingUp, Zap, Link2, Unlink, Key,
 } from 'lucide-react';
 
 const t = {
@@ -35,6 +35,7 @@ const TABS = [
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'billing', label: 'Billing', icon: CreditCard },
   { id: 'payouts', label: 'Payouts', icon: Landmark },
+  { id: 'api-keys', label: 'API Keys', icon: Key },
 ];
 
 const ROLE_COLORS = {
@@ -1184,6 +1185,10 @@ export default function Settings() {
               )}
             </motion.div>
           )}
+
+          {activeTab === 'api-keys' && (
+            <LlmApiKeysSection showToast={showToast} />
+          )}
         </div>
       </div>
 
@@ -1199,6 +1204,300 @@ export default function Settings() {
           .settings-form-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
+    </motion.div>
+  );
+}
+
+function LlmApiKeysSection({ showToast }) {
+  const [keys, setKeys] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState({});
+  const [deleting, setDeleting] = useState(null);
+
+  const providers = [
+    { id: 'openai', name: 'OpenAI', color: '#10a37f', desc: 'GPT-5 Mini, GPT-4o, o1, o3 and more' },
+    { id: 'anthropic', name: 'Anthropic', color: '#d97706', desc: 'Claude Sonnet 4, Opus 4, Haiku 3.5' },
+    { id: 'google', name: 'Google', color: '#4285F4', desc: 'Gemini 2.5 Flash, Gemini 2.5 Pro' },
+  ];
+
+  useEffect(() => { loadKeys(); }, []);
+
+  async function loadKeys() {
+    try {
+      const data = await api('/api/wallet/llm-keys');
+      setKeys(data || []);
+    } catch (err) {
+      console.error('Failed to load LLM keys:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function getEd(p) {
+    return editing[p] || { apiKey: '', showKey: false, models: [], selectedModel: '', step: 'input', loading: false };
+  }
+
+  function setEd(p, updates) {
+    setEditing(prev => ({ ...prev, [p]: { ...getEd(p), ...updates } }));
+  }
+
+  async function handleConnect(providerId) {
+    const ed = getEd(providerId);
+    if (!ed.apiKey.trim()) return;
+    setEd(providerId, { loading: true });
+    try {
+      const result = await api(`/api/wallet/llm-keys/${providerId}/models`, {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: ed.apiKey }),
+      });
+      const models = result.models || [];
+      if (models.length === 0) {
+        showToast('No models found — check your API key', 'error');
+        setEd(providerId, { loading: false });
+        return;
+      }
+      const defaultModel = models.find(m => m.default)?.id || models[0]?.id;
+      setEd(providerId, { models, selectedModel: defaultModel, step: 'select', loading: false });
+    } catch (err) {
+      showToast(err.message || 'Invalid API key', 'error');
+      setEd(providerId, { loading: false });
+    }
+  }
+
+  async function handleSave(providerId) {
+    const ed = getEd(providerId);
+    if (!ed.apiKey || !ed.selectedModel) return;
+    setEd(providerId, { loading: true });
+    try {
+      await api(`/api/wallet/llm-keys/${providerId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ apiKey: ed.apiKey, model: ed.selectedModel }),
+      });
+      showToast(`${providers.find(p => p.id === providerId)?.name} connected successfully`);
+      setEd(providerId, { apiKey: '', showKey: false, models: [], selectedModel: '', step: 'input', loading: false });
+      loadKeys();
+    } catch (err) {
+      showToast(err.message || 'Failed to save key', 'error');
+      setEd(providerId, { loading: false });
+    }
+  }
+
+  async function handleDelete(providerId) {
+    setDeleting(providerId);
+    try {
+      await api(`/api/wallet/llm-keys/${providerId}`, { method: 'DELETE' });
+      showToast('API key removed');
+      loadKeys();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete', 'error');
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  async function handleActivate(providerId) {
+    try {
+      await api(`/api/wallet/llm-keys/${providerId}/activate`, { method: 'POST' });
+      showToast(`${providers.find(p => p.id === providerId)?.name} set as active provider`);
+      loadKeys();
+    } catch (err) {
+      showToast(err.message || 'Failed to activate', 'error');
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px', color: t.ts }}>
+        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+        <span style={{ marginLeft: '8px', fontSize: '13px' }}>Loading API keys...</span>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <Section title="LLM Provider API Keys">
+        <p style={{ fontSize: '12px', color: t.ts, margin: '-8px 0 16px', lineHeight: 1.6 }}>
+          Connect your own API keys to power MCP deployments with your preferred models. Keys are encrypted at rest.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {providers.map(provider => {
+            const configured = keys.find(k => k.provider === provider.id);
+            const ed = getEd(provider.id);
+
+            return (
+              <div
+                key={provider.id}
+                style={{
+                  padding: '16px', background: t.bg, borderRadius: '10px',
+                  border: `1px solid ${configured ? `${provider.color}30` : t.border}`,
+                  transition: 'border-color 0.2s',
+                }}
+              >
+                {/* Header row */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  marginBottom: !configured ? '12px' : 0,
+                }}>
+                  <div style={{
+                    width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+                    background: `${provider.color}15`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Key size={16} style={{ color: provider.color }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: t.tp }}>{provider.name}</span>
+                      {configured && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: '600', padding: '2px 8px', borderRadius: '100px',
+                          background: 'rgba(34,197,94,0.12)', color: t.success,
+                        }}>
+                          Connected
+                        </span>
+                      )}
+                      {configured?.is_active && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: '600', padding: '2px 8px', borderRadius: '100px',
+                          background: `${t.violet}20`, color: t.violet,
+                        }}>
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    {configured ? (
+                      <div style={{ fontSize: '11px', fontFamily: t.mono, color: t.tm, marginTop: '2px' }}>
+                        {configured.model}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '11px', color: t.tm, marginTop: '2px' }}>{provider.desc}</div>
+                    )}
+                  </div>
+                  {configured && (
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      {!configured.is_active && (
+                        <button
+                          onClick={() => handleActivate(provider.id)}
+                          style={{
+                            padding: '5px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '500',
+                            background: `${t.violet}15`, border: `1px solid ${t.violet}40`,
+                            color: t.violet, cursor: 'pointer',
+                          }}
+                        >
+                          Set Active
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(provider.id)}
+                        disabled={deleting === provider.id}
+                        style={{
+                          padding: '5px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: '500',
+                          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                          color: t.danger, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
+                          opacity: deleting === provider.id ? 0.5 : 1,
+                        }}
+                      >
+                        <Trash2 size={11} />
+                        {deleting === provider.id ? 'Removing...' : 'Remove'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Connect flow — key input */}
+                {!configured && ed.step === 'input' && (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input
+                        type={ed.showKey ? 'text' : 'password'}
+                        value={ed.apiKey}
+                        onChange={e => setEd(provider.id, { apiKey: e.target.value })}
+                        placeholder={`Enter your ${provider.name} API key...`}
+                        style={{ ...inputStyle, paddingRight: '36px' }}
+                        onKeyDown={e => e.key === 'Enter' && handleConnect(provider.id)}
+                      />
+                      <button
+                        onClick={() => setEd(provider.id, { showKey: !ed.showKey })}
+                        style={{
+                          position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', color: t.tm, cursor: 'pointer', padding: '4px',
+                        }}
+                      >
+                        {ed.showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleConnect(provider.id)}
+                      disabled={!ed.apiKey.trim() || ed.loading}
+                      style={{
+                        padding: '10px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                        background: provider.color, color: '#fff', border: 'none',
+                        cursor: (!ed.apiKey.trim() || ed.loading) ? 'not-allowed' : 'pointer',
+                        opacity: (!ed.apiKey.trim() || ed.loading) ? 0.5 : 1,
+                        display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {ed.loading && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                      {ed.loading ? 'Validating...' : 'Connect'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Connect flow — model selection */}
+                {!configured && ed.step === 'select' && (
+                  <div>
+                    <div style={{
+                      padding: '8px 12px', background: 'rgba(34,197,94,0.08)', borderRadius: '6px',
+                      border: '1px solid rgba(34,197,94,0.2)', marginBottom: '12px',
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                      <Check size={12} style={{ color: t.success }} />
+                      <span style={{ fontSize: '11px', color: t.success, fontWeight: '500' }}>
+                        Key validated — {ed.models.length} model{ed.models.length !== 1 ? 's' : ''} available
+                      </span>
+                    </div>
+                    <label style={labelStyle}>Select default model</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select
+                        value={ed.selectedModel}
+                        onChange={e => setEd(provider.id, { selectedModel: e.target.value })}
+                        style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                      >
+                        {ed.models.map(m => (
+                          <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => handleSave(provider.id)}
+                        disabled={ed.loading}
+                        style={{
+                          padding: '10px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+                          background: t.violet, color: '#fff', border: 'none',
+                          cursor: ed.loading ? 'not-allowed' : 'pointer',
+                          opacity: ed.loading ? 0.5 : 1, whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {ed.loading ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setEd(provider.id, { step: 'input', models: [], selectedModel: '' })}
+                        style={{
+                          padding: '10px 12px', borderRadius: '6px', fontSize: '12px',
+                          background: 'transparent', color: t.ts, border: `1px solid ${t.border}`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Section>
     </motion.div>
   );
 }
