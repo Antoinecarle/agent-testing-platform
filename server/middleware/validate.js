@@ -50,6 +50,9 @@ const createProjectSchema = z.object({
     workers: z.array(z.object({
       agent_name: z.string().max(200),
     })).max(20).optional(),
+    reviewers: z.array(z.object({
+      agent_name: z.string().max(200),
+    })).max(10).optional(),
   }).optional(),
 });
 

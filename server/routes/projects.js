@@ -105,6 +105,11 @@ router.post('/', resolveOrg, checkPlanLimit('projects'), validate(createProjectS
           await db.addTeamMember(crypto.randomUUID(), teamId, team_config.workers[i].agent_name, 'member', i + 1);
         }
       }
+      if (team_config.reviewers && Array.isArray(team_config.reviewers)) {
+        for (let i = 0; i < team_config.reviewers.length; i++) {
+          await db.addTeamMember(crypto.randomUUID(), teamId, team_config.reviewers[i].agent_name, 'reviewer', 100 + i);
+        }
+      }
     }
 
     const orchestratorAgent = (mode === 'orchestra' && team_config?.orchestrator)

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2, Plus, GitFork, UserX, MessageSquare } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2, Plus, GitFork, UserX, MessageSquare, Eye } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
@@ -332,6 +332,8 @@ export default function ProjectView() {
   // Agent working indicator
   const [agentWorking, setAgentWorking] = useState(false);
   const agentWorkingTimer = useRef(null);
+  // Dev server state for Node.js projects
+  const [devServer, setDevServer] = useState({ status: 'stopped', port: null, isNodeProject: false });
   // GitHub sync
   const [showGitHub, setShowGitHub] = useState(false);
   const [ghStatus, setGhStatus] = useState(null); // { connected, username }
@@ -366,6 +368,30 @@ export default function ProjectView() {
     api('/api/claude-status').then(s => setClaudeStatus(s)).catch(() => setClaudeStatus({ installed: false, version: null }));
     api('/api/claude-auth/status').then(s => setUserClaudeConnected(s.connected)).catch(() => setUserClaudeConnected(false));
   }, []);
+
+  // Check dev server status for Node.js projects + auto-start
+  useEffect(() => {
+    if (!projectId) return;
+    api(`/api/dev-server/${projectId}/status`).then(s => {
+      setDevServer(s);
+      // Auto-start if it's a node project and not running
+      if (s.isNodeProject && s.status === 'stopped') {
+        api(`/api/dev-server/${projectId}/start`, { method: 'POST' }).then(r => {
+          setDevServer(prev => ({ ...prev, ...r, isNodeProject: true }));
+          // Poll for status updates
+          const poll = setInterval(() => {
+            api(`/api/dev-server/${projectId}/status`).then(updated => {
+              setDevServer(updated);
+              if (updated.status === 'running' || updated.status === 'error' || updated.status === 'stopped') {
+                clearInterval(poll);
+              }
+            }).catch(() => clearInterval(poll));
+          }, 3000);
+          setTimeout(() => clearInterval(poll), 60000); // max 60s polling
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [projectId]);
 
   // Load project data + saved terminal tabs
   useEffect(() => {
@@ -1146,7 +1172,46 @@ export default function ProjectView() {
         {/* Preview iframe (hidden on mobile worktree mode) */}
         {!(isMobile && mobilePanel === 'worktree') && (
           <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
-            {selected ? (
+            {devServer.isNodeProject ? (
+              // Node.js project: show dev server output or status
+              devServer.status === 'running' ? (
+                <iframe key={`dev-${previewKey}`} src={`/api/preview/dev/${projectId}/?v=${previewKey}`}
+                  style={{ width: '100%', height: '100%', border: 'none' }} title="Dev Server Preview" />
+              ) : (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg, gap: '12px' }}>
+                  <div style={{ fontSize: '24px', opacity: 0.5 }}>&#9881;</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: t.tp }}>
+                    {devServer.status === 'installing' ? 'Installing dependencies...' :
+                     devServer.status === 'starting' ? 'Starting dev server...' :
+                     devServer.status === 'error' ? 'Dev server error' :
+                     'Node.js Project'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: t.tm, maxWidth: '300px', textAlign: 'center' }}>
+                    {devServer.status === 'stopped' ? 'Click Start to launch the dev server' : 'Please wait...'}
+                  </div>
+                  {devServer.status === 'stopped' && (
+                    <button onClick={() => {
+                      api(`/api/dev-server/${projectId}/start`, { method: 'POST' }).then(r => {
+                        setDevServer(prev => ({ ...prev, ...r, isNodeProject: true }));
+                        const poll = setInterval(() => {
+                          api(`/api/dev-server/${projectId}/status`).then(updated => {
+                            setDevServer(updated);
+                            if (updated.status === 'running' || updated.status === 'error') clearInterval(poll);
+                          }).catch(() => clearInterval(poll));
+                        }, 3000);
+                        setTimeout(() => clearInterval(poll), 60000);
+                      }).catch(err => console.error('Dev server start error:', err));
+                    }} style={{
+                      padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                      background: '#8B5CF6', color: '#fff', fontSize: '12px', fontWeight: '600',
+                    }}>Start Dev Server</button>
+                  )}
+                  {(devServer.status === 'installing' || devServer.status === 'starting') && (
+                    <div style={{ width: '20px', height: '20px', border: '2px solid rgba(139,92,246,0.2)', borderTopColor: '#8B5CF6', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  )}
+                </div>
+              )
+            ) : selected ? (
               <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
                 style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
             ) : (
@@ -1519,7 +1584,7 @@ function NewProjectForm({ onCreated }) {
   const [saving, setSaving] = useState(false);
   const [projectType, setProjectType] = useState('html'); // 'html' | 'fullstack'
   // Orchestra state
-  const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [] });
+  const [orchestraTeam, setOrchestraTeam] = useState({ orchestrator: null, workers: [], reviewers: [] });
   const [orchestraReady, setOrchestraReady] = useState(false);
   // GitHub import state
   const [ghStatus, setGhStatus] = useState(null);
@@ -1609,6 +1674,7 @@ function NewProjectForm({ onCreated }) {
           description: `Orchestra team for ${name}`,
           orchestrator: orchestraTeam.orchestrator,
           workers: orchestraTeam.workers.map(w => ({ agent_name: w.agent_name })),
+          reviewers: (orchestraTeam.reviewers || []).filter(r => r.agent_name).map(r => ({ agent_name: r.agent_name })),
         };
       } else if (mode === 'none') {
         body.agent_name = '';
@@ -2003,7 +2069,7 @@ function NewProjectForm({ onCreated }) {
         agents={agents}
         team={orchestraTeam}
         onUpdate={setOrchestraTeam}
-        onBack={() => { setMode(null); setOrchestraTeam({ orchestrator: null, workers: [] }); }}
+        onBack={() => { setMode(null); setOrchestraTeam({ orchestrator: null, workers: [], reviewers: [] }); }}
         onNext={() => setOrchestraReady(true)}
       />
     );
@@ -2046,6 +2112,11 @@ function NewProjectForm({ onCreated }) {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600, background: '#F59E0B18', color: '#F59E0B', border: '1px solid #F59E0B30' }}>
               <Shield size={10} /> {orchestraTeam.orchestrator}
             </span>
+            {(orchestraTeam.reviewers || []).filter(r => r.agent_name).map(r => (
+              <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 600, background: '#10B98118', color: '#10B981', border: '1px solid #10B98130' }}>
+                <Eye size={10} /> {r.agent_name}
+              </span>
+            ))}
             {orchestraTeam.workers.map(w => (
               <span key={w.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '100px', fontSize: '11px', fontWeight: 500, background: t.violet + '15', color: t.violet, border: `1px solid ${t.violet}30` }}>
                 <User size={10} /> {w.agent_name}

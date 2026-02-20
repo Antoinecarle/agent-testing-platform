@@ -11,13 +11,13 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Shield, User, Plus, X, Search, RefreshCw } from 'lucide-react';
+import { Shield, User, Plus, X, Search, RefreshCw, Eye } from 'lucide-react';
 import { api } from '../api';
 
 const t = {
   bg: '#0a0a0a', surface: '#1a1a1b', surfaceEl: '#242426',
   border: 'rgba(255,255,255,0.08)', borderS: 'rgba(255,255,255,0.15)',
-  violet: '#8B5CF6', amber: '#F59E0B',
+  violet: '#8B5CF6', amber: '#F59E0B', emerald: '#10B981',
   tp: '#F4F4F5', ts: '#A1A1AA', tm: '#52525B',
   success: '#22c55e', danger: '#ef4444',
 };
@@ -51,6 +51,49 @@ function OrchestratorNode({ data }) {
         <div style={{ fontSize: '11px', color: t.ts, marginTop: '4px' }}>{data.category}</div>
       )}
       <Handle type="source" position={Position.Bottom} style={{ background: t.amber, width: 10, height: 10, border: `2px solid ${t.surface}` }} />
+    </div>
+  );
+}
+
+// ── Custom Node: Reviewer ──────────────────────────────────────
+function ReviewerNode({ data }) {
+  return (
+    <div style={{
+      background: t.surface,
+      border: `1.5px solid ${t.emerald}60`,
+      borderRadius: '14px',
+      padding: '16px 24px',
+      minWidth: '180px',
+      textAlign: 'center',
+      position: 'relative',
+      boxShadow: `0 4px 20px rgba(0,0,0,0.3)`,
+    }}>
+      <Handle type="target" position={Position.Top} style={{ background: t.emerald, width: 8, height: 8, border: `2px solid ${t.surface}` }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: t.emerald, width: 8, height: 8, border: `2px solid ${t.surface}` }} />
+      {data.onRemove && (
+        <button
+          onClick={(e) => { e.stopPropagation(); data.onRemove(); }}
+          style={{
+            position: 'absolute', top: -10, right: -10,
+            width: 22, height: 22, borderRadius: '50%',
+            background: t.danger, border: `2px solid ${t.bg}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', padding: 0, zIndex: 10,
+          }}
+        >
+          <X size={10} color="#fff" />
+        </button>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '8px' }}>
+        <Eye size={13} color={t.emerald} />
+        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: t.emerald }}>
+          Reviewer
+        </span>
+      </div>
+      <div style={{ fontSize: '14px', fontWeight: 600, color: t.tp }}>{data.agentName}</div>
+      {data.category && (
+        <div style={{ fontSize: '10px', color: t.ts, marginTop: '4px' }}>{data.category}</div>
+      )}
     </div>
   );
 }
@@ -97,10 +140,10 @@ function WorkerNode({ data }) {
   );
 }
 
-const nodeTypes = { orchestrator: OrchestratorNode, worker: WorkerNode };
+const nodeTypes = { orchestrator: OrchestratorNode, reviewer: ReviewerNode, worker: WorkerNode };
 
 // ── Agent Picker Panel ─────────────────────────────────────────
-function AgentPicker({ agents, search, setSearch, onSelect, onClose, usedAgents }) {
+function AgentPicker({ agents, pickerRole, search, setSearch, onSelect, onClose, usedAgents }) {
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -110,6 +153,11 @@ function AgentPicker({ agents, search, setSearch, onSelect, onClose, usedAgents 
      (a.category || '').toLowerCase().includes(search.toLowerCase()) ||
      (a.description || '').toLowerCase().includes(search.toLowerCase()))
   );
+
+  const isReviewer = pickerRole === 'reviewer';
+  const accentColor = isReviewer ? t.emerald : t.violet;
+  const IconComp = isReviewer ? Eye : User;
+  const label = isReviewer ? 'Ajouter un reviewer' : 'Ajouter un agent';
 
   return (
     <div style={{
@@ -127,13 +175,13 @@ function AgentPicker({ agents, search, setSearch, onSelect, onClose, usedAgents 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
             width: 24, height: 24, borderRadius: '6px',
-            background: t.violet + '20',
+            background: accentColor + '20',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <User size={12} color={t.violet} />
+            <IconComp size={12} color={accentColor} />
           </div>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: t.violet }}>
-            Ajouter un agent
+          <span style={{ fontSize: '12px', fontWeight: 700, color: accentColor }}>
+            {label}
           </span>
         </div>
         <button onClick={onClose} style={{
@@ -182,12 +230,12 @@ function AgentPicker({ agents, search, setSearch, onSelect, onClose, usedAgents 
             >
               <div style={{
                 width: 34, height: 34, borderRadius: '9px',
-                background: t.violet + '15',
-                border: `1px solid ${t.violet}25`,
+                background: accentColor + '15',
+                border: `1px solid ${accentColor}25`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <User size={14} color={t.violet} />
+                <IconComp size={14} color={accentColor} />
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: t.tp, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -209,19 +257,21 @@ function AgentPicker({ agents, search, setSearch, onSelect, onClose, usedAgents 
 function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
   const [search, setSearch] = useState('');
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerRole, setPickerRole] = useState('member'); // 'member' | 'reviewer'
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [saving, setSaving] = useState(false);
   const reactFlow = useReactFlow();
 
   const orchestrator = teamMembers.find(m => m.role === 'leader');
-  const workers = teamMembers.filter(m => m.role !== 'leader');
+  const reviewers = teamMembers.filter(m => m.role === 'reviewer');
+  const workers = teamMembers.filter(m => m.role === 'member');
 
   const refreshWorkspace = useCallback(() => {
     api(`/api/projects/${project.id}/refresh-workspace`, { method: 'POST' }).catch(() => {});
   }, [project.id]);
 
-  const removeWorker = useCallback(async (agentName) => {
+  const removeMember = useCallback(async (agentName) => {
     if (!project.team_id) return;
     setSaving(true);
     try {
@@ -235,13 +285,13 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
     }
   }, [project.team_id, onRefresh, refreshWorkspace]);
 
-  const addWorker = useCallback(async (agentName) => {
+  const addMember = useCallback(async (agentName) => {
     if (!project.team_id) return;
     setSaving(true);
     try {
       await api(`/api/agent-teams/${project.team_id}/members`, {
         method: 'POST',
-        body: JSON.stringify({ agent_name: agentName, role: 'member' }),
+        body: JSON.stringify({ agent_name: agentName, role: pickerRole }),
       });
       setShowPicker(false);
       setSearch('');
@@ -252,7 +302,7 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
     } finally {
       setSaving(false);
     }
-  }, [project.team_id, onRefresh, refreshWorkspace]);
+  }, [project.team_id, pickerRole, onRefresh, refreshWorkspace]);
 
   // Build nodes/edges from team members
   useMemo(() => {
@@ -273,6 +323,40 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
       });
     }
 
+    // Reviewers layer
+    const reviewerSpacing = 240;
+    const reviewerTotalWidth = (reviewers.length - 1) * reviewerSpacing;
+    const reviewerStartX = 400 - reviewerTotalWidth / 2;
+
+    reviewers.forEach((r, i) => {
+      const rAgent = agents.find(a => a.name === r.agent_name);
+      const nodeId = `reviewer-${r.agent_name}`;
+      n.push({
+        id: nodeId,
+        type: 'reviewer',
+        position: { x: reviewerStartX + i * reviewerSpacing, y: 200 },
+        data: {
+          agentName: r.agent_name,
+          category: rAgent?.category || r.category || '',
+          onRemove: () => removeMember(r.agent_name),
+        },
+        draggable: true,
+      });
+
+      if (orchestrator) {
+        e.push({
+          id: `e-orch-${nodeId}`,
+          source: 'orchestrator',
+          target: nodeId,
+          animated: true,
+          style: { stroke: t.emerald + '80', strokeWidth: 2 },
+          type: 'smoothstep',
+        });
+      }
+    });
+
+    // Workers layer
+    const workerY = reviewers.length > 0 ? 340 : 280;
     const spacing = 240;
     const totalWidth = (workers.length - 1) * spacing;
     const startX = 400 - totalWidth / 2;
@@ -283,16 +367,29 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
       n.push({
         id: nodeId,
         type: 'worker',
-        position: { x: startX + i * spacing, y: 280 },
+        position: { x: startX + i * spacing, y: workerY },
         data: {
           agentName: w.agent_name,
           category: wAgent?.category || w.category || '',
-          onRemove: () => removeWorker(w.agent_name),
+          onRemove: () => removeMember(w.agent_name),
         },
         draggable: true,
       });
 
-      if (orchestrator) {
+      if (reviewers.length > 0) {
+        // Connect reviewers → workers
+        reviewers.forEach(r => {
+          e.push({
+            id: `e-reviewer-${r.agent_name}-${nodeId}`,
+            source: `reviewer-${r.agent_name}`,
+            target: nodeId,
+            animated: true,
+            style: { stroke: t.violet + '60', strokeWidth: 1.5 },
+            type: 'smoothstep',
+          });
+        });
+      } else if (orchestrator) {
+        // Direct: orchestrator → workers
         e.push({
           id: `e-orch-${nodeId}`,
           source: 'orchestrator',
@@ -306,7 +403,7 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
 
     setNodes(n);
     setEdges(e);
-  }, [teamMembers, agents, removeWorker]);
+  }, [teamMembers, agents, removeMember]);
 
   // Fit view when members change
   useEffect(() => {
@@ -335,6 +432,16 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
             <Shield size={8} />
             {orchestrator?.agent_name || '?'}
           </span>
+          {reviewers.length > 0 && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+              padding: '2px 7px', borderRadius: '99px', fontSize: '9px', fontWeight: 700,
+              background: t.emerald + '18', color: t.emerald, border: `1px solid ${t.emerald}30`,
+            }}>
+              <Eye size={8} />
+              {reviewers.length} reviewer{reviewers.length !== 1 ? 's' : ''}
+            </span>
+          )}
           <span style={{ fontSize: '10px', color: t.tm }}>
             + {workers.length} agent{workers.length !== 1 ? 's' : ''}
           </span>
@@ -374,35 +481,59 @@ function OrchestraViewInner({ project, teamMembers, agents, onRefresh }) {
           />
         </ReactFlow>
 
-        {/* Floating add button */}
-        <button
-          onClick={() => setShowPicker(true)}
-          disabled={saving}
-          style={{
-            position: 'absolute', bottom: '16px', left: '50%', transform: 'translateX(-50%)',
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '10px 20px', borderRadius: '10px',
-            background: t.violet, border: 'none',
-            color: '#fff', fontSize: '12px', fontWeight: 600,
-            cursor: saving ? 'wait' : 'pointer', zIndex: 10,
-            boxShadow: `0 4px 20px ${t.violet}40, 0 8px 32px rgba(0,0,0,0.4)`,
-            opacity: saving ? 0.6 : 1,
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={e => { if (!saving) { e.currentTarget.style.transform = 'translateX(-50%) translateY(-2px)'; } }}
-          onMouseLeave={e => { e.currentTarget.style.transform = 'translateX(-50%)'; }}
-        >
-          <Plus size={14} />
-          Ajouter un agent
-        </button>
+        {/* Floating add buttons */}
+        <div style={{
+          position: 'absolute', bottom: '16px', left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', gap: '8px', zIndex: 10,
+        }}>
+          <button
+            onClick={() => { setPickerRole('reviewer'); setShowPicker(true); }}
+            disabled={saving}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '10px 20px', borderRadius: '10px',
+              background: t.emerald, border: 'none',
+              color: '#fff', fontSize: '12px', fontWeight: 600,
+              cursor: saving ? 'wait' : 'pointer',
+              boxShadow: `0 4px 20px ${t.emerald}40, 0 8px 32px rgba(0,0,0,0.4)`,
+              opacity: saving ? 0.6 : 1,
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => { if (!saving) { e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <Eye size={14} />
+            Reviewer
+          </button>
+          <button
+            onClick={() => { setPickerRole('member'); setShowPicker(true); }}
+            disabled={saving}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '10px 20px', borderRadius: '10px',
+              background: t.violet, border: 'none',
+              color: '#fff', fontSize: '12px', fontWeight: 600,
+              cursor: saving ? 'wait' : 'pointer',
+              boxShadow: `0 4px 20px ${t.violet}40, 0 8px 32px rgba(0,0,0,0.4)`,
+              opacity: saving ? 0.6 : 1,
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => { if (!saving) { e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <Plus size={14} />
+            Agent
+          </button>
+        </div>
 
         {/* Agent picker overlay */}
         {showPicker && (
           <AgentPicker
             agents={agents}
+            pickerRole={pickerRole}
             search={search}
             setSearch={setSearch}
-            onSelect={addWorker}
+            onSelect={addMember}
             onClose={() => { setShowPicker(false); setSearch(''); }}
             usedAgents={usedAgents}
           />

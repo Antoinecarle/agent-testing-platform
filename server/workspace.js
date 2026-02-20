@@ -547,8 +547,9 @@ No specific agent is assigned to this project. You can use any design style. Con
 
 ${isOrchestra && teamMembers.length > 0 ? (() => {
     const leader = teamMembers.find(m => m.role === 'leader');
-    const workers = teamMembers.filter(m => m.role !== 'leader');
-    return `## Orchestra Mode — Team Structure
+    const reviewers = teamMembers.filter(m => m.role === 'reviewer');
+    const workers = teamMembers.filter(m => m.role === 'member');
+    let section = `## Orchestra Mode — Team Structure
 
 This project runs in **Orchestra mode**. You are the **orchestrator** (${leader?.agent_name || agentName}).
 
@@ -557,6 +558,7 @@ This project runs in **Orchestra mode**. You are the **orchestrator** (${leader?
 | Role | Agent | Specialty |
 |------|-------|-----------|
 | **Orchestrator (You)** | ${leader?.agent_name || agentName} | ${leader?.agent_description || agentDesc || 'Primary coordinator'} |
+${reviewers.map(w => `| **Reviewer** | ${w.agent_name} | ${w.agent_description || 'Quality reviewer'} |`).join('\n')}
 ${workers.map(w => `| Worker | ${w.agent_name} | ${w.agent_description || 'Team member'} |`).join('\n')}
 
 ### How to Delegate to Team Members
@@ -564,16 +566,42 @@ ${workers.map(w => `| Worker | ${w.agent_name} | ${w.agent_description || 'Team 
 All team member agents are available in \`.claude/agents/\`. You can delegate work by using the Task tool to spawn a sub-agent:
 
 Available agents you can delegate to:
+${reviewers.map(w => `- **${w.agent_name}** (Reviewer) — ${w.agent_description || 'Review and validate worker output'}`).join('\n')}
 ${workers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Available for tasks'}`).join('\n')}
+`;
 
+    if (reviewers.length > 0) {
+      section += `
+### Review Pipeline
+
+This team includes **reviewer agents**. The workflow is:
+
+1. **Orchestrator** delegates tasks to workers
+2. **Workers** execute their tasks
+3. **Reviewers** receive worker output, review quality, and provide feedback
+4. **Reviewers** report their review to the orchestrator
+5. **Orchestrator** makes final decisions based on reviews
+
+**Reviewer agents you can delegate reviews to:**
+${reviewers.map(w => `- **${w.agent_name}** — Review and validate worker output before finalizing`).join('\n')}
+
+**When using reviewers:**
+- After a worker completes a task, send the output to the reviewer agent
+- The reviewer will evaluate quality, suggest improvements, and approve/reject
+- Only finalize work that has been reviewed and approved
+`;
+    }
+
+    section += `
 ### Orchestration Guidelines
 
 1. **You coordinate** — break down the user's request into sub-tasks
 2. **Delegate specialized work** to the appropriate team member agents
-3. **Synthesize results** — combine outputs into the final deliverable
-4. **Each agent writes to its own version subdirectory** when doing parallel work
-5. **Quality control** — review sub-agent outputs before finalizing
+${reviewers.length > 0 ? '3. **Send worker output to reviewers** before finalizing\n4. **Synthesize results** — combine reviewed outputs into the final deliverable' : '3. **Synthesize results** — combine outputs into the final deliverable'}
+${reviewers.length > 0 ? '5' : '4'}. **Each agent writes to its own version subdirectory** when doing parallel work
+${reviewers.length > 0 ? '6' : '5'}. **Quality control** — review sub-agent outputs before finalizing
 `;
+    return section;
   })() : ''}
 
 ${agentName ? await getSkillContext(agentName) : ''}
@@ -624,12 +652,34 @@ To read a previous iteration for reference:
 
   // Orchestra mode: write ALL team member agent .md files
   if (isOrchestra && teamMembers.length > 0) {
+    const workerNames = teamMembers.filter(m => m.role === 'member').map(m => m.agent_name);
     for (const member of teamMembers) {
       if (member.agent_name === agentName) continue; // already written above
       const memberPrompt = await getAgentPrompt(member.agent_name);
       if (memberPrompt) {
+        let finalPrompt = boostMaxTurns(memberPrompt);
+
+        // Prefix reviewer agents with role instructions
+        if (member.role === 'reviewer') {
+          const reviewerPrefix = `## Reviewer Role Instructions
+
+You are a **reviewer** in this orchestra team. Your job is:
+1. **Receive work** from other team members (workers)
+2. **Review quality** — check for issues, improvements, consistency
+3. **Communicate with the worker** — provide feedback directly before escalating
+4. **Report to the orchestrator** — summarize your review and recommendation
+
+You should interact with these workers:
+${workerNames.map(n => `- **${n}**`).join('\n')}
+
+---
+
+`;
+          finalPrompt = reviewerPrefix + finalPrompt;
+        }
+
         const memberFilePath = path.join(wsAgentsDir, `${member.agent_name}.md`);
-        fs.writeFileSync(memberFilePath, boostMaxTurns(memberPrompt), 'utf8');
+        fs.writeFileSync(memberFilePath, finalPrompt, 'utf8');
         try { fs.chownSync(memberFilePath, 1001, 1001); } catch (_) {}
       }
     }

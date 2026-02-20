@@ -142,8 +142,8 @@ router.put('/:id/members/:agentName', async (req, res) => {
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
     const { role } = req.body;
-    if (!role || !['leader', 'member'].includes(role)) {
-      return res.status(400).json({ error: 'role must be "leader" or "member"' });
+    if (!role || !['leader', 'member', 'reviewer'].includes(role)) {
+      return res.status(400).json({ error: 'role must be "leader", "member", or "reviewer"' });
     }
 
     await db.updateTeamMemberRole(req.params.id, req.params.agentName, role);
