@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const { getUserHomePath } = require('../user-home');
-const { listSessionFiles, parseSessionFile, getLatestSession, computeProjectHash } = require('../lib/session-parser');
+const { listSessionFiles, parseSessionFile, getLatestSession, computeProjectHash, groupEventsIntoTurns } = require('../lib/session-parser');
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'));
 
@@ -74,6 +74,51 @@ router.get('/:projectId/activity', async (req, res) => {
   } catch (err) {
     console.error('[SessionLogs] Activity error:', err.message);
     res.status(500).json({ error: 'Failed to parse session' });
+  }
+});
+
+/**
+ * GET /api/session-logs/:projectId/turns
+ * Get session events pre-grouped into conversation turns
+ * Query params: ?sessionId=xxx&limit=500
+ */
+router.get('/:projectId/turns', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { sessionId, limit = 500 } = req.query;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const userHome = getUserHomePath(userId);
+    const workspacePath = path.resolve(DATA_DIR, 'workspaces', projectId);
+
+    let sessionFile;
+    if (sessionId) {
+      const projectHash = computeProjectHash(workspacePath);
+      const filePath = path.join(userHome, '.claude', 'projects', projectHash, `${sessionId}.jsonl`);
+      sessionFile = { filePath, sessionId };
+    } else {
+      sessionFile = getLatestSession(userHome, workspacePath);
+    }
+
+    if (!sessionFile) {
+      return res.json({ turns: [], sessionId: null, message: 'No session logs found' });
+    }
+
+    const result = await parseSessionFile(sessionFile.filePath, {
+      limit: Math.min(parseInt(limit) || 500, 1000),
+    });
+
+    const turns = groupEventsIntoTurns(result.events || []);
+
+    res.json({
+      turns,
+      sessionId: sessionFile.sessionId,
+      total: result.total,
+    });
+  } catch (err) {
+    console.error('[SessionLogs] Turns error:', err.message);
+    res.status(500).json({ error: 'Failed to parse session turns' });
   }
 });
 

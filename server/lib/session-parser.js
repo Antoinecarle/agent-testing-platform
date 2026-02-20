@@ -382,6 +382,94 @@ function watchSessionFile(filePath, onNewEvents) {
   };
 }
 
+/**
+ * Group flat activity events into conversation turns.
+ * A turn = { userMessage, toolCalls: [{call, result, mcpProgress}], assistantText, tokens }
+ *
+ * Logic: Each user_message starts a new turn. Subsequent tool_call, tool_result,
+ * mcp_progress, and text events are grouped into the current turn until the next
+ * user_message arrives.
+ */
+function groupEventsIntoTurns(events) {
+  const turns = [];
+  let current = null;
+
+  const finishTurn = () => {
+    if (current) {
+      turns.push(current);
+      current = null;
+    }
+  };
+
+  for (const evt of events) {
+    if (evt.type === 'user_message') {
+      finishTurn();
+      current = {
+        id: evt.id,
+        timestamp: evt.timestamp,
+        userMessage: evt.content,
+        toolCalls: [],
+        assistantText: '',
+        tokens: null,
+      };
+    } else if (evt.type === 'tool_call') {
+      if (!current) {
+        current = { id: evt.id, timestamp: evt.timestamp, userMessage: null, toolCalls: [], assistantText: '', tokens: null };
+      }
+      current.toolCalls.push({
+        id: evt.id,
+        toolName: evt.toolName,
+        toolInput: evt.toolInput,
+        rawInput: evt.rawInput,
+        category: evt.category,
+        result: null,
+        mcpProgress: null,
+        tokens: evt.tokens,
+      });
+      if (evt.tokens) {
+        if (!current.tokens) current.tokens = { input: 0, output: 0 };
+        current.tokens.input += evt.tokens.input || 0;
+        current.tokens.output += evt.tokens.output || 0;
+      }
+    } else if (evt.type === 'tool_result') {
+      if (current && current.toolCalls.length > 0) {
+        // Attach result to the most recent unresolved tool call, or fallback to last
+        const target = current.toolCalls.find(tc => tc.id === evt.toolUseId) || current.toolCalls[current.toolCalls.length - 1];
+        if (target) {
+          target.result = evt.content;
+          target.isError = evt.isError;
+        }
+      }
+    } else if (evt.type === 'mcp_progress') {
+      if (current && current.toolCalls.length > 0) {
+        const target = current.toolCalls.find(tc => tc.id === evt.toolUseId) || current.toolCalls[current.toolCalls.length - 1];
+        if (target) {
+          target.mcpProgress = {
+            status: evt.status,
+            serverName: evt.serverName,
+            toolName: evt.toolName,
+            elapsedMs: evt.elapsedMs,
+          };
+        }
+      }
+    } else if (evt.type === 'text') {
+      if (!current) {
+        current = { id: evt.id, timestamp: evt.timestamp, userMessage: null, toolCalls: [], assistantText: '', tokens: null };
+      }
+      current.assistantText += (current.assistantText ? '\n' : '') + (evt.content || '');
+      if (evt.tokens) {
+        if (!current.tokens) current.tokens = { input: 0, output: 0 };
+        current.tokens.input += evt.tokens.input || 0;
+        current.tokens.output += evt.tokens.output || 0;
+      }
+    }
+    // system, hook, etc. are ignored for turn grouping
+  }
+
+  finishTurn();
+  return turns;
+}
+
 module.exports = {
   computeProjectHash,
   listSessionFiles,
@@ -389,4 +477,5 @@ module.exports = {
   getLatestSession,
   watchSessionFile,
   parseLogLine,
+  groupEventsIntoTurns,
 };

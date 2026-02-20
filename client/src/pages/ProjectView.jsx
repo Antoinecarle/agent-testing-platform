@@ -8,8 +8,8 @@ import OrchestraBuilder from '../components/OrchestraBuilder';
 import OrchestraView from '../components/OrchestraView';
 import FileExplorer from '../components/FileExplorer';
 import FileViewer from '../components/FileViewer';
-import ActivityPanel from '../components/ActivityPanel';
-import ChatPanel from '../components/ChatPanel';
+import UnifiedChatPanel from '../components/UnifiedChatPanel';
+import WorktreeDrawer from '../components/WorktreeDrawer';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -303,21 +303,20 @@ export default function ProjectView() {
   const [project, setProject] = useState(null);
   const [treeData, setTreeData] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [leftW, setLeftW] = useState(250);
-  const [rightW, setRightW] = useState(600);
+  const [leftW, setLeftW] = useState(480);
   const [resizing, setResizing] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const [prompt, setPrompt] = useState('');
   const [termTabs, setTermTabs] = useState([]);
   const [activeTab, setActiveTab] = useState(null);
   const [tabsLoaded, setTabsLoaded] = useState(false);
   const [branchParent, setBranchParent] = useState(undefined);
   const [claudeStatus, setClaudeStatus] = useState(null);
   const [userClaudeConnected, setUserClaudeConnected] = useState(null);
-  const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
+  const [mobilePanel, setMobilePanel] = useState('chat'); // 'chat' | 'preview' | 'terminal' | 'files'
   const [agentSkills, setAgentSkills] = useState([]);
-  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files' | 'orchestra' | 'activity' | 'chat'
+  const [leftMode, setLeftMode] = useState('chat'); // 'chat' | 'terminal' | 'files' | 'activity' | 'orchestra'
   const [viewingFile, setViewingFile] = useState(null); // file path for FileViewer
+  const [worktreeOpen, setWorktreeOpen] = useState(false);
   const [allAgents, setAllAgents] = useState([]);
   // Inline editing state
   const [editingName, setEditingName] = useState(false);
@@ -344,8 +343,6 @@ export default function ProjectView() {
 
   const terminalRef = useRef(null);
   const setupTerminalRef = useRef(null);
-  const promptRef = useRef(null);
-  const carouselRef = useRef(null);
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 900);
@@ -456,8 +453,7 @@ export default function ProjectView() {
   }, [projectId]);
 
   const handleMouseMove = useCallback(e => {
-    if (resizing === 'left') setLeftW(Math.max(150, Math.min(500, e.clientX)));
-    if (resizing === 'right') setRightW(Math.max(200, Math.min(700, window.innerWidth - e.clientX)));
+    if (resizing === 'left') setLeftW(Math.max(350, Math.min(700, e.clientX)));
   }, [resizing]);
 
   const handleMouseUp = useCallback(() => setResizing(null), []);
@@ -505,7 +501,6 @@ export default function ProjectView() {
   const handleNewRoot = useCallback(() => {
     setBranchParent(null);
     setBranchContext(null);
-    setTimeout(() => promptRef.current?.focus(), 100);
   }, [setBranchContext]);
 
   // Handle clicking "+" on a node (sub-branch)
@@ -513,7 +508,6 @@ export default function ProjectView() {
     setBranchParent(node);
     setBranchContext(node.id);
     setSelected(node);
-    setTimeout(() => promptRef.current?.focus(), 100);
   }, [setBranchContext]);
 
   // Handle selecting an iteration (updates terminal context)
@@ -621,15 +615,6 @@ export default function ProjectView() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e) => {
-      // Ctrl+Enter → Generate
-      if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault();
-        if (prompt.trim() && terminalRef.current) {
-          const escaped = prompt.replace(/'/g, "'\\''");
-          terminalRef.current.sendInput(`claude -p '${escaped}'\n`);
-          setPrompt('');
-        }
-      }
       // Escape → exit fullscreen or multi-select
       if (e.key === 'Escape') {
         if (fullscreen) { setFullscreen(false); e.preventDefault(); }
@@ -648,7 +633,7 @@ export default function ProjectView() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [prompt, fullscreen, multiSelect, allIterations, selected, handleSelect]);
+  }, [fullscreen, multiSelect, allIterations, selected, handleSelect]);
 
   // Inline editing handlers
   const startEditName = useCallback(() => {
@@ -749,16 +734,6 @@ export default function ProjectView() {
     }
   }, [projectId]);
 
-  // Send prompt to the active terminal as a claude command
-  const handleGenerate = useCallback(() => {
-    if (!prompt.trim()) return;
-    if (!terminalRef.current) return;
-    // Escape single quotes for shell safety
-    const escaped = prompt.replace(/'/g, "'\\''");
-    terminalRef.current.sendInput(`claude -p '${escaped}'\n`);
-    setPrompt('');
-  }, [prompt]);
-
   // Called when a new PTY session is created for a tab
   const handleSessionCreated = (tabId, sessionId) => {
     setTermTabs(prev => prev.map(t => t.id === tabId ? { ...t, sessionId } : t));
@@ -784,15 +759,13 @@ export default function ProjectView() {
           display: 'flex', borderBottom: `1px solid ${t.border}`, background: t.surface, flexShrink: 0,
         }}>
           {[
-            { id: 'tree', label: 'Worktree' },
+            { id: 'chat', label: 'Chat' },
             { id: 'preview', label: 'Preview' },
             { id: 'terminal', label: 'Terminal' },
             { id: 'files', label: 'Files' },
-            { id: 'activity', label: 'Activity' },
-            { id: 'chat', label: 'Chat' },
             ...(project?.mode === 'orchestra' ? [{ id: 'orchestra', label: 'Orchestra' }] : []),
           ].map(tab => (
-            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); setRightPanel(tab.id); }} style={{
+            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); setLeftMode(tab.id); }} style={{
               flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
               background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
               color: mobilePanel === tab.id ? t.tp : t.tm,
@@ -804,350 +777,39 @@ export default function ProjectView() {
         </div>
       )}
 
-      {/* LEFT: Worktree */}
+      {/* LEFT PANEL: Chat / Terminal / Files / Activity / Orchestra */}
       <aside style={{
         width: isMobile ? '100%' : `${leftW}px`,
         background: t.surface, borderRight: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: fullscreen ? 'none' : (isMobile && mobilePanel !== 'tree' ? 'none' : 'flex'),
+        display: fullscreen ? 'none' : (isMobile && !['chat', 'terminal', 'files', 'orchestra'].includes(mobilePanel) ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
-        <div style={{ minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px 4px 12px', borderBottom: `1px solid ${t.border}`, flexWrap: 'wrap', gap: '4px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Worktree</span>
-            {agentWorking && (
-              <span title="Agent is working..." style={{
-                width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', flexShrink: 0,
-                animation: 'pulse 1.5s infinite',
-              }} />
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-            {multiSelect ? (
-              <>
-                <button onClick={handleBulkDelete} disabled={selectedIds.size === 0}
-                  title={`Delete ${selectedIds.size} selected`}
-                  style={{ background: selectedIds.size > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.05)', color: selectedIds.size > 0 ? '#ef4444' : t.tm, border: `1px solid ${selectedIds.size > 0 ? 'rgba(239,68,68,0.3)' : t.border}`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: selectedIds.size > 0 ? 'pointer' : 'default' }}>
-                  <Trash2 size={11} /> {selectedIds.size}
-                </button>
-                <button onClick={() => { setMultiSelect(false); setSelectedIds(new Set()); }}
-                  style={{ background: 'rgba(255,255,255,0.05)', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '4px 6px', fontSize: '11px', cursor: 'pointer' }}>
-                  <X size={11} />
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setMultiSelect(true)} title="Select multiple to delete"
-                  style={{ background: 'transparent', color: t.tm, border: 'none', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <Trash2 size={12} />
-                </button>
-                <button
-                  onClick={() => {
-                    api(`/api/terminal-tabs/${projectId}/import`, { method: 'POST' })
-                      .then(() => {
-                        api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
-                      })
-                      .catch(err => console.error('[Import]', err));
-                  }}
-                  title="Import all workspace files as iterations"
-                  style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: `1px solid rgba(34,197,94,0.3)`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Save
-                </button>
-                <button
-                  onClick={() => {
-                    api(`/api/terminal-tabs/${projectId}/new-version`, { method: 'POST' })
-                      .then(() => {
-                        api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
-                      })
-                      .catch(err => console.error('[NewVersion]', err));
-                  }}
-                  title="Snapshot current state as a new version"
-                  style={{ background: 'rgba(139,92,246,0.15)', color: t.violet, border: `1px solid rgba(139,92,246,0.3)`, borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                  Snap
-                </button>
-                <button onClick={handleNewRoot} style={{ background: t.tp, color: t.bg, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  New
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {/* CSS for pulse animation */}
-        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
-        {branchParent !== undefined && (
-          <div style={{
-            padding: '6px 12px', borderBottom: `1px solid ${t.border}`, display: 'flex',
-            alignItems: 'center', gap: '6px', fontSize: '11px', background: 'rgba(139,92,246,0.06)',
-          }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={t.violet} strokeWidth="2">
-              <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
-            </svg>
-            <span style={{ color: t.violet, flex: 1 }}>
-              {branchParent === null
-                ? 'New root worktree'
-                : `From ${branchParent.title || 'V' + branchParent.version}`}
-            </span>
-            <span onClick={() => setBranchParent(undefined)} style={{ color: t.tm, cursor: 'pointer', fontSize: '13px' }}>x</span>
-          </div>
-        )}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-          {treeData.map(node => (
-            <TreeNode key={node.id} node={node} selected={selected} onSelect={handleSelect}
-              onContext={setContextMenu} onBranch={handleBranch} onRename={handleRename}
-              multiSelect={multiSelect} selectedIds={selectedIds} onToggleSelect={handleToggleSelect} />
-          ))}
-          {treeData.length === 0 && (
-            <div style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: t.tm }}>No iterations yet</div>
-          )}
-        </div>
-        {/* Activity Log */}
-        {watcherLogs.length > 0 && (
-          <div style={{ borderTop: `1px solid ${t.border}`, maxHeight: '120px', overflowY: 'auto', flexShrink: 0 }}>
-            <div style={{ padding: '4px 12px', fontSize: '10px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${t.border}`, background: t.surfaceEl, position: 'sticky', top: 0, zIndex: 1 }}>
-              Activity Log
-            </div>
-            {watcherLogs.slice().reverse().map((log, i) => (
-              <div key={i} style={{ padding: '3px 12px', fontSize: '10px', color: t.ts, display: 'flex', gap: '6px', alignItems: 'center', borderBottom: `1px solid rgba(255,255,255,0.03)` }}>
-                <span style={{
-                  width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0,
-                  background: log.type === 'create' ? '#22c55e' : log.type === 'update' ? '#3b82f6' : log.type === 'snapshot' ? t.violet : '#f59e0b',
-                }} />
-                <span style={{ color: t.tm, fontSize: '9px', flexShrink: 0 }}>
-                  {new Date(log.timestamp).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.message}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </aside>
-
-      {/* Left Resizer */}
-      {!isMobile && !fullscreen && (
-        <div onMouseDown={() => setResizing('left')} style={{
-          width: '4px', cursor: 'col-resize', background: resizing === 'left' ? t.violet : 'transparent',
-          transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
-        }} />
-      )}
-
-      {/* CENTER: Preview */}
-      <main style={{
-        flex: 1, display: isMobile && mobilePanel !== 'preview' ? 'none' : 'flex',
-        flexDirection: 'column', minWidth: 0,
-        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
-      }}>
-        <div className="pv-header-bar" style={{
-          minHeight: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
-          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', fontSize: '12px', color: t.ts, flexShrink: 0,
-          overflowX: 'auto', overflowY: 'hidden', flexWrap: 'wrap',
-        }}>
-          {/* Inline editable project name */}
-          {editingName ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <input
-                autoFocus
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
-                style={{
-                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
-                  padding: '2px 8px', color: t.tp, fontSize: '12px', fontWeight: '500',
-                  outline: 'none', width: '200px',
-                }}
-              />
-              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveName} />
-              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingName(false)} />
-            </div>
-          ) : (
-            <span
-              onClick={startEditName}
-              style={{ color: t.tp, fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-              title="Click to edit project name"
-            >
-              {project?.name || 'Loading...'}
-              <Pencil size={10} style={{ color: t.tm, opacity: 0.5 }} />
-            </span>
-          )}
-          {/* Inline editable description */}
-          {project?.description && !editingDesc && (
-            <span
-              onClick={startEditDesc}
-              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title="Click to edit description"
-            >
-              {project.description}
-            </span>
-          )}
-          {editingDesc && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <input
-                autoFocus
-                value={editDesc}
-                onChange={e => setEditDesc(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') saveDesc(); if (e.key === 'Escape') setEditingDesc(false); }}
-                placeholder="Description..."
-                style={{
-                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
-                  padding: '2px 8px', color: t.tp, fontSize: '11px',
-                  outline: 'none', width: '200px',
-                }}
-              />
-              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveDesc} />
-              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingDesc(false)} />
-            </div>
-          )}
-          {!editingDesc && !project?.description && (
-            <span
-              onClick={startEditDesc}
-              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', opacity: 0.5, fontStyle: 'italic' }}
-            >
-              + description
-            </span>
-          )}
-          {selected && <>
-            <span style={{ color: t.tm }}>/</span>
-            <span>{selected.title || `V${selected.version}`}</span>
-            <span style={{ background: t.violetM, color: t.violet, padding: '1px 6px', borderRadius: '99px', fontSize: '10px', fontWeight: '600' }}>
-              {selected.agent_name}
-            </span>
-          </>}
-          {/* Project type badge */}
-          {project?.project_type === 'fullstack' && (
-            <span style={{
-              background: 'rgba(34,197,94,0.12)', color: '#22c55e', padding: '1px 6px',
-              borderRadius: '99px', fontSize: '9px', fontWeight: '700', border: '1px solid rgba(34,197,94,0.3)',
-            }}>FULLSTACK</span>
-          )}
-          <div style={{ flex: 1 }} />
-          {/* GitHub sync button */}
-          <div style={{ position: 'relative' }}>
-            <button onClick={openGitHubPanel} title="GitHub sync"
-              style={{
-                background: project?.github_repo_name ? 'rgba(34,197,94,0.1)' : 'transparent',
-                color: project?.github_repo_name ? '#22c55e' : t.ts,
-                border: `1px solid ${project?.github_repo_name ? 'rgba(34,197,94,0.3)' : t.border}`,
-                borderRadius: '4px', padding: '3px 8px', fontSize: '11px',
-                display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
-                flexShrink: 0, whiteSpace: 'nowrap',
-              }}>
-              <Github size={12} /> {project?.github_repo_name ? 'Synced' : 'GitHub'}
-            </button>
-          </div>
-          {/* Compare button */}
-          {allIterations.length >= 2 && (
-            <button onClick={() => navigate(`/compare/${projectId}`)} title="Compare iterations side by side"
-              style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
-              <GitCompare size={12} /> Compare
-            </button>
-          )}
-          {/* Export all ZIP */}
-          <a href={`/api/preview/download-all/${projectId}`} title="Download all iterations as ZIP"
-            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>
-            <Download size={12} /> Export
-          </a>
-          {/* Fullscreen toggle */}
-          <button onClick={() => setFullscreen(!fullscreen)} title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
-            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
-          <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
-            style={{
-              color: '#fff', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px',
-              background: t.violet, padding: '4px 10px', borderRadius: '6px', textDecoration: 'none',
-              fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`, flexShrink: 0, whiteSpace: 'nowrap',
-            }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Client
-          </a>
-          {selected && (
-            <a href={`/api/preview/${projectId}/${selected.id}`} target="_blank" rel="noreferrer"
-              style={{ color: t.ts, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              Open
-            </a>
-          )}
-        </div>
-
-        <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
-          {selected ? (
-            <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
-              style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
-          ) : (
-            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg }}>
-              Select an iteration to preview
-            </div>
-          )}
-        </div>
-
-        {/* Thumbnail Carousel */}
-        {!fullscreen && <IterationCarousel
-          allIterations={allIterations}
-          selected={selected}
-          onSelect={handleSelect}
-          projectId={projectId}
-          previewKey={previewKey}
-        />}
-
-        {!fullscreen && <div style={{ padding: '12px 16px', borderTop: `1px solid ${t.border}`, background: t.surface, flexShrink: 0 }}>
-          {branchParent !== undefined && (
-            <div style={{ fontSize: '10px', color: t.violet, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-              {branchParent === null ? 'Creating new root iteration' : `Branching from ${branchParent.title || 'V' + branchParent.version}`}
-            </div>
-          )}
-          <div style={{ position: 'relative' }}>
-            <input ref={promptRef} value={prompt} onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && prompt.trim()) handleGenerate(); }}
-              placeholder={branchParent !== undefined
-                ? (branchParent === null ? 'Describe the landing page to create from scratch...' : `Describe changes to apply from ${branchParent.title || 'V' + branchParent.version}...`)
-                : 'Describe adjustments for the next iteration...'}
-              style={{ width: '100%', padding: '10px 100px 10px 14px', background: t.surfaceEl, border: `1px solid ${branchParent !== undefined ? 'rgba(139,92,246,0.4)' : t.borderS}`, borderRadius: '8px', color: t.tp, fontSize: '13px', outline: 'none' }} />
-            <button onClick={handleGenerate} disabled={!prompt.trim()} style={{
-              position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-              background: prompt.trim() ? t.violet : t.tm, color: '#fff', border: 'none', borderRadius: '4px',
-              padding: '6px 12px', fontSize: '11px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px',
-              cursor: prompt.trim() ? 'pointer' : 'default', opacity: prompt.trim() ? 1 : 0.5,
-            }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Generate
-            </button>
-          </div>
-        </div>}
-      </main>
-
-      {/* Right Resizer */}
-      {!isMobile && !fullscreen && (
-        <div onMouseDown={() => setResizing('right')} style={{
-          width: '4px', cursor: 'col-resize', background: resizing === 'right' ? t.violet : 'transparent',
-          transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
-        }} />
-      )}
-
-      {/* RIGHT: Terminal + Files Panel */}
-      <aside style={{
-        width: isMobile ? '100%' : `${rightW}px`,
-        background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: fullscreen ? 'none' : (isMobile && !['terminal', 'files', 'orchestra', 'activity', 'chat'].includes(mobilePanel) ? 'none' : 'flex'),
-        flexDirection: 'column', flexShrink: 0,
-        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
-      }}>
-        {/* Panel type switcher: Terminal | Files | Orchestra */}
+        {/* Mode tabs */}
         <div style={{
           display: 'flex', borderBottom: `1px solid ${t.border}`, height: '34px', flexShrink: 0,
           background: t.bg,
         }}>
           <button
-            onClick={() => { setRightPanel('terminal'); setViewingFile(null); }}
+            onClick={() => setLeftMode('chat')}
             style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              background: rightPanel === 'terminal' ? t.surface : 'transparent',
-              color: rightPanel === 'terminal' ? t.tp : t.tm,
-              border: 'none', borderBottom: rightPanel === 'terminal' ? `2px solid ${t.violet}` : '2px solid transparent',
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+              background: leftMode === 'chat' ? t.surface : 'transparent',
+              color: leftMode === 'chat' ? '#22c55e' : t.tm,
+              border: 'none', borderBottom: leftMode === 'chat' ? '2px solid #22c55e' : '2px solid transparent',
+              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            <MessageSquare size={12} />
+            Chat
+          </button>
+          <button
+            onClick={() => { setLeftMode('terminal'); setViewingFile(null); }}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+              background: leftMode === 'terminal' ? t.surface : 'transparent',
+              color: leftMode === 'terminal' ? t.tp : t.tm,
+              border: 'none', borderBottom: leftMode === 'terminal' ? `2px solid ${t.violet}` : '2px solid transparent',
               fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
             }}
           >
@@ -1155,12 +817,12 @@ export default function ProjectView() {
             Terminal
           </button>
           <button
-            onClick={() => setRightPanel('files')}
+            onClick={() => setLeftMode('files')}
             style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              background: rightPanel === 'files' ? t.surface : 'transparent',
-              color: rightPanel === 'files' ? t.tp : t.tm,
-              border: 'none', borderBottom: rightPanel === 'files' ? `2px solid ${t.violet}` : '2px solid transparent',
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+              background: leftMode === 'files' ? t.surface : 'transparent',
+              color: leftMode === 'files' ? t.tp : t.tm,
+              border: 'none', borderBottom: leftMode === 'files' ? `2px solid ${t.violet}` : '2px solid transparent',
               fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
             }}
           >
@@ -1168,39 +830,26 @@ export default function ProjectView() {
             Files
           </button>
           <button
-            onClick={() => setRightPanel('activity')}
+            onClick={() => setLeftMode('activity')}
             style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              background: rightPanel === 'activity' ? t.surface : 'transparent',
-              color: rightPanel === 'activity' ? '#06b6d4' : t.tm,
-              border: 'none', borderBottom: rightPanel === 'activity' ? '2px solid #06b6d4' : '2px solid transparent',
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+              background: leftMode === 'activity' ? t.surface : 'transparent',
+              color: leftMode === 'activity' ? '#06b6d4' : t.tm,
+              border: 'none', borderBottom: leftMode === 'activity' ? '2px solid #06b6d4' : '2px solid transparent',
               fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
             }}
           >
             <BarChart3 size={12} />
             Activity
           </button>
-          <button
-            onClick={() => setRightPanel('chat')}
-            style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              background: rightPanel === 'chat' ? t.surface : 'transparent',
-              color: rightPanel === 'chat' ? '#22c55e' : t.tm,
-              border: 'none', borderBottom: rightPanel === 'chat' ? '2px solid #22c55e' : '2px solid transparent',
-              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
-            }}
-          >
-            <MessageSquare size={12} />
-            Chat
-          </button>
           {project?.mode === 'orchestra' && (
             <button
-              onClick={() => setRightPanel('orchestra')}
+              onClick={() => setLeftMode('orchestra')}
               style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                background: rightPanel === 'orchestra' ? t.surface : 'transparent',
-                color: rightPanel === 'orchestra' ? '#F59E0B' : t.tm,
-                border: 'none', borderBottom: rightPanel === 'orchestra' ? '2px solid #F59E0B' : '2px solid transparent',
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+                background: leftMode === 'orchestra' ? t.surface : 'transparent',
+                color: leftMode === 'orchestra' ? '#F59E0B' : t.tm,
+                border: 'none', borderBottom: leftMode === 'orchestra' ? '2px solid #F59E0B' : '2px solid transparent',
                 fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
               }}
             >
@@ -1210,29 +859,27 @@ export default function ProjectView() {
           )}
         </div>
 
-        {rightPanel === 'orchestra' && project?.mode === 'orchestra' ? (
-          /* ORCHESTRA PANEL */
+        {/* Panel content */}
+        {leftMode === 'chat' ? (
+          <UnifiedChatPanel projectId={projectId} />
+        ) : leftMode === 'orchestra' && project?.mode === 'orchestra' ? (
           <OrchestraView
             project={project}
             teamMembers={project.team_members || []}
             agents={allAgents}
             onRefresh={refreshProject}
           />
-        ) : rightPanel === 'activity' ? (
-          /* ACTIVITY PANEL */
-          <ActivityPanel projectId={projectId} />
-        ) : rightPanel === 'chat' ? (
-          /* CHAT PANEL */
-          <ChatPanel projectId={projectId} />
-        ) : rightPanel === 'files' ? (
-          /* FILE EXPLORER PANEL */
+        ) : leftMode === 'activity' ? (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Inline activity view - reuses UnifiedChatPanel which already shows activity */}
+            <UnifiedChatPanel projectId={projectId} />
+          </div>
+        ) : leftMode === 'files' ? (
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: viewingFile ? '200px' : '100%', minWidth: '160px', overflow: 'hidden', borderRight: viewingFile ? `1px solid ${t.border}` : 'none', flexShrink: 0 }}>
               <FileExplorer projectId={projectId} onFileSelect={handleFileSelect} selectedFile={viewingFile} onAddToWorktree={(result) => {
-                // Refresh iteration tree when file is added to worktree
                 api(`/api/iterations/${projectId}/tree`).then(tree => {
                   setTreeData(tree || []);
-                  // Select the new iteration if one was created
                   if (result.iterationId) {
                     api(`/api/iterations/detail/${result.iterationId}`).then(iter => {
                       if (iter) setSelected(iter);
@@ -1259,7 +906,7 @@ export default function ProjectView() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ padding: '20px 16px', borderBottom: `1px solid ${t.border}` }}>
                     <p style={{ fontSize: '13px', color: t.ts, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-                      Claude Code CLI is not installed on this server. Install it to enable AI-powered iterations.
+                      Claude Code CLI is not installed on this server.
                     </p>
                     <button onClick={() => {
                       if (setupTerminalRef.current) {
@@ -1270,12 +917,8 @@ export default function ProjectView() {
                       padding: '8px 16px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
                       display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center',
                     }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                       Install Claude Code CLI
                     </button>
-                    <p style={{ fontSize: '10px', color: t.tm, margin: '8px 0 0 0', textAlign: 'center' }}>
-                      Runs: <code style={{ background: t.surfaceEl, padding: '2px 4px', borderRadius: '3px' }}>npm install -g @anthropic-ai/claude-code</code>
-                    </p>
                   </div>
                   <div style={{ flex: 1, position: 'relative' }}>
                     <TerminalPanel
@@ -1354,6 +997,211 @@ export default function ProjectView() {
           </>
         )}
       </aside>
+
+      {/* Left Resizer */}
+      {!isMobile && !fullscreen && (
+        <div onMouseDown={() => setResizing('left')} style={{
+          width: '4px', cursor: 'col-resize', background: resizing === 'left' ? t.violet : 'transparent',
+          transition: 'background 0.2s', zIndex: 10, flexShrink: 0,
+        }} />
+      )}
+
+      {/* RIGHT PANEL: Preview + Carousel + Worktree Drawer */}
+      <main style={{
+        flex: 1, display: isMobile && mobilePanel !== 'preview' ? 'none' : 'flex',
+        flexDirection: 'column', minWidth: 0,
+        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
+      }}>
+        {/* Header bar */}
+        <div className="pv-header-bar" style={{
+          minHeight: '40px', background: t.surface, borderBottom: `1px solid ${t.border}`,
+          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', fontSize: '12px', color: t.ts, flexShrink: 0,
+          overflowX: 'auto', overflowY: 'hidden', flexWrap: 'wrap',
+        }}>
+          {/* Inline editable project name */}
+          {editingName ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <input
+                autoFocus
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+                style={{
+                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
+                  padding: '2px 8px', color: t.tp, fontSize: '12px', fontWeight: '500',
+                  outline: 'none', width: '200px',
+                }}
+              />
+              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveName} />
+              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingName(false)} />
+            </div>
+          ) : (
+            <span
+              onClick={startEditName}
+              style={{ color: t.tp, fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+              title="Click to edit project name"
+            >
+              {project?.name || 'Loading...'}
+              <Pencil size={10} style={{ color: t.tm, opacity: 0.5 }} />
+            </span>
+          )}
+          {/* Inline editable description */}
+          {project?.description && !editingDesc && (
+            <span
+              onClick={startEditDesc}
+              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title="Click to edit description"
+            >
+              {project.description}
+            </span>
+          )}
+          {editingDesc && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <input
+                autoFocus
+                value={editDesc}
+                onChange={e => setEditDesc(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveDesc(); if (e.key === 'Escape') setEditingDesc(false); }}
+                placeholder="Description..."
+                style={{
+                  background: t.surfaceEl, border: `1px solid ${t.violet}`, borderRadius: '4px',
+                  padding: '2px 8px', color: t.tp, fontSize: '11px',
+                  outline: 'none', width: '200px',
+                }}
+              />
+              <Check size={14} style={{ color: t.violet, cursor: 'pointer' }} onClick={saveDesc} />
+              <X size={14} style={{ color: t.tm, cursor: 'pointer' }} onClick={() => setEditingDesc(false)} />
+            </div>
+          )}
+          {!editingDesc && !project?.description && (
+            <span
+              onClick={startEditDesc}
+              style={{ color: t.tm, fontSize: '11px', cursor: 'pointer', opacity: 0.5, fontStyle: 'italic' }}
+            >
+              + description
+            </span>
+          )}
+          {selected && <>
+            <span style={{ color: t.tm }}>/</span>
+            <span>{selected.title || `V${selected.version}`}</span>
+            <span style={{ background: t.violetM, color: t.violet, padding: '1px 6px', borderRadius: '99px', fontSize: '10px', fontWeight: '600' }}>
+              {selected.agent_name}
+            </span>
+          </>}
+          {project?.project_type === 'fullstack' && (
+            <span style={{
+              background: 'rgba(34,197,94,0.12)', color: '#22c55e', padding: '1px 6px',
+              borderRadius: '99px', fontSize: '9px', fontWeight: '700', border: '1px solid rgba(34,197,94,0.3)',
+            }}>FULLSTACK</span>
+          )}
+          <div style={{ flex: 1 }} />
+          {/* GitHub sync button */}
+          <div style={{ position: 'relative' }}>
+            <button onClick={openGitHubPanel} title="GitHub sync"
+              style={{
+                background: project?.github_repo_name ? 'rgba(34,197,94,0.1)' : 'transparent',
+                color: project?.github_repo_name ? '#22c55e' : t.ts,
+                border: `1px solid ${project?.github_repo_name ? 'rgba(34,197,94,0.3)' : t.border}`,
+                borderRadius: '4px', padding: '3px 8px', fontSize: '11px',
+                display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
+                flexShrink: 0, whiteSpace: 'nowrap',
+              }}>
+              <Github size={12} /> {project?.github_repo_name ? 'Synced' : 'GitHub'}
+            </button>
+          </div>
+          {allIterations.length >= 2 && (
+            <button onClick={() => navigate(`/compare/${projectId}`)} title="Compare iterations"
+              style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <GitCompare size={12} /> Compare
+            </button>
+          )}
+          <a href={`/api/preview/download-all/${projectId}`} title="Download all iterations as ZIP"
+            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <Download size={12} /> Export
+          </a>
+          <button onClick={() => setFullscreen(!fullscreen)} title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
+            style={{ background: 'transparent', color: t.ts, border: `1px solid ${t.border}`, borderRadius: '4px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+          <a href={`/preview/${projectId}`} target="_blank" rel="noreferrer"
+            style={{
+              color: '#fff', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px',
+              background: t.violet, padding: '4px 10px', borderRadius: '6px', textDecoration: 'none',
+              fontWeight: '600', boxShadow: `0 0 8px ${t.violetG}`, flexShrink: 0, whiteSpace: 'nowrap',
+            }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            Client
+          </a>
+          {selected && (
+            <a href={`/api/preview/${projectId}/${selected.id}`} target="_blank" rel="noreferrer"
+              style={{ color: t.ts, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Open
+            </a>
+          )}
+        </div>
+
+        {/* Preview iframe */}
+        <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
+          {selected ? (
+            <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
+              style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
+          ) : (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg }}>
+              Select an iteration to preview
+            </div>
+          )}
+        </div>
+
+        {/* Thumbnail Carousel */}
+        {!fullscreen && <IterationCarousel
+          allIterations={allIterations}
+          selected={selected}
+          onSelect={handleSelect}
+          projectId={projectId}
+          previewKey={previewKey}
+        />}
+
+        {/* Worktree Drawer (collapsible) */}
+        {!fullscreen && (
+          <WorktreeDrawer
+            treeData={treeData}
+            selected={selected}
+            onSelect={handleSelect}
+            onContext={setContextMenu}
+            onBranch={handleBranch}
+            onRename={handleRename}
+            onImport={() => {
+              api(`/api/terminal-tabs/${projectId}/import`, { method: 'POST' })
+                .then(() => {
+                  api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
+                })
+                .catch(err => console.error('[Import]', err));
+            }}
+            onSnapshot={() => {
+              api(`/api/terminal-tabs/${projectId}/new-version`, { method: 'POST' })
+                .then(() => {
+                  api(`/api/iterations/${projectId}/tree`).then(tree => setTreeData(tree || [])).catch(() => {});
+                })
+                .catch(err => console.error('[NewVersion]', err));
+            }}
+            onNewRoot={handleNewRoot}
+            branchParent={branchParent}
+            onSetBranchParent={setBranchParent}
+            agentWorking={agentWorking}
+            watcherLogs={watcherLogs}
+            multiSelect={multiSelect}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onMultiSelectToggle={(val) => {
+              if (val) { setMultiSelect(true); }
+              else { setMultiSelect(false); setSelectedIds(new Set()); }
+            }}
+            onBulkDelete={handleBulkDelete}
+            TreeNodeComponent={TreeNode}
+          />
+        )}
+      </main>
 
       {/* Context Menu */}
       {/* GitHub Sync Panel */}
