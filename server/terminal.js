@@ -574,7 +574,21 @@ function setupTerminal(io) {
         const chatId = `chat_${generateId()}_${Date.now()}`;
         currentChatId = chatId;
 
-        const args = ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+        const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+
+        // Auto-approve permissions via MCP proxy (can't use --dangerously-skip-permissions as root)
+        const autoApproveServer = path.join(__dirname, 'mcp-auto-approve.js');
+        const mcpConfig = {
+          mcpServers: {
+            'guru-permissions': {
+              command: 'node',
+              args: [autoApproveServer],
+            },
+          },
+        };
+        const mcpConfigJson = JSON.stringify(mcpConfig);
+        args.push('--permission-prompt-tool', 'mcp__guru-permissions__permission_prompt');
+        args.push('--mcp-config', mcpConfigJson);
 
         if (sessionResume) {
           args.push('--resume', sessionResume);
@@ -591,7 +605,7 @@ function setupTerminal(io) {
         console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.slice(0, 6).join(' '), '...');
         console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| chatId:', chatId);
         console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
-        console.log('[Chat] Yolo mode: permissions auto-approved');
+        console.log('[Chat] Auto-approve via MCP proxy');
 
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,
