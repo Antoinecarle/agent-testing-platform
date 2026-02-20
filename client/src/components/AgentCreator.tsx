@@ -168,6 +168,10 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const [generationModel, setGenerationModel] = useState<string>('');
   const [showQualityPicker, setShowQualityPicker] = useState(false);
 
+  // Readiness score
+  const [readiness, setReadiness] = useState<{ score: number; status: string; statusLabel: string; breakdown: any[] }>({ score: 0, status: 'needs_input', statusLabel: '', breakdown: [] });
+  const [autoGenerateTriggered, setAutoGenerateTriggered] = useState(false);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -321,6 +325,8 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         const nameMatch = c.generated_agent.match(/^name:\s*(.+)$/m);
         if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
       }
+      // Load readiness score for the conversation
+      fetchReadiness();
       const previewCheckUrl = `/uploads/agent-creator/preview-${conv.id}.png`;
       fetch(previewCheckUrl, { method: 'HEAD' }).then(r => {
         if (r.ok) setPreviewImageUrl(previewCheckUrl + '?t=' + Date.now());
@@ -373,6 +379,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         body: JSON.stringify({ url: urlInput }),
       });
       setReferences(prev => [...prev, result.reference]);
+      fetchReadiness();
       // Show profile image notification in chat if detected
       const profileImg = result.reference.profile_image_url || result.reference.structured_analysis?.profile_image_url;
       if (profileImg) {
@@ -420,6 +427,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         }
         const result = await res.json();
         setReferences(prev => [...prev, result.reference]);
+      fetchReadiness();
       }
     } catch (err: any) {
       console.error('Failed to upload image:', err);
@@ -449,6 +457,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         }
         const result = await res.json();
         setReferences(prev => [...prev, result.reference]);
+      fetchReadiness();
       }
     } catch (err: any) {
       console.error('Failed to upload document:', err);
@@ -467,6 +476,39 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       console.error('Failed to remove reference:', err);
     }
   };
+
+  // Fetch readiness score
+  const fetchReadiness = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const result = await api(`/api/agent-creator/conversations/${conversationId}/readiness`);
+      setReadiness(result);
+    } catch (err) {
+      // Silent fail
+    }
+  }, [conversationId]);
+
+  // Auto-generate when readiness is high enough
+  useEffect(() => {
+    if (readiness.score >= 75 && !autoGenerateTriggered && !isGenerating && !generatedAgent && conversationId) {
+      const userMsgCount = messages.filter(m => m.role === 'user' && m.id !== 'welcome').length;
+      if (userMsgCount >= 1) {
+        setAutoGenerateTriggered(true);
+        // Small delay to let the UI update with the score first
+        const timer = setTimeout(() => {
+          generateAgentRef.current?.();
+        }, 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [readiness.score, autoGenerateTriggered, isGenerating, generatedAgent, conversationId, messages]);
+
+  // Reset auto-generate flag when conversation changes
+  useEffect(() => {
+    setAutoGenerateTriggered(false);
+  }, [conversationId]);
+
+  const generateAgentRef = useRef<(() => void) | null>(null);
 
   const sendMessage = async () => {
     if (!inputMessage.trim() || !conversationId || isSending) return;
@@ -500,6 +542,8 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
             if (data.messageId) {
               setMessages(prev => prev.map(m => m.id === streamId ? { ...m, id: data.messageId } : m));
             }
+            // Refresh readiness score after each assistant response
+            fetchReadiness();
           },
           onError: (msg: string) => {
             setMessages(prev => prev.map(m => m.id === streamId ? { ...m, content: `Error: ${msg}` } : m));
@@ -594,6 +638,9 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       setGenerationStatus('');
     }
   };
+
+  // Keep ref in sync for auto-generate
+  generateAgentRef.current = generateAgent;
 
   const handleRefine = async () => {
     if (!conversationId || !refineSection || !refineFeedback.trim() || isRefining) return;
@@ -1188,6 +1235,27 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                           {references.filter(r => r.type === 'url').length > 0 && ` ${references.filter(r => r.type === 'url').length} url`}
                           {references.filter(r => r.type === 'document').length > 0 && ` ${references.filter(r => r.type === 'document').length} doc`}
                         </span>
+                      )}
+                      {/* Readiness gauge */}
+                      {conversationId && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '2px 8px', background: t.bg, borderRadius: '6px', border: `1px solid ${t.border}` }} title={readiness.statusLabel || 'Agent readiness'}>
+                          <svg width="18" height="18" viewBox="0 0 36 36">
+                            <circle cx="18" cy="18" r="15.5" fill="none" stroke={t.border} strokeWidth="3" />
+                            <circle cx="18" cy="18" r="15.5" fill="none"
+                              stroke={readiness.score < 40 ? t.danger : readiness.score < 65 ? t.warning : readiness.score < 85 ? t.success : '#4ade80'}
+                              strokeWidth="3" strokeDasharray={`${readiness.score * 0.9738} 97.38`}
+                              strokeLinecap="round" transform="rotate(-90 18 18)"
+                              style={{ transition: 'stroke-dasharray 0.6s ease, stroke 0.4s ease' }}
+                            />
+                            <text x="18" y="19.5" textAnchor="middle" dominantBaseline="middle" fill={readiness.score < 40 ? t.danger : readiness.score < 65 ? t.warning : readiness.score < 85 ? t.success : '#4ade80'}
+                              style={{ fontSize: '10px', fontWeight: 700, fontFamily: t.mono }}>
+                              {readiness.score}
+                            </text>
+                          </svg>
+                          <span style={{ fontSize: '9px', color: readiness.score < 40 ? t.tm : readiness.score < 65 ? t.warning : t.success, fontWeight: 500, maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {readiness.score >= 85 ? 'Ready' : readiness.score >= 65 ? 'Good' : readiness.score >= 40 ? 'Fair' : 'More info'}
+                          </span>
+                        </div>
                       )}
                       {/* Quality tier selector */}
                       <div style={{ position: 'relative' }}>

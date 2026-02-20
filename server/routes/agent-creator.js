@@ -890,6 +890,71 @@ router.get('/generation-tiers', (req, res) => {
   res.json({ tiers });
 });
 
+// ========== READINESS SCORE — Evaluate how ready the conversation is for generation ==========
+
+router.get('/conversations/:id/readiness', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await db.getAgentConversation(id);
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
+
+    const messages = await db.getConversationMessages(id);
+    const references = await db.getConversationReferences(id);
+    const hasBrief = !!conversation.design_brief;
+    const agentType = conversation.agent_type || 'custom';
+    const config = AGENT_TYPE_CONFIGS[agentType] || AGENT_TYPE_CONFIGS['custom'];
+
+    // Compute readiness score
+    const userMessages = messages.filter(m => m.role === 'user');
+    const totalUserChars = userMessages.reduce((sum, m) => sum + m.content.length, 0);
+    const imageCount = references.filter(r => r.type === 'image').length;
+    const urlCount = references.filter(r => r.type === 'url').length;
+    const docCount = references.filter(r => r.type === 'document').length;
+
+    let score = 0;
+    const breakdown = [];
+
+    // Content depth (0-55 points) — the most important factor
+    if (totalUserChars > 300) { score += 10; breakdown.push({ key: 'content_basic', label: 'Context provided', points: 10 }); }
+    if (totalUserChars > 1500) { score += 15; breakdown.push({ key: 'content_detailed', label: 'Detailed instructions', points: 15 }); }
+    if (totalUserChars > 4000) { score += 15; breakdown.push({ key: 'content_rich', label: 'Rich specification', points: 15 }); }
+    if (totalUserChars > 8000) { score += 15; breakdown.push({ key: 'content_exhaustive', label: 'Exhaustive specification', points: 15 }); }
+
+    // Message count (0-15 points)
+    if (userMessages.length >= 1) { score += 5; breakdown.push({ key: 'msg_1', label: 'First message', points: 5 }); }
+    if (userMessages.length >= 2) { score += 5; breakdown.push({ key: 'msg_2', label: 'Dialogue started', points: 5 }); }
+    if (userMessages.length >= 4) { score += 5; breakdown.push({ key: 'msg_4', label: 'Deep conversation', points: 5 }); }
+
+    // References (0-20 points)
+    if (imageCount > 0) { score += 10; breakdown.push({ key: 'images', label: `${imageCount} image(s) analyzed`, points: 10 }); }
+    if (urlCount > 0) { score += 5; breakdown.push({ key: 'urls', label: `${urlCount} URL(s) analyzed`, points: 5 }); }
+    if (docCount > 0) { score += 5; breakdown.push({ key: 'docs', label: `${docCount} document(s) analyzed`, points: 5 }); }
+
+    // Brief (0-10 points)
+    if (hasBrief) { score += 10; breakdown.push({ key: 'brief', label: 'Brief synthesized', points: 10 }); }
+
+    score = Math.min(score, 100);
+
+    // Determine status
+    let status = 'needs_input';
+    let statusLabel = 'More details needed';
+    if (score >= 85) { status = 'excellent'; statusLabel = 'Excellent — ready to generate'; }
+    else if (score >= 65) { status = 'good'; statusLabel = 'Good — can generate now'; }
+    else if (score >= 40) { status = 'fair'; statusLabel = 'Add more details for better results'; }
+
+    res.json({
+      score,
+      status,
+      statusLabel,
+      breakdown,
+      stats: { userMessages: userMessages.length, totalUserChars, imageCount, urlCount, docCount, hasBrief },
+    });
+  } catch (err) {
+    console.error('[agent-creator] Readiness error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ========== GENERATE — SSE streaming agent file generation ==========
 
 router.post('/conversations/:id/generate', async (req, res) => {
@@ -933,14 +998,30 @@ router.post('/conversations/:id/generate', async (req, res) => {
 
     await db.updateConversationGeneratedAgent(id, null, 'generating');
 
-    // Build conversation summary — calibrated to tier
-    const msgLimit = tier.id === 'fast' ? 6 : tier.id === 'standard' ? 10 : 12;
-    const contentLimit = tier.id === 'fast' ? 300 : tier.id === 'standard' ? 500 : 600;
+    // Build FULL conversation content — no truncation for fidelity
+    // For fast tier, limit to last 6 messages but keep full content
+    // For standard/full, use ALL user messages with complete content
+    const msgLimit = tier.id === 'fast' ? 6 : messages.length;
     const recentMessages = messages.slice(-msgLimit);
-    const conversationSummary = recentMessages.map(m => {
-      const content = m.content.length > contentLimit ? m.content.slice(0, contentLimit) + '...' : m.content;
-      return `${m.role}: ${content}`;
-    }).join('\n\n');
+
+    // Separate user content (FULL, never truncate) from assistant content (summarize)
+    const conversationParts = recentMessages.map(m => {
+      if (m.role === 'user') {
+        // User content is the source of truth — NEVER truncate
+        return `user: ${m.content}`;
+      } else {
+        // Assistant messages can be summarized (they're our own output)
+        const content = m.content.length > 800 ? m.content.slice(0, 800) + '...' : m.content;
+        return `assistant: ${content}`;
+      }
+    });
+    const conversationSummary = conversationParts.join('\n\n');
+
+    // Safety: if total context is huge, at least warn but still send
+    const totalContextChars = conversationSummary.length;
+    if (totalContextChars > 50000) {
+      console.warn(`[agent-creator] Large conversation context: ${totalContextChars} chars — may approach token limits`);
+    }
 
     // Derive agent name
     const derivedName = brief.agentIdentity?.aesthetic
