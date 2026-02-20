@@ -544,6 +544,9 @@ function setupTerminal(io) {
         }
         args.push(message);
 
+        console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.join(' '));
+        console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| userId:', socket.userId);
+
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,
           env: buildAgentEnv({
@@ -557,12 +560,15 @@ function setupTerminal(io) {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 
+        console.log('[Chat] Process spawned, pid:', chatProc.pid);
         chatProcesses.set(socket.id, chatProc);
         let sessionId = null;
         let buffer = '';
 
         chatProc.stdout.on('data', (chunk) => {
-          buffer += chunk.toString();
+          const text = chunk.toString();
+          console.log('[Chat] stdout:', text.substring(0, 200));
+          buffer += text;
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
 
@@ -581,10 +587,13 @@ function setupTerminal(io) {
         });
 
         chatProc.stderr.on('data', (chunk) => {
-          socket.emit('chat-stream', { type: 'error', text: chunk.toString() });
+          const errText = chunk.toString();
+          console.log('[Chat] stderr:', errText.substring(0, 300));
+          socket.emit('chat-stream', { type: 'error', text: errText });
         });
 
         chatProc.on('close', (code) => {
+          console.log('[Chat] Process closed, code:', code);
           chatProcesses.delete(socket.id);
           // Flush remaining buffer
           if (buffer.trim()) {
@@ -598,6 +607,7 @@ function setupTerminal(io) {
         });
 
         chatProc.on('error', (err) => {
+          console.error('[Chat] Process error:', err.message);
           chatProcesses.delete(socket.id);
           socket.emit('chat-done', { error: err.message });
         });
