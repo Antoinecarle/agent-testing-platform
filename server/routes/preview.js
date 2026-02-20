@@ -159,29 +159,42 @@ router.get('/download-all/:projectId', async (req, res) => {
 });
 
 // GET /api/preview/raw/:projectId/:iterationId — MUST be before wildcard routes
-router.get('/raw/:projectId/:iterationId', (req, res) => {
+router.get('/raw/:projectId/:iterationId', async (req, res) => {
   if (!validateIds(req, res)) return;
   try {
     const filePath = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId, 'index.html');
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Not found' });
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return res.json({ content });
     }
-    const content = fs.readFileSync(filePath, 'utf-8');
-    res.json({ content });
+    // Fallback: serve from DB html_content
+    const iteration = await db.getIteration(req.params.iterationId);
+    if (iteration && iteration.html_content) {
+      return res.json({ content: iteration.html_content });
+    }
+    return res.status(404).json({ error: 'Not found' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // GET /api/preview/:projectId/:iterationId — serve iteration HTML
-router.get('/:projectId/:iterationId', (req, res) => {
+router.get('/:projectId/:iterationId', async (req, res) => {
   if (!validateIds(req, res)) return;
   try {
     const filePath = path.join(ITERATIONS_DIR, req.params.projectId, req.params.iterationId, 'index.html');
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send('<h1>Iteration not found</h1>');
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
     }
-    res.sendFile(filePath);
+    // Fallback: serve from DB html_content and cache to disk
+    const iteration = await db.getIteration(req.params.iterationId);
+    if (iteration && iteration.html_content) {
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, iteration.html_content);
+      return res.sendFile(filePath);
+    }
+    return res.status(404).send('<h1>Iteration not found</h1>');
   } catch (err) {
     console.error('[Preview] Error:', err.message);
     res.status(500).send('<h1>Server error</h1>');

@@ -64,7 +64,7 @@ router.post('/', async (req, res) => {
       filePath = `${project_id}/${id}/index.html`;
     }
 
-    await db.createIteration(id, project_id, agent_name, version, title, prompt, parent_id, filePath, '', 'completed', {});
+    await db.createIteration(id, project_id, agent_name, version, title, prompt, parent_id, filePath, '', 'completed', {}, html_content || null);
 
     // Update project iteration count
     const count = await db.countIterations(project_id);
@@ -133,6 +133,8 @@ router.put('/detail/:id/html', async (req, res) => {
     const htmlDir = path.dirname(htmlPath);
     if (!fs.existsSync(htmlDir)) fs.mkdirSync(htmlDir, { recursive: true });
     fs.writeFileSync(htmlPath, html_content);
+    // Also sync to DB for cross-server access
+    await db.updateIteration(req.params.id, { html_content });
     res.json({ ok: true, size: html_content.length });
   } catch (err) {
     console.error('[Iterations] Update HTML error:', err.message);

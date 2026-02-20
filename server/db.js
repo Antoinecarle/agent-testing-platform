@@ -340,13 +340,15 @@ async function getProjectWithTeam(projectId) {
 
 // ===================== ITERATIONS =====================
 
-async function createIteration(id, projectId, agentName, version, title, prompt, parentId, filePath, screenshotPath, status, metadata) {
-  await supabase.from('iterations').insert({
+async function createIteration(id, projectId, agentName, version, title, prompt, parentId, filePath, screenshotPath, status, metadata, htmlContent) {
+  const row = {
     id, project_id: projectId, agent_name: agentName, version,
     title: title || '', prompt: prompt || '', parent_id: parentId || null,
     file_path: filePath || '', screenshot_path: screenshotPath || '',
     status: status || 'completed', metadata: metadata || {},
-  });
+  };
+  if (htmlContent) row.html_content = htmlContent;
+  await supabase.from('iterations').insert(row);
 }
 
 async function getAllIterations(projectId) {

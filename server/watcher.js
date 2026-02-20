@@ -214,7 +214,7 @@ async function createNewIteration(projectId, content, titleOverride, parentIdOve
     const filePath = `${projectId}/${id}/index.html`;
 
     const title = titleOverride || `V${version}`;
-    await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {});
+    await db.createIteration(id, projectId, agentName, version, title, '', parentId, filePath, '', 'completed', {}, content);
 
     const count = await db.countIterations(projectId);
     await db.updateProjectIterationCount(projectId, count);
