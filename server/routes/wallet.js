@@ -156,16 +156,58 @@ router.get('/llm-keys', async (req, res) => {
   }
 });
 
-// GET /api/wallet/llm-providers — list available providers with server key availability
+// GET /api/wallet/llm-providers — list providers with live models fetched from APIs
 router.get('/llm-providers', async (req, res) => {
   const SERVER_KEY_ENV = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_AI_API_KEY' };
+
+  // Also check user's own BYOK keys
+  let userKeys = [];
+  try {
+    userKeys = await db.getUserLlmKeys(req.user.userId);
+  } catch (_) {}
+
   const enriched = {};
+  const fetchPromises = [];
+
   for (const [provId, cfg] of Object.entries(PROVIDER_CONFIGS)) {
+    const serverKey = process.env[SERVER_KEY_ENV[provId]];
+    const userKey = userKeys.find(k => k.provider === provId);
+    let apiKeyForFetch = null;
+
+    // Use user's key if available, else server key, to fetch live models
+    if (userKey && userKey.encrypted_key) {
+      try { apiKeyForFetch = decryptApiKey(userKey.encrypted_key); } catch (_) {}
+    }
+    if (!apiKeyForFetch && serverKey) {
+      apiKeyForFetch = serverKey;
+    }
+
     enriched[provId] = {
-      ...cfg,
-      hasServerKey: !!process.env[SERVER_KEY_ENV[provId]],
+      name: cfg.name,
+      keyPrefix: cfg.keyPrefix,
+      models: cfg.models, // static fallback
+      hasServerKey: !!serverKey,
     };
+
+    if (apiKeyForFetch) {
+      fetchPromises.push(
+        fetchProviderModels(provId, apiKeyForFetch)
+          .then(liveModels => {
+            if (liveModels && liveModels.length > 0) {
+              enriched[provId].models = liveModels;
+            }
+          })
+          .catch(() => {}) // keep static fallback on error
+      );
+    }
   }
+
+  // Fetch all providers in parallel, with 5s timeout
+  await Promise.race([
+    Promise.all(fetchPromises),
+    new Promise(resolve => setTimeout(resolve, 5000)),
+  ]);
+
   res.json(enriched);
 });
 

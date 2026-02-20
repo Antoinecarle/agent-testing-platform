@@ -11,8 +11,11 @@ const PROVIDER_CONFIGS = {
     keyPrefix: 'sk-',
     models: [
       { id: 'gpt-5-mini-2025-08-07', name: 'GPT-5 Mini', default: true },
-      { id: 'gpt-4o', name: 'GPT-4o' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'gpt-4.1-2025-04-14', name: 'GPT-4.1' },
+      { id: 'gpt-4.1-mini-2025-04-14', name: 'GPT-4.1 Mini' },
+      { id: 'gpt-4.1-nano-2025-04-14', name: 'GPT-4.1 Nano' },
+      { id: 'o4-mini-2025-04-16', name: 'o4-mini' },
+      { id: 'o3-mini-2025-01-31', name: 'o3-mini' },
     ],
   },
   anthropic: {
@@ -20,8 +23,8 @@ const PROVIDER_CONFIGS = {
     keyPrefix: 'sk-ant-',
     models: [
       { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', default: true },
-      { id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5' },
       { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+      { id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5' },
     ],
   },
   google: {
@@ -84,8 +87,8 @@ async function fetchOpenAIModels(apiKey) {
   const chatModels = (result.data || [])
     .filter(m => {
       const id = m.id;
-      // Filter to chat-capable models (gpt-*, o1-*, o3-*)
-      return (id.startsWith('gpt-') || id.startsWith('o1') || id.startsWith('o3'))
+      // Filter to chat-capable models
+      return (id.startsWith('gpt-') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4'))
         && !id.includes('instruct') && !id.includes('realtime') && !id.includes('audio')
         && !id.includes('search') && !id.includes('tts') && !id.includes('dall-e')
         && !id.includes('whisper') && !id.includes('embedding');
@@ -293,6 +296,163 @@ async function callGoogle(apiKey, model, messages, maxTokens) {
 }
 
 /**
+ * Convert messages from OpenAI format (canonical) to a provider-specific format.
+ * Handles system prompt extraction, role mapping, and image part conversion.
+ */
+function convertMessagesForProvider(provider, messages) {
+  if (provider === 'openai') return { messages };
+
+  if (provider === 'anthropic') {
+    let systemPrompt = '';
+    const converted = [];
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        systemPrompt += (systemPrompt ? '\n\n' : '') + (typeof msg.content === 'string' ? msg.content : msg.content.map(p => p.text || '').join(''));
+      } else {
+        // Convert content parts for vision
+        let content;
+        if (Array.isArray(msg.content)) {
+          content = msg.content.map(part => {
+            if (part.type === 'text') return part;
+            if (part.type === 'image_url' && part.image_url?.url) {
+              const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
+              if (match) {
+                return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+              }
+            }
+            return part;
+          });
+        } else {
+          content = msg.content;
+        }
+        converted.push({ role: msg.role, content });
+      }
+    }
+    return { system: systemPrompt || undefined, messages: converted };
+  }
+
+  if (provider === 'google') {
+    let systemInstruction = '';
+    const contents = [];
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        systemInstruction += (systemInstruction ? '\n\n' : '') + (typeof msg.content === 'string' ? msg.content : msg.content.map(p => p.text || '').join(''));
+      } else {
+        const role = msg.role === 'assistant' ? 'model' : 'user';
+        let parts;
+        if (Array.isArray(msg.content)) {
+          parts = msg.content.map(part => {
+            if (part.type === 'text') return { text: part.text };
+            if (part.type === 'image_url' && part.image_url?.url) {
+              const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
+              if (match) {
+                return { inlineData: { mimeType: match[1], data: match[2] } };
+              }
+            }
+            return { text: part.text || '' };
+          });
+        } else {
+          parts = [{ text: msg.content }];
+        }
+        contents.push({ role, parts });
+      }
+    }
+    return { systemInstruction: systemInstruction || undefined, contents };
+  }
+
+  throw new Error(`Unsupported provider: ${provider}`);
+}
+
+/**
+ * Prepare a streaming request for any provider.
+ * Returns { url, headers, body } ready for fetch().
+ * Input messages should be in OpenAI format (canonical).
+ */
+function prepareStreamRequest(provider, apiKey, model, messages, options = {}) {
+  const maxTokens = options.maxTokens || 4096;
+
+  if (provider === 'openai') {
+    return {
+      url: 'https://api.openai.com/v1/chat/completions',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_completion_tokens: maxTokens,
+        stream: true,
+      }),
+    };
+  }
+
+  if (provider === 'anthropic') {
+    const { system, messages: converted } = convertMessagesForProvider('anthropic', messages);
+    const body = { model, max_tokens: maxTokens, messages: converted, stream: true };
+    if (system) body.system = system;
+    return {
+      url: 'https://api.anthropic.com/v1/messages',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    };
+  }
+
+  if (provider === 'google') {
+    const { systemInstruction, contents } = convertMessagesForProvider('google', messages);
+    const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
+    if (systemInstruction) {
+      body.systemInstruction = { parts: [{ text: systemInstruction }] };
+    }
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    };
+  }
+
+  throw new Error(`Unsupported provider: ${provider}`);
+}
+
+/**
+ * Parse a single SSE data line from a provider's stream.
+ * Returns text delta string or null if the line has no content.
+ */
+function parseProviderSSELine(provider, rawLine) {
+  const trimmed = rawLine.trim();
+  if (!trimmed || !trimmed.startsWith('data: ')) return null;
+  const payload = trimmed.slice(6);
+  if (payload === '[DONE]') return null;
+
+  try {
+    const json = JSON.parse(payload);
+
+    if (provider === 'openai') {
+      return json.choices?.[0]?.delta?.content || null;
+    }
+
+    if (provider === 'anthropic') {
+      if (json.type === 'content_block_delta') {
+        return json.delta?.text || null;
+      }
+      return null;
+    }
+
+    if (provider === 'google') {
+      return json.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+/**
  * Test an API key by making a minimal request
  */
 async function testProviderKey(provider, apiKey, model) {
@@ -303,4 +463,7 @@ async function testProviderKey(provider, apiKey, model) {
   return { success: true, response: result.text.slice(0, 50), model: result.model };
 }
 
-module.exports = { callLLMProvider, testProviderKey, fetchProviderModels, PROVIDER_CONFIGS };
+module.exports = {
+  callLLMProvider, testProviderKey, fetchProviderModels, PROVIDER_CONFIGS,
+  prepareStreamRequest, parseProviderSSELine, convertMessagesForProvider,
+};
