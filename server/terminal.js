@@ -538,7 +538,7 @@ function setupTerminal(io) {
           'workspaces', projectId
         );
 
-        const args = ['-p', '--output-format', 'stream-json'];
+        const args = ['-p', '--output-format', 'stream-json', '--verbose'];
         if (sessionResume) {
           args.push('--resume', sessionResume);
         }
