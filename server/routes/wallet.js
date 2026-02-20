@@ -156,9 +156,17 @@ router.get('/llm-keys', async (req, res) => {
   }
 });
 
-// GET /api/wallet/llm-providers — list available providers and their models
+// GET /api/wallet/llm-providers — list available providers with server key availability
 router.get('/llm-providers', async (req, res) => {
-  res.json(PROVIDER_CONFIGS);
+  const SERVER_KEY_ENV = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_AI_API_KEY' };
+  const enriched = {};
+  for (const [provId, cfg] of Object.entries(PROVIDER_CONFIGS)) {
+    enriched[provId] = {
+      ...cfg,
+      hasServerKey: !!process.env[SERVER_KEY_ENV[provId]],
+    };
+  }
+  res.json(enriched);
 });
 
 // POST /api/wallet/llm-keys/:provider/models — fetch available models from provider API

@@ -13,43 +13,101 @@ function hashApiKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+// Default models per provider (single source of truth)
+const DEFAULT_MODELS = {
+  openai: 'gpt-5-mini-2025-08-07',
+  anthropic: 'claude-sonnet-4-20250514',
+  google: 'gemini-2.5-flash',
+};
+
+// Server-level API key env vars per provider
+const SERVER_KEY_ENV = {
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  google: 'GOOGLE_AI_API_KEY',
+};
+
 /**
- * Resolve LLM provider for a deployment — creator-based BYOK
- * The deployment CREATOR configures their own API key; callers just use the agent.
- * Falls back to server OPENAI_API_KEY if no creator key is configured.
+ * Resolve LLM provider for a deployment — provider-aware BYOK
+ *
+ * Priority:
+ * 1. Deployment config (llm_provider + llm_model from Settings UI)
+ * 2. Creator's BYOK key FOR THAT SPECIFIC PROVIDER
+ * 3. Server-level key for the selected provider
+ * 4. Fallback: any available server key
  */
 async function resolveByokProvider(deploymentId) {
   let provider = 'openai';
-  let apiKey = process.env.OPENAI_API_KEY;
-  let model = 'gpt-5-mini-2025-08-07';
+  let apiKey = null;
+  let model = DEFAULT_MODELS.openai;
   let userLlmKeyId = null;
   let usingByok = false;
 
   try {
     const deployment = await db.getDeployment(deploymentId);
     if (deployment) {
-      // Check deployment-level model override (set via MCP settings UI)
       const config = deployment.config || {};
-      const deployModel = config.llm_model;
-      const deployProvider = config.llm_provider;
+      const targetProvider = config.llm_provider || 'openai';
+      const targetModel = config.llm_model || DEFAULT_MODELS[targetProvider] || DEFAULT_MODELS.openai;
 
+      provider = targetProvider;
+      model = targetModel;
+
+      // Try creator's key for the TARGET provider
       if (deployment.deployed_by) {
-        const creatorKey = await db.getActiveUserLlmKey(deployment.deployed_by);
+        const creatorKey = await db.getUserLlmKey(deployment.deployed_by, targetProvider);
         if (creatorKey && creatorKey.encrypted_key) {
-          provider = creatorKey.provider;
-          apiKey = decryptApiKey(creatorKey.encrypted_key);
-          model = creatorKey.model;
-          userLlmKeyId = creatorKey.id;
-          usingByok = true;
+          try {
+            apiKey = decryptApiKey(creatorKey.encrypted_key);
+            userLlmKeyId = creatorKey.id;
+            usingByok = true;
+          } catch (decryptErr) {
+            console.warn(`[BYOK] Failed to decrypt ${targetProvider} key:`, decryptErr.message);
+            if (creatorKey.id) db.updateUserLlmKeyError(creatorKey.id, decryptErr.message).catch(() => {});
+          }
         }
       }
 
-      // Deployment-level model/provider overrides BYOK and server defaults
-      if (deployModel) model = deployModel;
-      if (deployProvider) provider = deployProvider;
+      // No BYOK key — try server-level key for the target provider
+      if (!apiKey) {
+        const envVar = SERVER_KEY_ENV[targetProvider];
+        if (envVar && process.env[envVar]) {
+          apiKey = process.env[envVar];
+        }
+      }
+
+      // Still nothing — fallback through available server keys
+      if (!apiKey) {
+        for (const [p, envName] of Object.entries(SERVER_KEY_ENV)) {
+          if (process.env[envName]) {
+            apiKey = process.env[envName];
+            provider = p;
+            model = DEFAULT_MODELS[p];
+            console.warn(`[BYOK] No key for ${targetProvider}, falling back to server ${p}`);
+            break;
+          }
+        }
+      }
+    } else {
+      // No deployment found — use first available server key
+      for (const [p, envName] of Object.entries(SERVER_KEY_ENV)) {
+        if (process.env[envName]) {
+          apiKey = process.env[envName];
+          provider = p;
+          model = DEFAULT_MODELS[p];
+          break;
+        }
+      }
     }
   } catch (err) {
-    console.warn('[BYOK] Resolution failed, using server key:', err.message);
+    console.warn('[BYOK] Resolution failed:', err.message);
+  }
+
+  // Last resort fallback
+  if (!apiKey && process.env.OPENAI_API_KEY) {
+    apiKey = process.env.OPENAI_API_KEY;
+    provider = 'openai';
+    model = DEFAULT_MODELS.openai;
   }
 
   return { provider, apiKey, model, userLlmKeyId, usingByok };
@@ -604,19 +662,30 @@ async function handleChatTool(id, args, session) {
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens: 4096 });
   } catch (err) {
-    // If user key failed, try fallback to server key
-    if (usingByok && process.env.OPENAI_API_KEY) {
-      console.warn(`[MCP Chat] BYOK ${provider} failed: ${err.message}, falling back to server OpenAI`);
+    // If user key failed, try fallback to any available server key
+    if (usingByok) {
+      console.warn(`[MCP Chat] BYOK ${provider} failed: ${err.message}, trying server fallback`);
       if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
-      try {
-        provider = 'openai';
-        model = 'gpt-5-mini-2025-08-07';
-        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, model, messages, { maxTokens: 4096 });
-        usingByok = false;
-      } catch (fallbackErr) {
+      // Find any server key
+      let fallbackKey = null, fallbackProvider = null, fallbackModel = null;
+      for (const [p, envName] of Object.entries(SERVER_KEY_ENV)) {
+        if (process.env[envName]) { fallbackKey = process.env[envName]; fallbackProvider = p; fallbackModel = DEFAULT_MODELS[p]; break; }
+      }
+      if (fallbackKey) {
+        try {
+          provider = fallbackProvider;
+          model = fallbackModel;
+          llmResult = await callLLMProvider(provider, fallbackKey, model, messages, { maxTokens: 4096 });
+          usingByok = false;
+        } catch (fallbackErr) {
+          const durationMs = Date.now() - startTime;
+          await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', fallbackErr.message);
+          return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+        }
+      } else {
         const durationMs = Date.now() - startTime;
-        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', fallbackErr.message);
-        return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, 'mcp-chat', '', durationMs, 'error', err.message);
+        return { jsonrpc: '2.0', id, error: { code: -32603, message: err.message } };
       }
     } else {
       const durationMs = Date.now() - startTime;
@@ -770,18 +839,28 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   try {
     llmResult = await callLLMProvider(provider, apiKey, model, messages, { maxTokens });
   } catch (err) {
-    if (usingByok && process.env.OPENAI_API_KEY) {
-      console.warn(`[MCP Specialized] BYOK failed: ${err.message}, falling back`);
+    if (usingByok) {
+      console.warn(`[MCP Specialized] BYOK ${provider} failed: ${err.message}, trying server fallback`);
       if (userLlmKeyId) await db.updateUserLlmKeyError(userLlmKeyId, err.message);
-      try {
-        provider = 'openai';
-        model = 'gpt-5-mini-2025-08-07';
-        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, model, messages, { maxTokens });
-        usingByok = false;
-      } catch (fallbackErr) {
+      let fallbackKey = null, fallbackProvider = null, fallbackModel = null;
+      for (const [p, envName] of Object.entries(SERVER_KEY_ENV)) {
+        if (process.env[envName]) { fallbackKey = process.env[envName]; fallbackProvider = p; fallbackModel = DEFAULT_MODELS[p]; break; }
+      }
+      if (fallbackKey) {
+        try {
+          provider = fallbackProvider;
+          model = fallbackModel;
+          llmResult = await callLLMProvider(provider, fallbackKey, model, messages, { maxTokens });
+          usingByok = false;
+        } catch (fallbackErr) {
+          const durationMs = Date.now() - startTime;
+          await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, `mcp-${toolDef.tool_name}`, '', durationMs, 'error', fallbackErr.message);
+          return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+        }
+      } else {
         const durationMs = Date.now() - startTime;
-        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, `mcp-${toolDef.tool_name}`, '', durationMs, 'error', fallbackErr.message);
-        return { jsonrpc: '2.0', id, error: { code: -32603, message: fallbackErr.message } };
+        await db.logTokenUsage(session.deploymentId, session.agentName, model, 0, 0, `mcp-${toolDef.tool_name}`, '', durationMs, 'error', err.message);
+        return { jsonrpc: '2.0', id, error: { code: -32603, message: err.message } };
       }
     } else {
       const durationMs = Date.now() - startTime;
@@ -1001,13 +1080,23 @@ router.post('/:slug/api/chat', validateApiKey, async (req, res) => {
     try {
       llmResult = await callLLMProvider(selectedProvider, selectedApiKey, selectedModel, fullMessages, { maxTokens: 4096 });
     } catch (err) {
-      if (restUsingByok && process.env.OPENAI_API_KEY) {
-        console.warn(`[MCP REST Chat] BYOK ${selectedProvider} failed: ${err.message}, falling back`);
+      if (restUsingByok) {
+        console.warn(`[MCP REST Chat] BYOK ${selectedProvider} failed: ${err.message}, trying server fallback`);
         if (restUserLlmKeyId) await db.updateUserLlmKeyError(restUserLlmKeyId, err.message);
-        selectedProvider = 'openai';
-        selectedModel = model || 'gpt-5-mini-2025-08-07';
-        llmResult = await callLLMProvider('openai', process.env.OPENAI_API_KEY, selectedModel, fullMessages, { maxTokens: 4096 });
-        restUsingByok = false;
+        let fallbackKey = null, fallbackProvider = null, fallbackModel = null;
+        for (const [p, envName] of Object.entries(SERVER_KEY_ENV)) {
+          if (process.env[envName]) { fallbackKey = process.env[envName]; fallbackProvider = p; fallbackModel = DEFAULT_MODELS[p]; break; }
+        }
+        if (fallbackKey) {
+          selectedProvider = fallbackProvider;
+          selectedModel = model || fallbackModel;
+          llmResult = await callLLMProvider(selectedProvider, fallbackKey, selectedModel, fullMessages, { maxTokens: 4096 });
+          restUsingByok = false;
+        } else {
+          const durationMs = Date.now() - startTime;
+          await db.logTokenUsage(deployment.id, deployment.agent_name, selectedModel, 0, 0, 'chat', req.ip, durationMs, 'error', err.message);
+          return res.status(502).json({ error: err.message });
+        }
       } else {
         const durationMs = Date.now() - startTime;
         await db.logTokenUsage(deployment.id, deployment.agent_name, selectedModel, 0, 0, 'chat', req.ip, durationMs, 'error', err.message);

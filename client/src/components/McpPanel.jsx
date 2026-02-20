@@ -48,18 +48,6 @@ const MENU_ITEMS = [
   { id: 'settings', label: 'Settings', icon: Settings, color: t.ts },
 ];
 
-// ----- Available LLM Models -----
-const LLM_MODELS = [
-  { provider: 'openai', id: 'gpt-5-mini-2025-08-07', name: 'GPT-5 Mini', default: true },
-  { provider: 'openai', id: 'gpt-4o', name: 'GPT-4o' },
-  { provider: 'openai', id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-  { provider: 'anthropic', id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-  { provider: 'anthropic', id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5' },
-  { provider: 'anthropic', id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-  { provider: 'google', id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-  { provider: 'google', id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-];
-
 const PROVIDER_COLORS = {
   openai: '#10a37f',
   anthropic: '#d97706',
@@ -425,6 +413,32 @@ function OverviewSection({ deployment, agent, onDeploy, deployLoading, onRefresh
           </button>
         </div>
       </div>
+
+      {/* Active Model Banner */}
+      {deployment.config?.llm_model && (
+        <div style={{
+          background: `${PROVIDER_COLORS[deployment.config.llm_provider] || t.violet}08`,
+          border: `1px solid ${PROVIDER_COLORS[deployment.config.llm_provider] || t.violet}25`,
+          borderRadius: '10px', padding: '12px 16px', marginBottom: '16px',
+          display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <Cpu size={14} style={{ color: PROVIDER_COLORS[deployment.config.llm_provider] || t.violet }} />
+          <div style={{ flex: 1 }}>
+            <span style={{ fontSize: '11px', color: t.tm }}>Active Model</span>
+            <div style={{ fontSize: '13px', fontWeight: '600', fontFamily: t.mono, color: t.tp }}>
+              {deployment.config.llm_model}
+            </div>
+          </div>
+          <span style={{
+            fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '2px 8px',
+            borderRadius: '100px', letterSpacing: '0.04em',
+            background: `${PROVIDER_COLORS[deployment.config.llm_provider] || t.violet}15`,
+            color: PROVIDER_COLORS[deployment.config.llm_provider] || t.violet,
+          }}>
+            {deployment.config.llm_provider || 'openai'}
+          </span>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
@@ -928,8 +942,8 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
     tagline: deployment?.tagline || '',
     primary_color: deployment?.primary_color || '#8B5CF6',
     tier: deployment?.tier || 'starter',
-    llm_provider: config.llm_provider || 'openai',
-    llm_model: config.llm_model || 'gpt-5-mini-2025-08-07',
+    llm_provider: config.llm_provider || '',
+    llm_model: config.llm_model || '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -945,8 +959,8 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
         tagline: deployment.tagline || '',
         primary_color: deployment.primary_color || '#8B5CF6',
         tier: deployment.tier || 'starter',
-        llm_provider: cfg.llm_provider || 'openai',
-        llm_model: cfg.llm_model || 'gpt-5-mini-2025-08-07',
+        llm_provider: cfg.llm_provider || '',
+        llm_model: cfg.llm_model || '',
       });
     }
   }, [deployment]);
@@ -1004,23 +1018,28 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
     { value: 'enterprise', label: 'Enterprise', limit: '6M tokens/month', color: '#f59e0b' },
   ];
 
-  // Build dynamic model list from connected providers
+  // Build model list from server-provided configs
+  // Shows ALL available models: user BYOK + server-available providers
   const connectedProviderIds = userKeys.map(k => k.provider);
-  const dynamicModels = [];
-  const unconnectedProviders = [];
+  const availableModels = [];
+  const unavailableProviders = [];
   if (providerConfigs && !modelsLoading) {
     for (const [provId, cfg] of Object.entries(providerConfigs)) {
-      if (connectedProviderIds.includes(provId)) {
+      const hasUserKey = connectedProviderIds.includes(provId);
+      const hasServerKey = cfg.hasServerKey;
+      if (hasUserKey || hasServerKey) {
         for (const m of cfg.models) {
-          dynamicModels.push({ ...m, provider: provId });
+          availableModels.push({
+            ...m, provider: provId,
+            source: hasUserKey ? 'user' : 'server',
+          });
         }
       } else {
-        unconnectedProviders.push({ id: provId, name: cfg.name });
+        unavailableProviders.push({ id: provId, name: cfg.name });
       }
     }
   }
-  const hasConnectedProviders = dynamicModels.length > 0;
-  const modelsToRender = hasConnectedProviders ? dynamicModels : LLM_MODELS;
+  const modelsToRender = availableModels;
 
   return (
     <div>
@@ -1093,8 +1112,8 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
             LLM Model
           </div>
           <p style={{ fontSize: '11px', color: t.tm, margin: '0 0 12px', lineHeight: 1.5 }}>
-            Model used for the MCP chat tool and specialized tools.
-            {!hasConnectedProviders && !modelsLoading && ' Connect an API key in Settings to use your own models.'}
+            Select the model used for MCP chat and specialized tools.
+            {modelsToRender.length === 0 && !modelsLoading && ' No models available — connect an API key in Settings or configure a server key.'}
           </p>
           {modelsLoading ? (
             <div style={{ padding: '20px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
@@ -1102,48 +1121,74 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
             </div>
           ) : (
             <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {modelsToRender.map(m => {
-                  const isSelected = form.llm_model === m.id;
-                  const pColor = PROVIDER_COLORS[m.provider] || t.violet;
+              {/* Group models by provider */}
+              {(() => {
+                const grouped = {};
+                for (const m of modelsToRender) {
+                  if (!grouped[m.provider]) grouped[m.provider] = [];
+                  grouped[m.provider].push(m);
+                }
+                return Object.entries(grouped).map(([provId, models]) => {
+                  const pColor = PROVIDER_COLORS[provId] || t.violet;
+                  const provName = providerConfigs?.[provId]?.name || provId;
+                  const source = models[0]?.source;
                   return (
-                    <button key={m.id} onClick={() => setForm(f => ({ ...f, llm_model: m.id, llm_provider: m.provider }))} style={{
-                      display: 'flex', alignItems: 'center', gap: '10px',
-                      padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', textAlign: 'left', width: '100%',
-                      background: isSelected ? `${pColor}12` : t.surfaceEl,
-                      border: `1px solid ${isSelected ? pColor + '50' : t.border}`,
-                      transition: 'all 0.15s',
-                    }}>
-                      <div style={{
-                        width: '8px', height: '8px', borderRadius: '50%',
-                        background: isSelected ? pColor : 'transparent',
-                        border: `2px solid ${isSelected ? pColor : t.tm}`,
-                        flexShrink: 0,
-                      }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '12px', fontWeight: '600', color: isSelected ? t.tp : t.ts }}>{m.name}</div>
-                        <div style={{ fontSize: '10px', fontFamily: t.mono, color: t.tm }}>{m.id}</div>
+                    <div key={provId} style={{ marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <span style={{
+                          fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
+                          padding: '2px 8px', borderRadius: '100px', letterSpacing: '0.04em',
+                          background: `${pColor}15`, color: pColor,
+                        }}>
+                          {provName}
+                        </span>
+                        <span style={{ fontSize: '9px', color: t.tm }}>
+                          {source === 'user' ? 'Your API key' : 'Server key'}
+                        </span>
                       </div>
-                      <span style={{
-                        fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', padding: '2px 8px',
-                        borderRadius: '100px', letterSpacing: '0.04em',
-                        background: `${pColor}15`, color: pColor,
-                      }}>
-                        {m.provider}
-                      </span>
-                    </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {models.map(m => {
+                          const isSelected = form.llm_model === m.id && form.llm_provider === m.provider;
+                          return (
+                            <button key={m.id} onClick={() => setForm(f => ({ ...f, llm_model: m.id, llm_provider: m.provider }))} style={{
+                              display: 'flex', alignItems: 'center', gap: '10px',
+                              padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', textAlign: 'left', width: '100%',
+                              background: isSelected ? `${pColor}12` : t.surfaceEl,
+                              border: `1px solid ${isSelected ? pColor + '50' : t.border}`,
+                              transition: 'all 0.15s',
+                            }}>
+                              <div style={{
+                                width: '8px', height: '8px', borderRadius: '50%',
+                                background: isSelected ? pColor : 'transparent',
+                                border: `2px solid ${isSelected ? pColor : t.tm}`,
+                                flexShrink: 0,
+                              }} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: isSelected ? t.tp : t.ts }}>{m.name}</div>
+                                <div style={{ fontSize: '10px', fontFamily: t.mono, color: t.tm }}>{m.id}</div>
+                              </div>
+                              {m.default && (
+                                <span style={{ fontSize: '8px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                  default
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
-                })}
-              </div>
+                });
+              })()}
 
-              {unconnectedProviders.length > 0 && hasConnectedProviders && (
+              {unavailableProviders.length > 0 && (
                 <div style={{
-                  marginTop: '12px', padding: '10px 14px', background: t.surfaceEl,
+                  marginTop: '4px', padding: '10px 14px', background: t.surfaceEl,
                   borderRadius: '8px', border: `1px solid ${t.border}`,
                 }}>
                   <div style={{ fontSize: '11px', color: t.tm, marginBottom: '6px' }}>More providers available:</div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {unconnectedProviders.map(p => (
+                    {unavailableProviders.map(p => (
                       <a key={p.id} href="/settings?tab=api-keys" style={{
                         fontSize: '10px', fontWeight: '600', padding: '3px 10px', borderRadius: '100px',
                         background: `${PROVIDER_COLORS[p.id] || t.violet}12`,
@@ -1151,7 +1196,7 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
                         textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px',
                         border: `1px solid ${PROVIDER_COLORS[p.id] || t.violet}25`,
                       }}>
-                        {p.name} — Connect in Settings
+                        {p.name} — Connect API key
                       </a>
                     ))}
                   </div>
