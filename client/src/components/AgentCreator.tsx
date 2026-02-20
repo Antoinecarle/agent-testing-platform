@@ -333,6 +333,12 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
       }).catch(() => {});
     } catch (err: any) {
       console.error('Failed to load conversation:', err);
+      // If conversation no longer exists, remove it from the list
+      if (err.message?.includes('not found') || err.message?.includes('Not found')) {
+        setConversations(prev => prev.filter(c => c.id !== conv.id));
+        setConversationId(null);
+        localStorage.removeItem('atp-agent-creator-conv');
+      }
       setMessages([getWelcomeMsg()]);
       setReferences([]);
     }
