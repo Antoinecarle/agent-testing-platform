@@ -9,6 +9,7 @@ import OrchestraView from '../components/OrchestraView';
 import FileExplorer from '../components/FileExplorer';
 import FileViewer from '../components/FileViewer';
 import UnifiedChatPanel from '../components/UnifiedChatPanel';
+import DevToolsChatPanel from '../components/DevToolsChatPanel';
 import ActivityPanel from '../components/ActivityPanel';
 import WorktreeDrawer from '../components/WorktreeDrawer';
 
@@ -304,7 +305,7 @@ export default function ProjectView() {
   const [project, setProject] = useState(null);
   const [treeData, setTreeData] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [leftW, setLeftW] = useState(480);
+  const [leftW, setLeftW] = useState(640);
   const [resizing, setResizing] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [termTabs, setTermTabs] = useState([]);
@@ -453,7 +454,7 @@ export default function ProjectView() {
   }, [projectId]);
 
   const handleMouseMove = useCallback(e => {
-    if (resizing === 'left') setLeftW(Math.max(350, Math.min(700, e.clientX)));
+    if (resizing === 'left') setLeftW(Math.max(400, Math.min(900, e.clientX)));
   }, [resizing]);
 
   const handleMouseUp = useCallback(() => setResizing(null), []);
@@ -865,7 +866,7 @@ export default function ProjectView() {
 
         {/* Panel content */}
         {leftMode === 'chat' ? (
-          <UnifiedChatPanel projectId={projectId} />
+          <DevToolsChatPanel projectId={projectId} />
         ) : leftMode === 'orchestra' && project?.mode === 'orchestra' ? (
           <OrchestraView
             project={project}
