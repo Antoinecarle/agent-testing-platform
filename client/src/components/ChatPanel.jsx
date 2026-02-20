@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { getToken } from '../api';
+import { getToken, refreshAccessToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -68,6 +68,17 @@ export default function ChatPanel({ projectId }) {
     const token = getToken();
     const socket = io('/terminal', { auth: { token }, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
+
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Invalid token' || err.message === 'Authentication required') {
+        refreshAccessToken().then(newToken => {
+          socket.auth = { token: newToken };
+          socket.connect();
+        }).catch(() => {
+          window.location.href = '/login';
+        });
+      }
+    });
 
     socket.on('chat-stream', (data) => {
       // Handle different stream-json message types

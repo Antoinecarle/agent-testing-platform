@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { api, getToken } from '../api';
+import { api, getToken, refreshAccessToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -272,6 +272,17 @@ export default function ActivityPanel({ projectId }) {
       socket.emit('watch-activity', { projectId }, (resp) => {
         if (resp?.watching) setWatching(true);
       });
+    });
+
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Invalid token' || err.message === 'Authentication required') {
+        refreshAccessToken().then(newToken => {
+          socket.auth = { token: newToken };
+          socket.connect();
+        }).catch(() => {
+          window.location.href = '/login';
+        });
+      }
     });
 
     socket.on('activity-events', (newEvents) => {

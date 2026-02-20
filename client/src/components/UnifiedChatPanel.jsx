@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { api, getToken } from '../api';
+import { api, getToken, refreshAccessToken } from '../api';
 import ToolCallCard from './ToolCallCard';
 
 const t = {
@@ -187,6 +187,16 @@ export default function UnifiedChatPanel({ projectId }) {
     socket.on('connect_error', (err) => {
       console.error('[UnifiedChat] Socket connect error:', err.message);
       setWatching(false);
+      // If auth error, try refreshing token and reconnecting
+      if (err.message === 'Invalid token' || err.message === 'Authentication required') {
+        refreshAccessToken().then(newToken => {
+          socket.auth = { token: newToken };
+          socket.connect();
+        }).catch(() => {
+          // Refresh failed, redirect to login
+          window.location.href = '/login';
+        });
+      }
     });
 
     socket.on('disconnect', (reason) => {

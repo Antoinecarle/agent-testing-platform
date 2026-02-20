@@ -37,9 +37,18 @@ export function setUser(user) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+// Prevent multiple concurrent redirects to /login
+let isRedirecting = false;
+function redirectToLogin() {
+  if (isRedirecting) return;
+  isRedirecting = true;
+  clearToken();
+  window.location.href = '/login';
+}
+
 // Refresh the access token using the refresh token
 let refreshPromise = null;
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   // Deduplicate concurrent refresh calls
   if (refreshPromise) return refreshPromise;
 
@@ -90,13 +99,11 @@ export async function api(path, options = {}) {
         headers['Authorization'] = `Bearer ${newToken}`;
         res = await fetch(path, { ...options, headers });
       } catch {
-        clearToken();
-        window.location.href = '/login';
+        redirectToLogin();
         throw new Error('Session expired');
       }
     } else {
-      clearToken();
-      window.location.href = '/login';
+      redirectToLogin();
       throw new Error('Unauthorized');
     }
   }
