@@ -444,4 +444,234 @@ router.delete('/storage/:key', async (req, res) => {
   }
 });
 
+// ── GET /mcp-tools — List MCP tools for this project's agent ──────────────
+
+router.get('/mcp-tools', async (req, res) => {
+  const { projectId } = req.agentSession;
+  if (!projectId) {
+    return res.json({ tools: [] });
+  }
+
+  try {
+    const project = await db.getProject(projectId);
+    if (!project || !project.agent_name) {
+      return res.json({ tools: [] });
+    }
+
+    const agentName = project.agent_name;
+    const { formatToolsForMcp } = require('../lib/mcp-agent-tools');
+    const { getSystemToolsMcp, getPlatformToolsMcp } = require('../lib/mcp-processors');
+
+    // 1. Agent-specific tools from DB
+    let agentTools;
+    try {
+      const dbTools = await db.getMcpAgentTools(agentName);
+      agentTools = formatToolsForMcp(dbTools, agentName);
+    } catch (err) {
+      log.warn(`[mcp-tools] Failed to load agent tools:`, err.message);
+      agentTools = [];
+    }
+
+    // 2. System tools (fetch_web, fetch_sitemap, fetch_multi_urls)
+    const systemTools = getSystemToolsMcp();
+    agentTools = [...systemTools, ...agentTools];
+
+    // 3. Platform tools (Gmail, Nano Banana, Notion, etc.)
+    try {
+      const agentPlatforms = await db.getAgentPlatforms(agentName);
+      if (agentPlatforms.length > 0) {
+        const platformTools = getPlatformToolsMcp(agentPlatforms);
+        agentTools = [...agentTools, ...platformTools];
+      }
+    } catch (err) {
+      log.warn(`[mcp-tools] Failed to load platform tools:`, err.message);
+    }
+
+    log.info(`[mcp-tools] Returning ${agentTools.length} tools for agent "${agentName}"`);
+    res.json({ tools: agentTools });
+  } catch (err) {
+    log.error(`[mcp-tools] Error:`, err.message);
+    res.status(500).json({ error: 'Failed to load MCP tools' });
+  }
+});
+
+// ── POST /mcp-call — Execute an MCP tool call ────────────────────────────
+
+// Separate rate limit for LLM-backed tool calls (expensive)
+const mcpCallRequests = new Map();
+const MCP_CALL_LIMIT = 20; // 20 LLM calls per minute per session
+
+router.post('/mcp-call', async (req, res) => {
+  const { projectId, userId, sessionId } = req.agentSession;
+  if (!projectId) {
+    return res.status(400).json({ error: 'No project associated with this session' });
+  }
+
+  const { tool_name, arguments: toolArgs = {} } = req.body;
+  if (!tool_name) {
+    return res.status(400).json({ error: 'tool_name is required' });
+  }
+
+  // MCP-call specific rate limit
+  const now = Date.now();
+  let mcpEntry = mcpCallRequests.get(sessionId);
+  if (!mcpEntry || now - mcpEntry.windowStart > RATE_WINDOW_MS) {
+    mcpEntry = { windowStart: now, count: 0 };
+    mcpCallRequests.set(sessionId, mcpEntry);
+  }
+  mcpEntry.count++;
+  if (mcpEntry.count > MCP_CALL_LIMIT) {
+    return res.status(429).json({ error: 'MCP call rate limit exceeded (20 LLM calls/min)' });
+  }
+
+  try {
+    const project = await db.getProject(projectId);
+    if (!project || !project.agent_name) {
+      return res.status(400).json({ error: 'Project has no agent assigned' });
+    }
+
+    const agentName = project.agent_name;
+    const {
+      getSystemTool, executeSystemTool,
+      getPlatformTool, runProcessors, injectProcessorData,
+    } = require('../lib/mcp-processors');
+    const { buildEnrichedContext } = require('../lib/mcp-agent-tools');
+    const { callLLMProvider } = require('../lib/llm-providers');
+    const { resolveUserLLMConfig } = require('../lib/resolve-llm-key');
+
+    // === 1. SYSTEM TOOLS (direct execution, no LLM) ===
+    const systemTool = getSystemTool(tool_name);
+    if (systemTool) {
+      log.info(`[mcp-call] Executing system tool: ${tool_name}`);
+      const resultText = await executeSystemTool(systemTool, toolArgs, { agent_name: agentName });
+      return res.json({
+        content: [{ type: 'text', text: resultText }],
+        isError: false,
+      });
+    }
+
+    // === 2. PLATFORM TOOLS (Gmail, Nano Banana, Notion — real API calls) ===
+    const platformToolDef = getPlatformTool(tool_name);
+    if (platformToolDef) {
+      log.info(`[mcp-call] Executing platform tool: ${tool_name}`);
+      const context = { agent_name: agentName, user_id: userId, deployed_by: userId };
+      const processorData = await runProcessors(platformToolDef.pre_processors, toolArgs, context);
+
+      let resultText = processorData.__platform_formatted__ || '';
+      if (processorData.__platform_error__) {
+        resultText = `Error: ${processorData.__platform_error__}`;
+      }
+      if (!resultText && processorData.__platform_result__) {
+        resultText = JSON.stringify(processorData.__platform_result__, null, 2);
+      }
+
+      return res.json({
+        content: [{ type: 'text', text: resultText || '[No data returned]' }],
+        isError: !!processorData.__platform_error__,
+      });
+    }
+
+    // === 3. SPECIALIZED TOOLS from DB (requires LLM call) ===
+    const dbTools = await db.getMcpAgentTools(agentName);
+    const specializedTool = dbTools.find(t => t.tool_name === tool_name && t.is_active !== false);
+
+    if (!specializedTool) {
+      return res.status(404).json({
+        content: [{ type: 'text', text: `Unknown tool: ${tool_name}` }],
+        isError: true,
+      });
+    }
+
+    log.info(`[mcp-call] Executing specialized tool: ${tool_name} (LLM-backed)`);
+
+    // Build system prompt
+    const agent = await db.getAgent(agentName);
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const hasTemplate = specializedTool.context_template && specializedTool.context_template.length > 50;
+    let systemPrompt = '';
+    if (hasTemplate) {
+      systemPrompt = `You are ${agent.name}. ${agent.description || ''}\n`;
+      if (specializedTool.output_instructions) {
+        systemPrompt += `\n## Output Format\n${specializedTool.output_instructions}\n`;
+      }
+    } else {
+      systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+    }
+
+    // Run pre-processors
+    let processorData = {};
+    if (specializedTool.pre_processors && specializedTool.pre_processors.length > 0) {
+      processorData = await runProcessors(
+        specializedTool.pre_processors,
+        toolArgs,
+        { agent_name: agentName, tool_name, user_id: userId }
+      );
+    }
+
+    // Build enriched context from tool template
+    const enriched = buildEnrichedContext(specializedTool, toolArgs);
+
+    // Inject processor data into context template
+    if (enriched.contextAddition && Object.keys(processorData).length > 0) {
+      enriched.contextAddition = injectProcessorData(enriched.contextAddition, processorData);
+    }
+
+    // Auto-inject unreferenced processor data
+    for (const [key, value] of Object.entries(processorData)) {
+      if (typeof value === 'string' && value.length > 10 &&
+          !key.endsWith('__error__') &&
+          key !== '__fetched_html__' && key !== '__html_info__' && key !== '__seo_score_data__') {
+        if (!enriched.contextAddition.includes(key)) {
+          enriched.contextAddition += `\n\n${value}`;
+        }
+      }
+    }
+
+    if (enriched.contextAddition) {
+      systemPrompt += enriched.contextAddition;
+    }
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: enriched.userMessage },
+    ];
+
+    // Resolve LLM config (user's BYOK > server fallback)
+    const llmConfig = await resolveUserLLMConfig(userId);
+
+    const maxTokens = specializedTool.max_tokens > 0
+      ? Math.min(specializedTool.max_tokens, 128000)
+      : 4096;
+
+    const llmResult = await callLLMProvider(
+      llmConfig.provider, llmConfig.apiKey, llmConfig.model,
+      messages, { maxTokens }
+    );
+
+    log.info(`[mcp-call] ${tool_name} completed (${llmResult.outputTokens || 0} output tokens)`);
+
+    return res.json({
+      content: [{ type: 'text', text: llmResult.text }],
+      isError: false,
+    });
+  } catch (err) {
+    log.error(`[mcp-call] Error executing ${tool_name}:`, err.message);
+    res.status(500).json({
+      content: [{ type: 'text', text: `Tool execution failed: ${err.message}` }],
+      isError: true,
+    });
+  }
+});
+
+// Clean up MCP rate entries
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS * 2;
+  for (const [key, entry] of mcpCallRequests) {
+    if (entry.windowStart < cutoff) mcpCallRequests.delete(key);
+  }
+}, 300_000).unref();
+
 module.exports = router;

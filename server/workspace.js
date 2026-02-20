@@ -799,6 +799,77 @@ ${workerNames.map(n => `- **${n}**`).join('\n')}
   try { fs.chownSync(settingsPath, 1001, 1001); } catch (_) {}
   try { fs.chownSync(claudeSettingsDir, 1001, 1001); } catch (_) {}
 
+  // ── Generate .mcp.json for Claude CLI MCP tool discovery ──
+  if (agentName) {
+    try {
+      const dbTools = await db.getMcpAgentTools(agentName);
+      let agentPlatforms = [];
+      try { agentPlatforms = await db.getAgentPlatforms(agentName); } catch (_) {}
+
+      const hasTools = (dbTools && dbTools.length > 0) || (agentPlatforms && agentPlatforms.length > 0);
+      const mcpJsonPath = path.join(wsDir, '.mcp.json');
+
+      if (hasTools) {
+        // Resolve absolute path to the stdio MCP bridge server
+        const stdioServerPath = path.join(__dirname, 'mcp-stdio-server.js');
+
+        const mcpConfig = {
+          mcpServers: {
+            'guru-agent-tools': {
+              command: 'node',
+              args: [stdioServerPath],
+              // Environment inherited from terminal: AGENT_PROXY_URL, AGENT_SESSION_TOKEN, etc.
+            },
+          },
+        };
+
+        fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2));
+        try { fs.chownSync(mcpJsonPath, 1001, 1001); } catch (_) {}
+
+        // Add MCP tool permissions to settings.local.json
+        const { formatToolsForMcp } = require('./lib/mcp-agent-tools');
+        const { getSystemToolsMcp, getPlatformToolsMcp } = require('./lib/mcp-processors');
+
+        const allToolNames = [];
+
+        // System tools
+        const sysTools = getSystemToolsMcp();
+        for (const t of sysTools) allToolNames.push(t.name);
+
+        // Agent-specific tools
+        const mcpFormatted = formatToolsForMcp(dbTools, agentName);
+        for (const t of mcpFormatted) allToolNames.push(t.name);
+
+        // Platform tools
+        if (agentPlatforms.length > 0) {
+          const platTools = getPlatformToolsMcp(agentPlatforms);
+          for (const t of platTools) allToolNames.push(t.name);
+        }
+
+        // Add each as mcp__guru-agent-tools__<tool_name> to permissions
+        for (const name of allToolNames) {
+          const perm = `mcp__guru-agent-tools__${name}`;
+          if (!settings.permissions.allow.includes(perm)) {
+            settings.permissions.allow.push(perm);
+          }
+        }
+
+        // Re-write settings with MCP permissions
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+        console.log(`[Workspace] Generated .mcp.json for ${agentName} (${dbTools.length} tools, ${agentPlatforms.length} platforms, ${allToolNames.length} permissions)`);
+      } else {
+        // No tools — remove stale .mcp.json
+        if (fs.existsSync(mcpJsonPath)) {
+          fs.unlinkSync(mcpJsonPath);
+          console.log(`[Workspace] Removed stale .mcp.json for ${agentName} (no tools)`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Workspace] Failed to generate .mcp.json for ${agentName}:`, err.message);
+    }
+  }
+
   // Ensure claude-user can read it
   try { fs.chownSync(claudeMdPath, 1001, 1001); } catch (_) {}
   try { fs.chownSync(wsDir, 1001, 1001); } catch (_) {}

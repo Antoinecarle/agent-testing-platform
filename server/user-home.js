@@ -55,7 +55,8 @@ function ensureUserHome(userId) {
           "Grep",
           "WebFetch",
           "WebSearch",
-          "Task"
+          "Task",
+          "mcp__guru-agent-tools__*"
         ]
       },
       maxTokens: 128000,
