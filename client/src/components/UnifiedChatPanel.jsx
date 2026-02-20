@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { api } from '../api';
+import { api, getToken } from '../api';
 import ToolCallCard from './ToolCallCard';
 
 const t = {
@@ -173,7 +173,7 @@ export default function UnifiedChatPanel({ projectId }) {
   useEffect(() => {
     if (!projectId) return;
 
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const socket = io('/terminal', { auth: { token }, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 

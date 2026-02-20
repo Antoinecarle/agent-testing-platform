@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import { getToken } from '../api';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -64,7 +65,7 @@ export default function ChatPanel({ projectId }) {
 
   // Connect Socket.IO
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const socket = io('/terminal', { auth: { token }, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
