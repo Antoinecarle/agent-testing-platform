@@ -1134,6 +1134,167 @@ const GMAIL_ACTIONS = {
 };
 
 
+// =================== NANO BANANA API CLIENT (Gemini Image Generation) ===================
+
+const NANO_BANANA_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/**
+ * Make a Nano Banana (Gemini Image) API request.
+ * @param {string} apiKey - Google AI API key
+ * @param {string} model - Model ID (gemini-2.5-flash-image or gemini-3-pro-image-preview)
+ * @param {Object} body - Request body
+ * @returns {Object} API response
+ */
+async function nanoBananaRequest(apiKey, model, body) {
+  const url = `${NANO_BANANA_BASE_URL}/${model}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Nano Banana API ${res.status}: ${errBody.slice(0, 400)}`);
+  }
+  return res.json();
+}
+
+/**
+ * Extract image data from Nano Banana response.
+ */
+function extractImageFromResponse(response) {
+  const candidates = response.candidates || [];
+  if (candidates.length === 0) throw new Error('No image generated — model returned empty candidates');
+
+  const parts = candidates[0]?.content?.parts || [];
+  const imagePart = parts.find(p => p.inlineData);
+  const textPart = parts.find(p => p.text);
+
+  if (!imagePart) throw new Error('No image data in response — model may have declined the prompt');
+
+  return {
+    mimeType: imagePart.inlineData.mimeType || 'image/png',
+    data: imagePart.inlineData.data,
+    caption: textPart?.text || null,
+  };
+}
+
+// =================== NANO BANANA ACTIONS ===================
+
+const NANO_BANANA_ACTIONS = {
+  /**
+   * Generate an image from a text prompt using Nano Banana (Gemini 2.5 Flash Image).
+   */
+  generate_image: async (apiKey, params) => {
+    if (!params.prompt) throw new Error('prompt is required');
+
+    const body = {
+      contents: [{ parts: [{ text: params.prompt }] }],
+      generationConfig: {
+        responseModalities: ['IMAGE', 'TEXT'],
+      },
+    };
+
+    // Add aspect ratio config if specified
+    if (params.aspect_ratio) {
+      body.generationConfig.imageConfig = { aspectRatio: params.aspect_ratio };
+    }
+
+    const response = await nanoBananaRequest(apiKey, 'gemini-2.5-flash-image', body);
+    const image = extractImageFromResponse(response);
+
+    return {
+      model: 'gemini-2.5-flash-image',
+      prompt: params.prompt,
+      aspect_ratio: params.aspect_ratio || '1:1',
+      image: {
+        mimeType: image.mimeType,
+        data: image.data,
+        size_bytes: Math.round(image.data.length * 0.75), // approximate decoded size
+      },
+      caption: image.caption,
+      status: 'generated',
+    };
+  },
+
+  /**
+   * Generate a high-quality image using Nano Banana Pro (Gemini 3 Pro Image).
+   */
+  generate_image_pro: async (apiKey, params) => {
+    if (!params.prompt) throw new Error('prompt is required');
+
+    const body = {
+      contents: [{ parts: [{ text: params.prompt }] }],
+      generationConfig: {
+        responseModalities: ['IMAGE', 'TEXT'],
+      },
+    };
+
+    if (params.aspect_ratio) {
+      body.generationConfig.imageConfig = { aspectRatio: params.aspect_ratio };
+    }
+
+    const response = await nanoBananaRequest(apiKey, 'gemini-3-pro-image-preview', body);
+    const image = extractImageFromResponse(response);
+
+    return {
+      model: 'gemini-3-pro-image-preview',
+      prompt: params.prompt,
+      aspect_ratio: params.aspect_ratio || '1:1',
+      image: {
+        mimeType: image.mimeType,
+        data: image.data,
+        size_bytes: Math.round(image.data.length * 0.75),
+      },
+      caption: image.caption,
+      status: 'generated',
+    };
+  },
+
+  /**
+   * Edit/transform an image using natural language instructions.
+   * Requires a base64-encoded reference image + edit prompt.
+   */
+  edit_image: async (apiKey, params) => {
+    if (!params.prompt) throw new Error('prompt (edit instruction) is required');
+    if (!params.image_data) throw new Error('image_data (base64-encoded image) is required');
+
+    const imageMime = params.image_mime || 'image/png';
+
+    const body = {
+      contents: [{
+        parts: [
+          { inlineData: { mimeType: imageMime, data: params.image_data } },
+          { text: params.prompt },
+        ],
+      }],
+      generationConfig: {
+        responseModalities: ['IMAGE', 'TEXT'],
+      },
+    };
+
+    if (params.aspect_ratio) {
+      body.generationConfig.imageConfig = { aspectRatio: params.aspect_ratio };
+    }
+
+    const response = await nanoBananaRequest(apiKey, 'gemini-2.5-flash-image', body);
+    const image = extractImageFromResponse(response);
+
+    return {
+      model: 'gemini-2.5-flash-image',
+      edit_prompt: params.prompt,
+      image: {
+        mimeType: image.mimeType,
+        data: image.data,
+        size_bytes: Math.round(image.data.length * 0.75),
+      },
+      caption: image.caption,
+      status: 'edited',
+    };
+  },
+};
+
+
 // =================== PLATFORM REGISTRY ===================
 
 /**
@@ -1144,6 +1305,7 @@ const PLATFORM_HANDLERS = {
   notion: NOTION_ACTIONS,
   'google-drive': GOOGLE_DRIVE_ACTIONS,
   gmail: GMAIL_ACTIONS,
+  'nano-banana': NANO_BANANA_ACTIONS,
 };
 
 /**
@@ -1287,6 +1449,27 @@ async function testPlatformCredentials(platformSlug, encryptedCredentials, conte
       };
     }
 
+    if (platformSlug === 'nano-banana') {
+      // Light test: list models to validate the API key
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${token}`);
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`Invalid API key: ${res.status} ${errBody.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const imageModels = (data.models || []).filter(m =>
+        m.name?.includes('gemini-2.5-flash-image') || m.name?.includes('gemini-3-pro-image')
+      );
+      return {
+        success: true,
+        message: `Nano Banana API key valid — ${imageModels.length} image model(s) available`,
+        nano_banana_info: {
+          available_models: imageModels.map(m => m.name?.split('/').pop() || m.name),
+          total_models: (data.models || []).length,
+        },
+      };
+    }
+
     return { success: false, message: `Platform "${platformSlug}" test not implemented yet` };
   } catch (err) {
     return {
@@ -1334,6 +1517,18 @@ function formatPlatformResult(result) {
     out += `**Page:** ${data.title || data.id}\n`;
     if (data.properties) out += `\n${data.properties}\n`;
     out += `\n---\n${data.content}\n`;
+  } else if (data.image && data.image.data) {
+    // Image generation result — include metadata but truncate base64 data
+    out += `**Model:** ${data.model || 'unknown'}\n`;
+    out += `**Status:** ${data.status || 'generated'}\n`;
+    out += `**Format:** ${data.image.mimeType}\n`;
+    out += `**Size:** ~${Math.round((data.image.size_bytes || 0) / 1024)} KB\n`;
+    if (data.prompt) out += `**Prompt:** ${data.prompt}\n`;
+    if (data.edit_prompt) out += `**Edit:** ${data.edit_prompt}\n`;
+    if (data.aspect_ratio) out += `**Aspect Ratio:** ${data.aspect_ratio}\n`;
+    if (data.caption) out += `**Caption:** ${data.caption}\n`;
+    out += `\n![Generated Image](data:${data.image.mimeType};base64,${data.image.data.slice(0, 100)}...)\n`;
+    out += `\n*Image data available as base64 in the response*\n`;
   } else {
     // Generic: JSON dump
     out += '```json\n' + JSON.stringify(data, null, 2) + '\n```\n';

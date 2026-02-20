@@ -24,6 +24,7 @@ const CATEGORY_COLORS = {
   ecommerce: { bg: 'rgba(236,72,153,0.12)', text: '#ec4899', border: 'rgba(236,72,153,0.25)' },
   marketing: { bg: 'rgba(168,85,247,0.12)', text: '#a855f7', border: 'rgba(168,85,247,0.25)' },
   automation: { bg: 'rgba(251,146,60,0.12)', text: '#fb923c', border: 'rgba(251,146,60,0.25)' },
+  'ai-tools': { bg: 'rgba(255,213,79,0.12)', text: '#FFD54F', border: 'rgba(255,213,79,0.25)' },
 };
 
 const CATEGORY_LABELS = {
@@ -34,6 +35,7 @@ const CATEGORY_LABELS = {
   ecommerce: 'E-commerce',
   marketing: 'Marketing',
   automation: 'Automation',
+  'ai-tools': 'AI Tools',
 };
 
 function CategoryBadge({ category }) {

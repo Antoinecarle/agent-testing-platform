@@ -1548,6 +1548,49 @@ const PLATFORM_TOOL_DEFINITIONS = {
       pre_processors: [{ type: 'platform_action', platform: 'notion', action: 'append_blocks' }],
     },
   },
+  'nano-banana': {
+    generate_image: {
+      tool_name: 'nanobanana_generate',
+      description: 'Generate an image from a text prompt using Nano Banana (Gemini 2.5 Flash Image). Returns base64-encoded image data. Fast generation (~5-10s), good for quick visuals, thumbnails, illustrations.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Detailed text description of the image to generate. Be specific about style, composition, colors, and subject.' },
+          aspect_ratio: { type: 'string', enum: ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'], description: 'Image aspect ratio (default: 1:1). Use 16:9 for landscapes, 9:16 for stories/mobile, 1:1 for square.' },
+        },
+        required: ['prompt'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'nano-banana', action: 'generate_image' }],
+    },
+    generate_image_pro: {
+      tool_name: 'nanobanana_generate_pro',
+      description: 'Generate a high-quality image using Nano Banana Pro (Gemini 3 Pro Image). Premium quality with advanced reasoning — best for professional assets, marketing visuals, detailed scenes.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Detailed text description of the image to generate. Nano Banana Pro excels at complex scenes, photorealistic renders, and creative compositions.' },
+          aspect_ratio: { type: 'string', enum: ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'], description: 'Image aspect ratio (default: 1:1)' },
+        },
+        required: ['prompt'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'nano-banana', action: 'generate_image_pro' }],
+    },
+    edit_image: {
+      tool_name: 'nanobanana_edit',
+      description: 'Edit or transform an existing image using natural language instructions. Provide the image as base64 data along with an edit prompt describing the desired changes.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Natural language edit instruction (e.g., "remove the background", "make it look like a watercolor painting", "add sunglasses")' },
+          image_data: { type: 'string', description: 'Base64-encoded image data to edit' },
+          image_mime: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp'], description: 'MIME type of the input image (default: image/png)' },
+          aspect_ratio: { type: 'string', enum: ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'], description: 'Output aspect ratio (optional)' },
+        },
+        required: ['prompt', 'image_data'],
+      },
+      pre_processors: [{ type: 'platform_action', platform: 'nano-banana', action: 'edit_image' }],
+    },
+  },
 };
 
 /**

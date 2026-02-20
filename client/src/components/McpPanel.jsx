@@ -111,26 +111,30 @@ function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
 
   const snippets = {
     'claude-code': {
-      label: 'Claude Code',
+      label: 'Claude Code / Desktop',
       icon: Terminal,
+      description: 'Add this to your claude_desktop_config.json or .mcp.json file. The SSE transport is the most widely compatible method.',
       blocks: [
         {
-          label: 'claude_desktop_config.json (Streamable HTTP)',
+          label: 'SSE Transport (Recommended)',
+          description: 'Works with Claude Desktop, Claude Code, Cursor, and most MCP clients. Authentication via query parameter.',
           code: JSON.stringify({
             mcpServers: {
               [deployment.slug]: {
-                url: mcpUrl,
-                headers: { Authorization: `Bearer ${apiKeyPlaceholder}` },
+                type: 'sse',
+                url: `${sseUrl}?key=${apiKeyPlaceholder}`,
               },
             },
           }, null, 2),
         },
         {
-          label: 'claude_desktop_config.json (SSE fallback)',
+          label: 'Streamable HTTP Transport (Advanced)',
+          description: 'Newer protocol — use this if your client supports streamable HTTP. Authentication via Bearer header.',
           code: JSON.stringify({
             mcpServers: {
               [deployment.slug]: {
-                url: sseUrl,
+                type: 'streamable-http',
+                url: mcpUrl,
                 headers: { Authorization: `Bearer ${apiKeyPlaceholder}` },
               },
             },
@@ -141,9 +145,11 @@ function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
     curl: {
       label: 'cURL',
       icon: Code,
+      description: 'Test your MCP server from the terminal.',
       blocks: [
         {
-          label: 'Chat API',
+          label: 'Chat API (Simple)',
+          description: 'Send a message and get a response — no MCP protocol needed.',
           code: `curl -X POST "${chatUrl}" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKeyPlaceholder}" \\
@@ -152,7 +158,18 @@ function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
   }'`,
         },
         {
-          label: 'MCP JSON-RPC (initialize)',
+          label: 'SSE Stream (Connect)',
+          description: 'Open the SSE stream — the server sends an endpoint event with the messages URL.',
+          code: `# 1. Open SSE stream (keep running in a terminal)
+curl -N "${sseUrl}?key=${apiKeyPlaceholder}"
+
+# The server responds with:
+# event: endpoint
+# data: /mcp/${deployment.slug}/sse/messages?sessionId=...`,
+        },
+        {
+          label: 'MCP JSON-RPC (Initialize)',
+          description: 'Initialize an MCP session via the Streamable HTTP endpoint.',
           code: `curl -X POST "${mcpUrl}" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKeyPlaceholder}" \\
@@ -172,9 +189,11 @@ function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
     javascript: {
       label: 'JavaScript',
       icon: Code,
+      description: 'Integrate in your application.',
       blocks: [
         {
-          label: 'Fetch (Chat API)',
+          label: 'Chat API (Fetch)',
+          description: 'Simple request/response — no MCP client library needed.',
           code: `const response = await fetch("${chatUrl}", {
   method: "POST",
   headers: {
@@ -187,6 +206,67 @@ function ConfigSnippets({ deployment, baseUrl, copiedField, copyToClipboard }) {
 });
 const data = await response.json();
 console.log(data.response);`,
+        },
+        {
+          label: 'MCP Client (SSE)',
+          description: 'Connect as an MCP client using the official SDK.',
+          code: `import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+
+const transport = new SSEClientTransport(
+  new URL("${sseUrl}?key=${apiKeyPlaceholder}")
+);
+const client = new Client({ name: "my-app", version: "1.0.0" });
+await client.connect(transport);
+
+// List available tools
+const { tools } = await client.listTools();
+console.log(tools);
+
+// Call a tool
+const result = await client.callTool({
+  name: "chat",
+  arguments: { message: "Hello!" },
+});
+console.log(result);`,
+        },
+      ],
+    },
+    python: {
+      label: 'Python',
+      icon: Code,
+      description: 'Integrate with Python.',
+      blocks: [
+        {
+          label: 'Chat API (requests)',
+          description: 'Simple HTTP call — no MCP library needed.',
+          code: `import requests
+
+response = requests.post(
+    "${chatUrl}",
+    headers={"Authorization": "Bearer ${apiKeyPlaceholder}"},
+    json={"message": "Hello, how can you help me?"}
+)
+print(response.json()["response"])`,
+        },
+        {
+          label: 'MCP Client (SSE)',
+          description: 'Connect as an MCP client using the official Python SDK.',
+          code: `from mcp import ClientSession
+from mcp.client.sse import sse_client
+
+async with sse_client(
+    "${sseUrl}?key=${apiKeyPlaceholder}"
+) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+        print(tools)
+
+        result = await session.call_tool(
+            "chat", arguments={"message": "Hello!"}
+        )
+        print(result)`,
         },
       ],
     },
@@ -222,6 +302,15 @@ console.log(data.response);`,
         </div>
       </div>
       <div style={{ padding: '16px' }}>
+        {/* Tab description */}
+        {current.description && (
+          <div style={{
+            fontSize: '11px', color: t.ts, lineHeight: 1.5, marginBottom: '14px',
+          }}>
+            {current.description}
+          </div>
+        )}
+        {/* API key notice */}
         <div style={{
           background: 'rgba(139,92,246,0.04)', border: `1px solid ${t.violet}20`,
           borderRadius: '6px', padding: '8px 12px', marginBottom: '14px',
@@ -229,18 +318,24 @@ console.log(data.response);`,
         }}>
           <AlertCircle size={11} style={{ color: t.violet, flexShrink: 0 }} />
           <span style={{ fontSize: '10px', color: t.ts, lineHeight: 1.4 }}>
-            Replace <code style={{ fontFamily: t.mono, color: t.violet, fontWeight: '600' }}>YOUR_API_KEY</code> with a key from the API Keys section.
+            Replace <code style={{ fontFamily: t.mono, color: t.violet, fontWeight: '600' }}>YOUR_API_KEY</code> with a key from the <strong>API Keys</strong> tab.
           </span>
         </div>
         {current.blocks.map((block, i) => (
-          <CodeBlock
-            key={i}
-            label={block.label}
-            code={block.code}
-            copiedField={copiedField}
-            copyToClipboard={copyToClipboard}
-            icon={current.icon}
-          />
+          <div key={i}>
+            {block.description && (
+              <div style={{ fontSize: '10px', color: t.tm, marginBottom: '6px', lineHeight: 1.4, paddingLeft: '2px' }}>
+                {block.description}
+              </div>
+            )}
+            <CodeBlock
+              label={block.label}
+              code={block.code}
+              copiedField={copiedField}
+              copyToClipboard={copyToClipboard}
+              icon={current.icon}
+            />
+          </div>
         ))}
       </div>
     </div>
@@ -1153,12 +1248,25 @@ function SettingsSection({ agentName, deployment, onUpdate, onUndeploy, deployLo
 
 
 // ----- Platform Tools Section -----
+// ----- Nano Banana SVG Icon Component -----
+function NanoBananaIcon({ size = 14, style = {} }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} style={style} xmlns="http://www.w3.org/2000/svg">
+      <path d="M8.5 20C7 16 6.5 11.5 8 7c1-3 3.5-5 7-5 1.5 0 2.8.5 3.5 1.2-.8 3-2 6.5-3.5 10C13.5 17 11.5 20 8.5 20z" fill="#FFD54F"/>
+      <path d="M8 7c-1.5 4.5-1 9 .5 13" stroke="#F9A825" strokeWidth="1.3" fill="none" strokeLinecap="round"/>
+      <circle cx="17" cy="4" r="1.2" fill="#F9A825"/>
+      <path d="M4 10l1-2 1 2-2 1 2 1-1 2-1-2-2-1z" fill="#F9A825" opacity="0.7"/>
+    </svg>
+  );
+}
+
 const PLATFORM_ICONS = {
   'google-drive': HardDrive,
   gmail: Mail,
   'google-calendar': Calendar,
   'google-sheets': FileSpreadsheet,
   notion: Database,
+  'nano-banana': null, // uses custom SVG component
 };
 
 const PLATFORM_COLORS = {
@@ -1167,6 +1275,7 @@ const PLATFORM_COLORS = {
   'google-calendar': '#34A853',
   'google-sheets': '#0F9D58',
   notion: '#fff',
+  'nano-banana': '#FFD54F',
 };
 
 function PlatformToolsSection({ agentName }) {
@@ -1223,6 +1332,7 @@ function PlatformToolsSection({ agentName }) {
       {Object.values(grouped).map(platform => {
         const PIcon = PLATFORM_ICONS[platform.slug] || Globe;
         const pColor = PLATFORM_COLORS[platform.slug] || t.violet;
+        const isNanoBanana = platform.slug === 'nano-banana';
 
         return (
           <div key={platform.slug} style={{
@@ -1238,7 +1348,10 @@ function PlatformToolsSection({ agentName }) {
                 width: '28px', height: '28px', borderRadius: '6px',
                 background: `${pColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <PIcon size={14} style={{ color: pColor }} />
+                {isNanoBanana
+                  ? <NanoBananaIcon size={16} />
+                  : <PIcon size={14} style={{ color: pColor }} />
+                }
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '13px', fontWeight: '600' }}>{platform.name}</div>
