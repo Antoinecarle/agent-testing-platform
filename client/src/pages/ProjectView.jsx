@@ -9,6 +9,7 @@ import OrchestraView from '../components/OrchestraView';
 import FileExplorer from '../components/FileExplorer';
 import FileViewer from '../components/FileViewer';
 import UnifiedChatPanel from '../components/UnifiedChatPanel';
+import ActivityPanel from '../components/ActivityPanel';
 import WorktreeDrawer from '../components/WorktreeDrawer';
 
 const t = {
@@ -316,7 +317,6 @@ export default function ProjectView() {
   const [agentSkills, setAgentSkills] = useState([]);
   const [leftMode, setLeftMode] = useState('chat'); // 'chat' | 'terminal' | 'files' | 'activity' | 'orchestra'
   const [viewingFile, setViewingFile] = useState(null); // file path for FileViewer
-  const [worktreeOpen, setWorktreeOpen] = useState(false);
   const [allAgents, setAllAgents] = useState([]);
   // Inline editing state
   const [editingName, setEditingName] = useState(false);
@@ -757,16 +757,19 @@ export default function ProjectView() {
       {isMobile && (
         <div style={{
           display: 'flex', borderBottom: `1px solid ${t.border}`, background: t.surface, flexShrink: 0,
+          overflowX: 'auto', scrollbarWidth: 'none',
         }}>
           {[
             { id: 'chat', label: 'Chat' },
             { id: 'preview', label: 'Preview' },
             { id: 'terminal', label: 'Terminal' },
             { id: 'files', label: 'Files' },
+            { id: 'activity', label: 'Activity' },
+            { id: 'worktree', label: 'Tree' },
             ...(project?.mode === 'orchestra' ? [{ id: 'orchestra', label: 'Orchestra' }] : []),
           ].map(tab => (
             <button key={tab.id} onClick={() => { setMobilePanel(tab.id); setLeftMode(tab.id); }} style={{
-              flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+              flex: '0 0 auto', padding: '10px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer',
               background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
               color: mobilePanel === tab.id ? t.tp : t.tm,
               border: 'none', borderBottom: mobilePanel === tab.id ? `2px solid ${t.violet}` : '2px solid transparent',
@@ -781,7 +784,7 @@ export default function ProjectView() {
       <aside style={{
         width: isMobile ? '100%' : `${leftW}px`,
         background: t.surface, borderRight: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: fullscreen ? 'none' : (isMobile && !['chat', 'terminal', 'files', 'orchestra'].includes(mobilePanel) ? 'none' : 'flex'),
+        display: fullscreen ? 'none' : (isMobile && !['chat', 'terminal', 'files', 'activity', 'orchestra'].includes(mobilePanel) ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
@@ -870,10 +873,7 @@ export default function ProjectView() {
             onRefresh={refreshProject}
           />
         ) : leftMode === 'activity' ? (
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {/* Inline activity view - reuses UnifiedChatPanel which already shows activity */}
-            <UnifiedChatPanel projectId={projectId} />
-          </div>
+          <ActivityPanel projectId={projectId} />
         ) : leftMode === 'files' ? (
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
             <div style={{ width: viewingFile ? '200px' : '100%', minWidth: '160px', overflow: 'hidden', borderRight: viewingFile ? `1px solid ${t.border}` : 'none', flexShrink: 0 }}>
@@ -1008,7 +1008,7 @@ export default function ProjectView() {
 
       {/* RIGHT PANEL: Preview + Carousel + Worktree Drawer */}
       <main style={{
-        flex: 1, display: isMobile && mobilePanel !== 'preview' ? 'none' : 'flex',
+        flex: 1, display: isMobile && mobilePanel !== 'preview' && mobilePanel !== 'worktree' ? 'none' : 'flex',
         flexDirection: 'column', minWidth: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
@@ -1141,20 +1141,22 @@ export default function ProjectView() {
           )}
         </div>
 
-        {/* Preview iframe */}
-        <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
-          {selected ? (
-            <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
-              style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
-          ) : (
-            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg }}>
-              Select an iteration to preview
-            </div>
-          )}
-        </div>
+        {/* Preview iframe (hidden on mobile worktree mode) */}
+        {!(isMobile && mobilePanel === 'worktree') && (
+          <div style={{ flex: 1, background: '#fff', margin: '8px', borderRadius: '8px', border: `1px solid ${t.border}`, overflow: 'hidden', position: 'relative' }}>
+            {selected ? (
+              <iframe key={previewKey} src={`/api/preview/${projectId}/${selected.id}?v=${previewKey}`}
+                style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.tm, background: t.bg }}>
+                Select an iteration to preview
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Thumbnail Carousel */}
-        {!fullscreen && <IterationCarousel
+        {!fullscreen && !(isMobile && mobilePanel === 'worktree') && <IterationCarousel
           allIterations={allIterations}
           selected={selected}
           onSelect={handleSelect}
@@ -1162,8 +1164,8 @@ export default function ProjectView() {
           previewKey={previewKey}
         />}
 
-        {/* Worktree Drawer (collapsible) */}
-        {!fullscreen && (
+        {/* Worktree Drawer (collapsible, or full-height on mobile worktree tab) */}
+        {(!fullscreen || (isMobile && mobilePanel === 'worktree')) && (
           <WorktreeDrawer
             treeData={treeData}
             selected={selected}
@@ -1199,6 +1201,7 @@ export default function ProjectView() {
             }}
             onBulkDelete={handleBulkDelete}
             TreeNodeComponent={TreeNode}
+            forceOpen={isMobile && mobilePanel === 'worktree'}
           />
         )}
       </main>

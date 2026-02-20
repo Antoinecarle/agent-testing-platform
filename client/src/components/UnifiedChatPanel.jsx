@@ -178,9 +178,22 @@ export default function UnifiedChatPanel({ projectId }) {
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('[UnifiedChat] Socket connected');
       socket.emit('watch-activity', { projectId }, (resp) => {
         if (resp?.watching) setWatching(true);
       });
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('[UnifiedChat] Socket connect error:', err.message);
+      setWatching(false);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.warn('[UnifiedChat] Socket disconnected:', reason);
+      setWatching(false);
+      // If sending, reset
+      setSending(false);
     });
 
     // Live activity events from file watcher
@@ -349,7 +362,37 @@ export default function UnifiedChatPanel({ projectId }) {
       projectId,
       message: msg,
       sessionResume: chatSessionId,
+    }, (resp) => {
+      if (resp?.error) {
+        console.error('[Chat] Send error:', resp.error);
+        setSending(false);
+        setTurns(prev => {
+          const copy = [...prev];
+          const lastIdx = copy.length - 1;
+          if (lastIdx >= 0 && copy[lastIdx].streaming) {
+            copy[lastIdx] = {
+              ...copy[lastIdx],
+              assistantText: `Error: ${resp.error}`,
+              streaming: false,
+              streamingText: undefined,
+              isError: true,
+            };
+          }
+          return copy;
+        });
+      }
     });
+
+    // Safety timeout: if no response after 60s, reset sending state
+    setTimeout(() => {
+      setSending(prev => {
+        if (prev) {
+          console.warn('[Chat] Send timeout - resetting state');
+          return false;
+        }
+        return prev;
+      });
+    }, 60000);
 
     setTimeout(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

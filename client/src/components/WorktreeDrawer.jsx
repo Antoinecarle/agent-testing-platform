@@ -28,8 +28,10 @@ export default function WorktreeDrawer({
   onMultiSelectToggle,
   onBulkDelete,
   TreeNodeComponent,
+  forceOpen = false,
 }) {
   const [open, setOpen] = useState(false);
+  const isOpen = forceOpen || open;
 
   return (
     <div style={{
@@ -37,22 +39,23 @@ export default function WorktreeDrawer({
       background: t.surface,
       flexShrink: 0,
       transition: 'max-height 0.3s ease',
-      maxHeight: open ? '400px' : '36px',
+      maxHeight: isOpen ? (forceOpen ? '100%' : '400px') : '36px',
+      flex: forceOpen ? 1 : undefined,
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
     }}>
       {/* Header */}
       <div
-        onClick={() => setOpen(!open)}
+        onClick={() => !forceOpen && setOpen(!open)}
         style={{
           height: '36px', minHeight: '36px', display: 'flex', alignItems: 'center',
           padding: '0 12px', gap: '8px', cursor: 'pointer',
-          borderBottom: open ? `1px solid ${t.border}` : 'none',
+          borderBottom: isOpen ? `1px solid ${t.border}` : 'none',
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: '10px', color: t.tm, transition: 'transform 0.2s', transform: open ? 'rotate(90deg)' : 'none' }}>
+        <span style={{ fontSize: '10px', color: t.tm, transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'none' }}>
           {'\u25B6'}
         </span>
         <span style={{ fontSize: '11px', fontWeight: '600', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -74,7 +77,7 @@ export default function WorktreeDrawer({
         )}
         <div style={{ flex: 1 }} />
         {/* Action buttons (only when expanded) */}
-        {open && (
+        {isOpen && (
           <div style={{ display: 'flex', gap: '3px' }} onClick={e => e.stopPropagation()}>
             {multiSelect ? (
               <>
@@ -118,7 +121,7 @@ export default function WorktreeDrawer({
       </div>
 
       {/* Body (visible when expanded) */}
-      {open && (
+      {isOpen && (
         <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           {/* Branch context indicator */}
           {branchParent !== undefined && (
