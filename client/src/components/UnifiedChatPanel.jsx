@@ -479,7 +479,7 @@ export default function UnifiedChatPanel({ projectId }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}
+        style={{ flex: 1, overflow: 'auto', padding: '8px 0', minHeight: 0 }}
       >
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
@@ -504,7 +504,7 @@ export default function UnifiedChatPanel({ projectId }) {
       {/* Input area */}
       <div style={{
         padding: '8px 12px', borderTop: `1px solid ${t.border}`,
-        display: 'flex', gap: '8px', alignItems: 'flex-end',
+        display: 'flex', gap: '8px', alignItems: 'flex-end', flexShrink: 0,
       }}>
         <textarea
           ref={inputRef}

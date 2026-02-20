@@ -786,7 +786,8 @@ export default function ProjectView() {
         background: t.surface, borderRight: isMobile ? 'none' : `1px solid ${t.border}`,
         display: fullscreen ? 'none' : (isMobile && !['chat', 'terminal', 'files', 'activity', 'orchestra'].includes(mobilePanel) ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
-        height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
+        height: isMobile ? 'calc(100vh - 53px - 42px)' : '100%',
+        overflow: 'hidden',
       }}>
         {/* Mode tabs */}
         <div style={{

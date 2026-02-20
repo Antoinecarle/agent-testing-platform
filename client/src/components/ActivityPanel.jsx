@@ -402,7 +402,7 @@ export default function ActivityPanel({ projectId }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        style={{ flex: 1, overflow: 'auto', scrollBehavior: 'smooth' }}
+        style={{ flex: 1, overflow: 'auto', scrollBehavior: 'smooth', minHeight: 0 }}
       >
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: t.tm, fontSize: '12px' }}>
