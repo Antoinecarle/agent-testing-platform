@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2, Plus, GitFork, UserX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Palette, Code, Settings, Megaphone, BarChart3, Wrench, ArrowLeft, Shield, Users, User, FolderTree, FileCode, Pencil, Check, X, Maximize2, Minimize2, Download, GitCompare, Trash2, RotateCcw, Github, Upload, FolderDown, RefreshCw, Unlink, ExternalLink, Loader2, Plus, GitFork, UserX, MessageSquare } from 'lucide-react';
 import { api, getUser } from '../api';
 import TerminalPanel from '../components/TerminalPanel';
 import OrchestraBuilder from '../components/OrchestraBuilder';
 import OrchestraView from '../components/OrchestraView';
 import FileExplorer from '../components/FileExplorer';
 import FileViewer from '../components/FileViewer';
+import ActivityPanel from '../components/ActivityPanel';
+import ChatPanel from '../components/ChatPanel';
 
 const t = {
   bg: '#0f0f0f', surface: '#1a1a1b', surfaceEl: '#242426',
@@ -314,7 +316,7 @@ export default function ProjectView() {
   const [userClaudeConnected, setUserClaudeConnected] = useState(null);
   const [mobilePanel, setMobilePanel] = useState('preview'); // 'tree' | 'preview' | 'terminal'
   const [agentSkills, setAgentSkills] = useState([]);
-  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files' | 'orchestra'
+  const [rightPanel, setRightPanel] = useState('terminal'); // 'terminal' | 'files' | 'orchestra' | 'activity' | 'chat'
   const [viewingFile, setViewingFile] = useState(null); // file path for FileViewer
   const [allAgents, setAllAgents] = useState([]);
   // Inline editing state
@@ -786,9 +788,11 @@ export default function ProjectView() {
             { id: 'preview', label: 'Preview' },
             { id: 'terminal', label: 'Terminal' },
             { id: 'files', label: 'Files' },
+            { id: 'activity', label: 'Activity' },
+            { id: 'chat', label: 'Chat' },
             ...(project?.mode === 'orchestra' ? [{ id: 'orchestra', label: 'Orchestra' }] : []),
           ].map(tab => (
-            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); if (tab.id === 'files') setRightPanel('files'); else if (tab.id === 'terminal') setRightPanel('terminal'); else if (tab.id === 'orchestra') setRightPanel('orchestra'); }} style={{
+            <button key={tab.id} onClick={() => { setMobilePanel(tab.id); setRightPanel(tab.id); }} style={{
               flex: 1, padding: '10px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
               background: mobilePanel === tab.id ? t.surfaceEl : 'transparent',
               color: mobilePanel === tab.id ? t.tp : t.tm,
@@ -1128,7 +1132,7 @@ export default function ProjectView() {
       <aside style={{
         width: isMobile ? '100%' : `${rightW}px`,
         background: t.surface, borderLeft: isMobile ? 'none' : `1px solid ${t.border}`,
-        display: fullscreen ? 'none' : (isMobile && mobilePanel !== 'terminal' && mobilePanel !== 'files' && mobilePanel !== 'orchestra' ? 'none' : 'flex'),
+        display: fullscreen ? 'none' : (isMobile && !['terminal', 'files', 'orchestra', 'activity', 'chat'].includes(mobilePanel) ? 'none' : 'flex'),
         flexDirection: 'column', flexShrink: 0,
         height: isMobile ? 'calc(100vh - 53px - 42px)' : 'auto',
       }}>
@@ -1163,6 +1167,32 @@ export default function ProjectView() {
             <FolderTree size={12} />
             Files
           </button>
+          <button
+            onClick={() => setRightPanel('activity')}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              background: rightPanel === 'activity' ? t.surface : 'transparent',
+              color: rightPanel === 'activity' ? '#06b6d4' : t.tm,
+              border: 'none', borderBottom: rightPanel === 'activity' ? '2px solid #06b6d4' : '2px solid transparent',
+              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            <BarChart3 size={12} />
+            Activity
+          </button>
+          <button
+            onClick={() => setRightPanel('chat')}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              background: rightPanel === 'chat' ? t.surface : 'transparent',
+              color: rightPanel === 'chat' ? '#22c55e' : t.tm,
+              border: 'none', borderBottom: rightPanel === 'chat' ? '2px solid #22c55e' : '2px solid transparent',
+              fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            <MessageSquare size={12} />
+            Chat
+          </button>
           {project?.mode === 'orchestra' && (
             <button
               onClick={() => setRightPanel('orchestra')}
@@ -1188,6 +1218,12 @@ export default function ProjectView() {
             agents={allAgents}
             onRefresh={refreshProject}
           />
+        ) : rightPanel === 'activity' ? (
+          /* ACTIVITY PANEL */
+          <ActivityPanel projectId={projectId} />
+        ) : rightPanel === 'chat' ? (
+          /* CHAT PANEL */
+          <ChatPanel projectId={projectId} />
         ) : rightPanel === 'files' ? (
           /* FILE EXPLORER PANEL */
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>

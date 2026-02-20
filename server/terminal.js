@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const db = require('./db');
 const { generateWorkspaceContext, syncSkillsToHome } = require('./workspace');
 const { ensureUserHome, getUserHomePath } = require('./user-home');
@@ -94,7 +95,25 @@ if (IS_RAILWAY) {
   }
 }
 
+// Resolve Claude CLI binary path (reuse from index.js pattern)
+let CLAUDE_BIN_PATH = 'claude';
+try {
+  const { execSync } = require('child_process');
+  const candidates = [
+    path.join(__dirname, '..', 'node_modules', '.bin', 'claude'),
+  ];
+  try {
+    const globalPrefix = execSync('npm prefix -g', { timeout: 5000 }).toString().trim();
+    candidates.unshift(path.join(globalPrefix, 'bin', 'claude'));
+  } catch (_) {}
+  candidates.push('/usr/local/bin/claude', '/usr/bin/claude', '/root/.local/bin/claude');
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { CLAUDE_BIN_PATH = p; break; }
+  }
+} catch (_) {}
+
 const sessions = new Map();
+const chatProcesses = new Map(); // Track active chat processes per socket
 
 function generateId() {
   return crypto.randomBytes(6).toString('hex');
@@ -455,7 +474,158 @@ function setupTerminal(io) {
       }
     });
 
+    // ── Activity Log Streaming ──────────────────────────────────────────────
+    let activityCleanup = null;
+
+    socket.on('watch-activity', ({ projectId } = {}, callback) => {
+      if (!projectId || !socket.userId) {
+        if (typeof callback === 'function') callback({ error: 'Missing projectId' });
+        return;
+      }
+
+      // Clean up previous watcher
+      if (activityCleanup) { activityCleanup(); activityCleanup = null; }
+
+      try {
+        const { watchSessionFile, getLatestSession, listSessionFiles } = require('./lib/session-parser');
+        const userHome = getUserHomePath(socket.userId);
+        const workspacePath = getWorkspacePath(projectId) || path.join(
+          (process.env.DATA_DIR || path.join(__dirname, '..', 'data')),
+          'workspaces', projectId
+        );
+
+        const latest = getLatestSession(userHome, workspacePath);
+        if (!latest) {
+          if (typeof callback === 'function') callback({ sessionId: null, message: 'No session logs found' });
+          return;
+        }
+
+        activityCleanup = watchSessionFile(latest.filePath, (newEvents) => {
+          socket.emit('activity-events', newEvents);
+        });
+
+        if (typeof callback === 'function') callback({ sessionId: latest.sessionId, watching: true });
+      } catch (err) {
+        console.error('[Terminal] watch-activity error:', err.message);
+        if (typeof callback === 'function') callback({ error: err.message });
+      }
+    });
+
+    socket.on('stop-watch-activity', (callback) => {
+      if (activityCleanup) { activityCleanup(); activityCleanup = null; }
+      if (typeof callback === 'function') callback({ ok: true });
+    });
+
+    // ── Chat with Claude (streaming) ────────────────────────────────────────
+    socket.on('chat-send', ({ projectId, message, sessionResume } = {}, callback) => {
+      if (!projectId || !message || !socket.userId) {
+        if (typeof callback === 'function') callback({ error: 'Missing projectId or message' });
+        return;
+      }
+
+      // Kill any existing chat process for this socket
+      const existing = chatProcesses.get(socket.id);
+      if (existing) {
+        try { existing.kill('SIGTERM'); } catch (_) {}
+        chatProcesses.delete(socket.id);
+      }
+
+      try {
+        const userHome = getUserHomePath(socket.userId);
+        ensureUserHome(socket.userId);
+        const cwd = getWorkspacePath(projectId) || path.join(
+          (process.env.DATA_DIR || path.join(__dirname, '..', 'data')),
+          'workspaces', projectId
+        );
+
+        const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages'];
+        if (sessionResume) {
+          args.push('--resume', sessionResume);
+        }
+        args.push(message);
+
+        const chatProc = spawn(CLAUDE_BIN_PATH, args, {
+          cwd,
+          env: buildAgentEnv({
+            TERM: 'xterm-256color',
+            HOME: userHome,
+            USER: IS_RAILWAY ? 'root' : 'claude-user',
+            PATH: IS_RAILWAY
+              ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
+              : `/home/claude-user/.local/bin:${process.env.PATH}`,
+          }),
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        chatProcesses.set(socket.id, chatProc);
+        let sessionId = null;
+        let buffer = '';
+
+        chatProc.stdout.on('data', (chunk) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const parsed = JSON.parse(line);
+              // Extract session ID from result messages
+              if (parsed.session_id) sessionId = parsed.session_id;
+              socket.emit('chat-stream', parsed);
+            } catch {
+              // Not valid JSON, emit as raw text
+              socket.emit('chat-stream', { type: 'raw', text: line });
+            }
+          }
+        });
+
+        chatProc.stderr.on('data', (chunk) => {
+          socket.emit('chat-stream', { type: 'error', text: chunk.toString() });
+        });
+
+        chatProc.on('close', (code) => {
+          chatProcesses.delete(socket.id);
+          // Flush remaining buffer
+          if (buffer.trim()) {
+            try {
+              socket.emit('chat-stream', JSON.parse(buffer));
+            } catch {
+              socket.emit('chat-stream', { type: 'raw', text: buffer });
+            }
+          }
+          socket.emit('chat-done', { code, sessionId });
+        });
+
+        chatProc.on('error', (err) => {
+          chatProcesses.delete(socket.id);
+          socket.emit('chat-done', { error: err.message });
+        });
+
+        if (typeof callback === 'function') callback({ ok: true });
+      } catch (err) {
+        console.error('[Terminal] chat-send error:', err.message);
+        if (typeof callback === 'function') callback({ error: err.message });
+      }
+    });
+
+    socket.on('chat-cancel', (callback) => {
+      const proc = chatProcesses.get(socket.id);
+      if (proc) {
+        try { proc.kill('SIGTERM'); } catch (_) {}
+        chatProcesses.delete(socket.id);
+      }
+      if (typeof callback === 'function') callback({ ok: true });
+    });
+
     socket.on('disconnect', () => {
+      if (activityCleanup) { activityCleanup(); activityCleanup = null; }
+      // Kill any running chat process
+      const chatProc = chatProcesses.get(socket.id);
+      if (chatProc) {
+        try { chatProc.kill('SIGTERM'); } catch (_) {}
+        chatProcesses.delete(socket.id);
+      }
       if (currentSessionId) {
         const session = sessions.get(currentSessionId);
         if (session) detachSocket(session, socket);

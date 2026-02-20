@@ -343,6 +343,9 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   app.use('/api/seed', verifyToken, seedRoutes);
   app.use('/api/terminal-tabs', verifyToken, terminalTabsRoutes);
 
+  const sessionLogsRoutes = require('./routes/session-logs');
+  app.use('/api/session-logs', verifyToken, sessionLogsRoutes);
+
   const organizationsRoutes = require('./routes/organizations');
   app.use('/api/organizations', verifyToken, organizationsRoutes);
 
