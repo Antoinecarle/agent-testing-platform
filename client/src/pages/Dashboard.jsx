@@ -728,98 +728,271 @@ export default function Dashboard() {
         </motion.div>
       </motion.div>
 
-      {/* Persona Onboarding CTA */}
-      <motion.div variants={itemVariants}>
-        <div
+      {/* Persona Onboarding — Bento Grid */}
+      <motion.div variants={itemVariants} className="dash-persona-grid" style={{
+        display: 'grid',
+        gridTemplateColumns: '2fr 1fr',
+        gridTemplateRows: 'auto auto',
+        gap: '18px',
+      }}>
+        {/* MAIN CARD — spans 1 col, 2 rows (biggest, most important) */}
+        <motion.div
+          whileHover={{ y: -4, scale: 1.005 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           onClick={() => navigate('/personaboarding')}
-          className="dash-persona-cta"
+          className="persona-card-main"
           style={{
+            gridRow: '1 / 3',
             position: 'relative', overflow: 'hidden', cursor: 'pointer',
-            borderRadius: '16px', padding: '32px 36px',
-            background: `linear-gradient(135deg, ${t.surface} 0%, #1e1233 50%, ${t.surface} 100%)`,
-            border: `1px solid ${t.violet}33`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '32px',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = t.violet;
-            e.currentTarget.style.boxShadow = `0 12px 40px ${t.violet}20`;
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = `${t.violet}33`;
-            e.currentTarget.style.boxShadow = 'none';
-            e.currentTarget.style.transform = 'translateY(0)';
+            borderRadius: '22px', padding: '36px',
+            background: `linear-gradient(160deg, #1e1040 0%, #140e2a 40%, ${t.surface} 100%)`,
+            border: `1px solid ${t.violet}35`,
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            minHeight: '380px',
+            boxShadow: `0 6px 40px ${t.violet}12, inset 0 1px 0 ${t.violet}18`,
           }}
         >
-          {/* Animated glow orbs */}
+          {/* Glow orbs */}
           <div style={{
-            position: 'absolute', top: '-40px', right: '120px',
-            width: '200px', height: '200px', borderRadius: '50%',
-            background: `radial-gradient(circle, ${t.violet}18 0%, transparent 70%)`,
+            position: 'absolute', top: '-50px', right: '-30px',
+            width: '250px', height: '250px', borderRadius: '50%',
+            background: `radial-gradient(circle, ${t.violet}15 0%, transparent 70%)`,
             pointerEvents: 'none',
           }} />
           <div style={{
-            position: 'absolute', bottom: '-60px', left: '30%',
-            width: '160px', height: '160px', borderRadius: '50%',
+            position: 'absolute', bottom: '-40px', left: '20%',
+            width: '200px', height: '200px', borderRadius: '50%',
             background: `radial-gradient(circle, rgba(236,72,153,0.1) 0%, transparent 70%)`,
             pointerEvents: 'none',
           }} />
 
-          {/* Left: Icon cluster */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', zIndex: 1 }}>
-            <div style={{
-              width: '64px', height: '64px', borderRadius: '16px',
-              background: `linear-gradient(135deg, ${t.violet}, #a855f7)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: `0 8px 24px ${t.violet}44`,
-              flexShrink: 0,
-            }}>
-              <User size={28} color="#fff" />
+          {/* Top: label + badge */}
+          <div style={{ zIndex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={{
+                fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '0.12em', color: t.violet, fontFamily: t.mono,
+              }}>
+                Persona Builder
+              </span>
+              <span style={{
+                padding: '3px 12px', borderRadius: '100px',
+                background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+                color: '#fff', fontSize: '9px', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>
+                New
+              </span>
             </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: t.tp, letterSpacing: '-0.01em' }}>
-                  Persona Onboarding
-                </h3>
-                <span style={{
-                  padding: '2px 10px', borderRadius: '100px',
-                  background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
-                  color: '#fff', fontSize: '10px', fontWeight: 700,
-                  textTransform: 'uppercase', letterSpacing: '0.08em',
-                }}>
-                  New
-                </span>
-              </div>
-              <p style={{ margin: 0, fontSize: '13px', color: t.ts, lineHeight: '1.5', maxWidth: '420px' }}>
-                Créez un agent personnalisé qui comprend votre façon de travailler. Chaque choix construit une histoire narrative unique.
-              </p>
+            <h3 style={{
+              margin: '0 0 12px 0', fontSize: '28px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.03em', lineHeight: 1.15,
+            }}>
+              Create <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: `linear-gradient(135deg, #ec4899, ${t.violet}, #c4b5fd)`,
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>your Persona</span>
+            </h3>
+            <p style={{
+              margin: 0, fontSize: '14px', color: t.ts,
+              lineHeight: 1.6, maxWidth: '340px',
+            }}>
+              Build an agent that truly understands <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', color: '#c4b5fd', fontWeight: 600,
+              }}>how you work</span>. Each choice crafts a unique narrative story.
+            </p>
+          </div>
+
+          {/* Center: Guru illustration */}
+          <div style={{
+            display: 'flex', justifyContent: 'center', margin: '20px 0',
+            zIndex: 1,
+          }}>
+            <div style={{
+              width: '180px', height: '180px', borderRadius: '24px',
+              overflow: 'hidden',
+              boxShadow: `0 12px 48px ${t.violet}35, 0 0 0 1px ${t.violet}20`,
+            }}>
+              <img src="/guru-persona.png" alt="Guru Persona" style={{
+                width: '100%', height: '100%', objectFit: 'cover',
+              }} />
             </div>
           </div>
 
-          {/* Right: Mini preview chips + arrow */}
-          <div className="dash-persona-right" style={{ display: 'flex', alignItems: 'center', gap: '16px', zIndex: 1, flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: '180px' }}>
+          {/* Bottom: CTA + tags */}
+          <div style={{ zIndex: 1 }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
               {['Role', 'Skills', 'Style', 'Workflow'].map(tag => (
                 <span key={tag} style={{
-                  padding: '4px 10px', borderRadius: '6px',
-                  backgroundColor: `${t.violet}15`, border: `1px solid ${t.violet}30`,
-                  color: t.violet, fontSize: '10px', fontWeight: 600,
+                  padding: '5px 14px', borderRadius: '8px',
+                  backgroundColor: `${t.violet}12`, border: `1px solid ${t.violet}25`,
+                  color: '#c4b5fd', fontSize: '11px', fontWeight: 600,
                 }}>
                   {tag}
                 </span>
               ))}
             </div>
             <div style={{
-              width: '44px', height: '44px', borderRadius: '12px',
-              backgroundColor: t.tp, color: t.bg,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'transform 0.2s',
+              display: 'inline-flex', alignItems: 'center', gap: '10px',
+              padding: '12px 28px', borderRadius: '14px',
+              background: `linear-gradient(135deg, ${t.violet}, #a855f7, #ec4899)`,
+              color: '#fff', fontSize: '14px', fontWeight: 700,
+              boxShadow: `0 6px 24px ${t.violet}44`,
+              letterSpacing: '-0.01em',
             }}>
-              <ArrowUpRight size={20} />
+              <User size={18} /> Start Building Your Persona
+              <ArrowUpRight size={16} />
             </div>
           </div>
-        </div>
+
+          {/* Corner arrow */}
+          <div style={{
+            position: 'absolute', top: '24px', right: '24px',
+            width: '40px', height: '40px', borderRadius: '12px',
+            background: `${t.violet}15`, border: `1px solid ${t.violet}25`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: t.violet,
+          }}>
+            <ArrowUpRight size={18} />
+          </div>
+        </motion.div>
+
+        {/* SKILLS CARD — top right (medium) */}
+        <motion.div
+          whileHover={{ y: -3, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+          onClick={() => navigate('/personaboarding')}
+          className="persona-card-skills"
+          style={{
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '24px',
+            background: `linear-gradient(160deg, #0a1a1f 0%, ${t.surface} 70%)`,
+            border: `1px solid rgba(6,182,212,0.3)`,
+            display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: `0 4px 24px rgba(6,182,212,0.08), inset 0 1px 0 rgba(6,182,212,0.1)`,
+          }}
+        >
+          <div style={{
+            position: 'absolute', top: '-20px', right: '-20px',
+            width: '120px', height: '120px', borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(6,182,212,0.12) 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 1,
+          }}>
+            <span style={{
+              fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: '#06b6d4', fontFamily: t.mono,
+            }}>
+              Define Skills
+            </span>
+            <div style={{
+              width: '30px', height: '30px', borderRadius: '8px',
+              background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#06b6d4',
+            }}>
+              <Zap size={14} />
+            </div>
+          </div>
+          <div style={{
+            width: '90px', height: '90px', borderRadius: '14px',
+            overflow: 'hidden', alignSelf: 'center',
+            boxShadow: `0 8px 24px rgba(6,182,212,0.25)`,
+            border: `1px solid rgba(6,182,212,0.2)`,
+          }}>
+            <img src="/guru-skills.png" alt="Guru Skills" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
+          </div>
+          <div style={{ zIndex: 1 }}>
+            <h4 style={{
+              margin: '0 0 4px 0', fontSize: '16px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.01em',
+            }}>
+              <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: 'linear-gradient(135deg, #06b6d4, #67e8f9)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>Skills</span> & Tools
+            </h4>
+            <p style={{ margin: 0, fontSize: '12px', color: t.ts, lineHeight: 1.5 }}>
+              Choose capabilities your agent masters
+            </p>
+          </div>
+        </motion.div>
+
+        {/* WORKFLOW CARD — bottom right (medium) */}
+        <motion.div
+          whileHover={{ y: -3, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+          onClick={() => navigate('/personaboarding')}
+          className="persona-card-workflow"
+          style={{
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '24px',
+            background: `linear-gradient(160deg, #1a1508 0%, ${t.surface} 70%)`,
+            border: `1px solid rgba(251,146,60,0.3)`,
+            display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: `0 4px 24px rgba(251,146,60,0.08), inset 0 1px 0 rgba(251,146,60,0.1)`,
+          }}
+        >
+          <div style={{
+            position: 'absolute', bottom: '-20px', left: '-10px',
+            width: '120px', height: '120px', borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(251,146,60,0.12) 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 1,
+          }}>
+            <span style={{
+              fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: '#fb923c', fontFamily: t.mono,
+            }}>
+              Build Workflow
+            </span>
+            <div style={{
+              width: '30px', height: '30px', borderRadius: '8px',
+              background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fb923c',
+            }}>
+              <Repeat size={14} />
+            </div>
+          </div>
+          <div style={{
+            width: '90px', height: '90px', borderRadius: '14px',
+            overflow: 'hidden', alignSelf: 'center',
+            boxShadow: `0 8px 24px rgba(251,146,60,0.25)`,
+            border: `1px solid rgba(251,146,60,0.2)`,
+          }}>
+            <img src="/guru-workflow.png" alt="Guru Workflow" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
+          </div>
+          <div style={{ zIndex: 1 }}>
+            <h4 style={{
+              margin: '0 0 4px 0', fontSize: '16px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.01em',
+            }}>
+              <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: 'linear-gradient(135deg, #fb923c, #fbbf24)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>Workflow</span> & Style
+            </h4>
+            <p style={{ margin: 0, fontSize: '12px', color: t.ts, lineHeight: 1.5 }}>
+              Define how your agent thinks and operates
+            </p>
+          </div>
+        </motion.div>
       </motion.div>
 
       {/* Metrics Section */}
@@ -1478,8 +1651,9 @@ export default function Dashboard() {
           .dash-metrics { grid-template-columns: 1fr !important; gap: 12px !important; }
           .dash-main-grid { grid-template-columns: 1fr !important; }
           .dash-header { flex-direction: column; align-items: flex-start !important; }
-          .dash-persona-cta { flex-direction: column !important; padding: 20px !important; gap: 16px !important; align-items: flex-start !important; }
-          .dash-persona-right { display: none !important; }
+          .dash-persona-grid { grid-template-columns: 1fr !important; }
+          .persona-card-main { grid-row: auto !important; min-height: 320px !important; padding: 24px !important; }
+          .persona-card-main h3 { font-size: 22px !important; }
           .premium-cta-card { min-height: 140px !important; padding: 20px !important; gap: 16px !important; }
           .premium-cta-card img { width: 90px !important; height: 90px !important; }
           .premium-cta-card h3 { font-size: 18px !important; }
@@ -1488,6 +1662,7 @@ export default function Dashboard() {
           .dash-actions { grid-template-columns: 1fr !important; }
           .premium-cta-card { flex-direction: column !important; text-align: center !important; align-items: center !important; }
           .premium-cta-card img { width: 100px !important; height: 100px !important; }
+          .persona-card-main { min-height: auto !important; }
         }
       `}} />
 
