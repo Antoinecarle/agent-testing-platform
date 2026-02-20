@@ -116,6 +116,35 @@ try {
 const sessions = new Map();
 const chatProcesses = new Map(); // Track active chat processes per socket
 
+// Tool categorization helpers for enriched stream events
+function serverCategorizeTool(name) {
+  if (!name) return 'tool';
+  const n = name.toLowerCase();
+  if (n === 'read') return 'file_read';
+  if (n === 'write') return 'file_write';
+  if (n === 'edit') return 'file_edit';
+  if (n === 'bash') return 'command';
+  if (n === 'glob' || n === 'grep') return 'search';
+  if (n === 'task') return 'subagent';
+  if (n === 'webfetch' || n === 'websearch') return 'web';
+  if (n.startsWith('mcp__')) return 'mcp';
+  return 'tool';
+}
+
+function serverSummarizeTool(name, input) {
+  if (!input) return '';
+  const n = (name || '').toLowerCase();
+  if (n === 'read') return input.file_path || '';
+  if (n === 'write') return input.file_path || '';
+  if (n === 'edit') return input.file_path || '';
+  if (n === 'bash') return (input.command || '').substring(0, 120);
+  if (n === 'glob') return input.pattern || '';
+  if (n === 'grep') return input.pattern || '';
+  if (n === 'task') return input.description || (input.prompt || '').substring(0, 120);
+  if (n.startsWith('mcp__')) return n.split('__').slice(1).join('/');
+  return '';
+}
+
 function generateId() {
   return crypto.randomBytes(6).toString('hex');
 }
@@ -533,12 +562,6 @@ function setupTerminal(io) {
         try { existing.kill('SIGTERM'); } catch (_) {}
         chatProcesses.delete(socket.id);
       }
-      // Clean up previous permission session
-      if (currentChatId) {
-        permissionHandler.unregisterChatSession(currentChatId);
-        currentChatId = null;
-      }
-
       try {
         const userHome = getUserHomePath(socket.userId);
         ensureUserHome(socket.userId);
@@ -547,30 +570,11 @@ function setupTerminal(io) {
           'workspaces', projectId
         );
 
-        // Generate unique chatId for permission handling
+        // Generate unique chatId for tracking
         const chatId = `chat_${generateId()}_${Date.now()}`;
         currentChatId = chatId;
 
-        // Register this chat session for permission handling
-        permissionHandler.registerChatSession(chatId, socket);
-
-        const args = ['-p', '--output-format', 'stream-json', '--verbose'];
-
-        // Add permission-prompt-tool flag to delegate permissions to our MCP server
-        const permissionServerPath = path.join(__dirname, 'mcp-permission-server.js');
-        if (fs.existsSync(permissionServerPath)) {
-          // Build inline MCP config for the permission server
-          const permMcpConfig = JSON.stringify({
-            mcpServers: {
-              'guru-permission': {
-                command: 'node',
-                args: [permissionServerPath],
-              },
-            },
-          });
-          args.push('--mcp-config', permMcpConfig);
-          args.push('--permission-prompt-tool', 'mcp__guru-permission__permission_prompt');
-        }
+        const args = ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
 
         if (sessionResume) {
           args.push('--resume', sessionResume);
@@ -587,7 +591,7 @@ function setupTerminal(io) {
         console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.slice(0, 6).join(' '), '...');
         console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| chatId:', chatId);
         console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
-        console.log('[Chat] Permission server:', fs.existsSync(permissionServerPath) ? 'enabled' : 'disabled');
+        console.log('[Chat] Yolo mode: permissions auto-approved');
 
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,
@@ -602,9 +606,6 @@ function setupTerminal(io) {
             AGENT_PROXY_URL: `http://localhost:${chatPORT}/api/agent-proxy`,
             AGENT_SESSION_TOKEN: chatAgentToken,
             GURU_PROJECT_ID: projectId || '',
-            // Permission server env vars (inherited by MCP server process)
-            PERMISSION_CALLBACK_URL: `http://localhost:${chatPORT}/api/internal`,
-            PERMISSION_CHAT_ID: chatId,
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -632,19 +633,31 @@ function setupTerminal(io) {
               // Extract session ID from result messages
               if (parsed.session_id) sessionId = parsed.session_id;
 
-              // Enrich sub-agent events with extra metadata for frontend
+              // Enrich all tool events with metadata for frontend
               if (parsed.type === 'assistant' && parsed.message?.content) {
+                const toolMetas = [];
                 for (const block of parsed.message.content) {
-                  if (block.type === 'tool_use' && block.name?.toLowerCase() === 'task') {
-                    // Tag sub-agent tool calls for enhanced frontend display
-                    parsed._guruSubagent = {
-                      type: block.input?.subagent_type || 'general-purpose',
-                      name: block.input?.name || block.input?.description || 'Sub-agent',
-                      description: block.input?.description || block.input?.prompt?.slice(0, 150) || '',
-                      toolUseId: block.id,
+                  if (block.type === 'tool_use') {
+                    block._guruToolMeta = {
+                      category: serverCategorizeTool(block.name),
+                      summary: serverSummarizeTool(block.name, block.input),
+                      startedAt: Date.now(),
                     };
+                    toolMetas.push(block._guruToolMeta);
+                    // Special enrichment for sub-agent Task calls
+                    if (block.name?.toLowerCase() === 'task') {
+                      parsed._guruSubagent = {
+                        type: block.input?.subagent_type || 'general-purpose',
+                        name: block.input?.name || block.input?.description || 'Sub-agent',
+                        description: block.input?.description || '',
+                        prompt: block.input?.prompt || '',
+                        model: block.input?.model || '',
+                        toolUseId: block.id,
+                      };
+                    }
                   }
                 }
+                if (toolMetas.length > 0) parsed._guruToolMetas = toolMetas;
               }
 
               socket.emit('chat-stream', parsed);
@@ -666,11 +679,7 @@ function setupTerminal(io) {
         chatProc.on('close', (code) => {
           console.log('[Chat] Process closed, code:', code);
           chatProcesses.delete(socket.id);
-          // Clean up permission session
-          if (currentChatId === chatId) {
-            permissionHandler.unregisterChatSession(chatId);
-            currentChatId = null;
-          }
+          if (currentChatId === chatId) currentChatId = null;
           // Flush remaining buffer
           if (buffer.trim()) {
             try {
@@ -685,10 +694,7 @@ function setupTerminal(io) {
         chatProc.on('error', (err) => {
           console.error('[Chat] Process error:', err.message);
           chatProcesses.delete(socket.id);
-          if (currentChatId === chatId) {
-            permissionHandler.unregisterChatSession(chatId);
-            currentChatId = null;
-          }
+          if (currentChatId === chatId) currentChatId = null;
           socket.emit('chat-done', { error: err.message });
         });
 
@@ -734,21 +740,13 @@ function setupTerminal(io) {
         try { proc.kill('SIGTERM'); } catch (_) {}
         chatProcesses.delete(socket.id);
       }
-      // Clean up permission session
-      if (currentChatId) {
-        permissionHandler.unregisterChatSession(currentChatId);
-        currentChatId = null;
-      }
+      currentChatId = null;
       if (typeof callback === 'function') callback({ ok: true });
     });
 
     socket.on('disconnect', () => {
       if (activityCleanup) { activityCleanup(); activityCleanup = null; }
-      // Clean up permission session
-      if (currentChatId) {
-        permissionHandler.unregisterChatSession(currentChatId);
-        currentChatId = null;
-      }
+      currentChatId = null;
       // Kill any running chat process
       const chatProc = chatProcesses.get(socket.id);
       if (chatProc) {

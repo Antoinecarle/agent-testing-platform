@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { io } from 'socket.io-client';
 import { api, getToken, refreshAccessToken } from '../api';
 import ToolCallCard from './ToolCallCard';
+import { useAgentActivity } from '../contexts/AgentActivityContext';
 
 const t = {
   bg: '#0a0a0b', surface: '#111113', surfaceEl: '#1a1a1d', surfaceEl2: '#222225',
@@ -134,6 +135,12 @@ function PermissionCard({ request, onRespond }) {
 
 // ─── Sub-Agent Status Card ────────────────────────────────────────────
 function SubAgentCard({ subagent, isRunning }) {
+  const [showFull, setShowFull] = useState(false);
+  const duration = subagent.startedAt ? fmtDuration(Date.now() - subagent.startedAt) : '';
+  const desc = subagent.description || '';
+  const prompt = subagent.prompt || '';
+  const longDesc = desc.length > 120 || prompt.length > 0;
+
   return (
     <div style={{
       padding: '8px 10px', borderRadius: '8px', margin: '4px 0',
@@ -150,10 +157,33 @@ function SubAgentCard({ subagent, isRunning }) {
             {subagent.name}
           </span>
         )}
+        <div style={{ flex: 1 }} />
+        {subagent.model && (
+          <span style={{ fontSize: '9px', color: t.tm, fontFamily: 'monospace', padding: '1px 4px', borderRadius: '3px', background: t.surfaceEl }}>
+            {subagent.model}
+          </span>
+        )}
+        {duration && (
+          <span style={{ fontSize: '9px', color: t.tm, fontFamily: 'monospace' }}>{duration}</span>
+        )}
       </div>
-      {subagent.description && (
-        <div style={{ fontSize: '11px', color: t.tm, lineHeight: '1.4' }}>
-          {subagent.description.slice(0, 120)}{subagent.description.length > 120 ? '...' : ''}
+      {desc && (
+        <div
+          onClick={() => longDesc && setShowFull(!showFull)}
+          style={{ fontSize: '11px', color: t.tm, lineHeight: '1.4', cursor: longDesc ? 'pointer' : 'default' }}
+        >
+          {showFull ? desc : desc.slice(0, 120)}{!showFull && desc.length > 120 ? '...' : ''}
+        </div>
+      )}
+      {showFull && prompt && (
+        <div style={{
+          marginTop: '6px', padding: '6px 8px', borderRadius: '6px',
+          background: 'rgba(6,182,212,0.04)', border: '1px solid rgba(6,182,212,0.08)',
+          fontSize: '10px', color: t.ts, lineHeight: '1.4',
+          maxHeight: '120px', overflow: 'auto',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace',
+        }}>
+          {prompt.slice(0, 500)}{prompt.length > 500 ? '...' : ''}
         </div>
       )}
     </div>
@@ -683,6 +713,10 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
   const inputRef = useRef(null);
   const autoScrollRef = useRef(true);
   const selectedSessionRef = useRef(null);
+  const currentJobRef = useRef(null);
+  const jobToolCallsRef = useRef([]);
+  const jobSubagentsRef = useRef([]);
+  const { registerJob, updateJob, completeJob } = useAgentActivity();
 
   // Persist chatSessionId
   useEffect(() => {
@@ -838,6 +872,21 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
           return copy;
         });
 
+        // Forward to global agent activity context
+        if (currentJobRef.current) {
+          for (const tc of toolUses) {
+            jobToolCallsRef.current.push({ toolName: tc.toolName, category: tc.category, summary: tc.toolInput });
+          }
+          if (newSubagents.length > 0) {
+            jobSubagentsRef.current.push(...newSubagents.map(tc => ({ ...tc.subagentMeta, completed: false })));
+          }
+          updateJob(currentJobRef.current, {
+            toolCalls: [...jobToolCallsRef.current],
+            subagents: [...jobSubagentsRef.current],
+            streamingText: text ? text.slice(-200) : undefined,
+          });
+        }
+
       } else if (data.type === 'user') {
         // Tool results come back as user messages with tool_result blocks
         const content = data.message?.content;
@@ -952,6 +1001,11 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
       if (data.sessionId) setChatSessionId(data.sessionId);
       if (data.error === 'timeout') setClaudeAuthError(true);
       setSending(false);
+      // Complete job in global agent activity context
+      if (currentJobRef.current) {
+        completeJob(currentJobRef.current);
+        currentJobRef.current = null;
+      }
       setTurns(prev => {
         const copy = [...prev];
         const lastIdx = copy.length - 1;
@@ -1006,6 +1060,13 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
     // Clear previous permission requests and sub-agents
     setPermissionRequests([]);
     setActiveSubagents([]);
+
+    // Register job in global agent activity context
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    currentJobRef.current = jobId;
+    jobToolCallsRef.current = [];
+    jobSubagentsRef.current = [];
+    registerJob(jobId, { projectId, userMessage: msg });
 
     socketRef.current.emit('chat-send', {
       projectId, message: msg,

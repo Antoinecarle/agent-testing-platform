@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { clearToken, getUser, api } from '../api';
 import GuruLogo from './GuruLogo';
+import { AgentActivityProvider } from '../contexts/AgentActivityContext';
+import GlobalAgentPanel from './GlobalAgentPanel';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -154,13 +156,16 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="guru-main" style={{
-        padding: isFullWidth ? 0 : '24px',
-        maxWidth: isFullWidth ? 'none' : '1400px',
-        margin: '0 auto',
-      }}>
-        <Outlet />
-      </main>
+      <AgentActivityProvider>
+        <main className="guru-main" style={{
+          padding: isFullWidth ? 0 : '24px',
+          maxWidth: isFullWidth ? 'none' : '1400px',
+          margin: '0 auto',
+        }}>
+          <Outlet />
+        </main>
+        <GlobalAgentPanel />
+      </AgentActivityProvider>
 
       <style>{`
         @media (max-width: 768px) {
