@@ -54,6 +54,112 @@ const catColors = {
   mcp: { bg: 'rgba(236,72,153,0.12)', color: '#ec4899', label: 'MCP' },
 };
 
+// ─── Permission Card ──────────────────────────────────────────────────
+function PermissionCard({ request, onRespond }) {
+  const [responding, setResponding] = useState(false);
+
+  const toolIcon = {
+    read: '\uD83D\uDD0D', write: '\u270F\uFE0F', edit: '\uD83D\uDD27', bash: '\u26A1',
+    task: '\uD83E\uDD16', glob: '\uD83D\uDCC2', grep: '\uD83D\uDD0E',
+    webfetch: '\uD83C\uDF10', websearch: '\uD83C\uDF10',
+  };
+  const name = (request.toolName || '').toLowerCase();
+  const icon = toolIcon[name] || (name.startsWith('mcp__') ? '\uD83D\uDD0C' : '\uD83D\uDEE0\uFE0F');
+
+  const handleRespond = (approved) => {
+    setResponding(true);
+    onRespond(request.requestId, approved);
+  };
+
+  return (
+    <div style={{
+      margin: '8px 0', padding: '12px 14px', borderRadius: '10px',
+      background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)',
+      animation: 'pulse 1.5s ease-in-out infinite',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+        <span style={{ fontSize: '16px' }}>{icon}</span>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: t.amber, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Permission Required
+        </span>
+      </div>
+
+      <div style={{ marginBottom: '8px' }}>
+        <span style={{
+          display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
+          fontFamily: 'monospace', background: t.surfaceEl, color: t.tp, fontWeight: 600,
+        }}>
+          {request.toolName}
+        </span>
+      </div>
+
+      {request.inputSummary && (
+        <div style={{
+          padding: '6px 10px', borderRadius: '6px', background: t.surfaceEl,
+          fontSize: '11px', fontFamily: 'monospace', color: t.ts,
+          maxHeight: '60px', overflow: 'hidden', marginBottom: '10px',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        }}>
+          {request.inputSummary.slice(0, 300)}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          onClick={() => handleRespond(true)}
+          disabled={responding}
+          style={{
+            flex: 1, padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+            background: responding ? t.surfaceEl : 'rgba(34,197,94,0.15)', color: responding ? t.tm : t.green,
+            fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
+          }}
+        >
+          {responding ? '...' : 'Allow'}
+        </button>
+        <button
+          onClick={() => handleRespond(false)}
+          disabled={responding}
+          style={{
+            flex: 1, padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+            background: responding ? t.surfaceEl : 'rgba(239,68,68,0.12)', color: responding ? t.tm : t.red,
+            fontSize: '12px', fontWeight: 600, transition: 'all 0.15s',
+          }}
+        >
+          {responding ? '...' : 'Deny'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub-Agent Status Card ────────────────────────────────────────────
+function SubAgentCard({ subagent, isRunning }) {
+  return (
+    <div style={{
+      padding: '8px 10px', borderRadius: '8px', margin: '4px 0',
+      background: isRunning ? 'rgba(6,182,212,0.06)' : t.surfaceEl,
+      border: `1px solid ${isRunning ? 'rgba(6,182,212,0.15)' : t.border}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+        {isRunning && <Spinner size={10} color="#06b6d4" />}
+        <span style={{ fontSize: '11px', fontWeight: 600, color: isRunning ? t.cyan : t.ts }}>
+          {subagent.type || 'Agent'}
+        </span>
+        {subagent.name && (
+          <span style={{ fontSize: '10px', color: t.tm, fontFamily: 'monospace' }}>
+            {subagent.name}
+          </span>
+        )}
+      </div>
+      {subagent.description && (
+        <div style={{ fontSize: '11px', color: t.tm, lineHeight: '1.4' }}>
+          {subagent.description.slice(0, 120)}{subagent.description.length > 120 ? '...' : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── AI Group Card (claude-devtools style) ─────────────────────────────
 function AIGroupCard({ turn, defaultExpanded = false }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -223,7 +329,7 @@ function UserMessage({ text }) {
 }
 
 // ─── Activity Sidebar (claude-devtools style context panel) ────────────
-function ActivitySidebar({ turns, events, visible, onClose, sending }) {
+function ActivitySidebar({ turns, events, visible, onClose, sending, activeSubagents = [], permissionRequests = [], onPermissionRespond }) {
   // Aggregate stats from turns
   const stats = useMemo(() => {
     const result = {
@@ -284,7 +390,7 @@ function ActivitySidebar({ turns, events, visible, onClose, sending }) {
         <StatBox label="Tokens In" value={fmtTokens(stats.totalTokensIn)} color={t.cyan} />
         <StatBox label="Tokens Out" value={fmtTokens(stats.totalTokensOut)} color={t.violet} />
         <StatBox label="Turns" value={stats.turnCount} color={t.green} />
-        <StatBox label="Subagents" value={stats.subagents.length} color={stats.runningSubagents.length > 0 ? t.cyan : t.tm} running={stats.runningSubagents.length} />
+        <StatBox label="Subagents" value={stats.subagents.length + activeSubagents.filter(sa => !sa.completed).length} color={stats.runningSubagents.length > 0 || activeSubagents.some(sa => !sa.completed) ? t.cyan : t.tm} running={stats.runningSubagents.length + activeSubagents.filter(sa => !sa.completed).length} />
       </div>
 
       {/* Scrollable sections */}
@@ -323,6 +429,45 @@ function ActivitySidebar({ turns, events, visible, onClose, sending }) {
               </div>
             ))}
           </div>
+        )}
+
+        {/* Pending permission requests in sidebar */}
+        {permissionRequests.length > 0 && (
+          <div style={{ margin: '0 14px 10px', padding: '10px', borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '14px' }}>&#9888;&#65039;</span>
+              <span style={{ fontSize: '11px', fontWeight: '700', color: t.amber }}>Permissions ({permissionRequests.length})</span>
+            </div>
+            {permissionRequests.map(req => (
+              <div key={req.requestId} style={{ marginBottom: '6px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 600, color: t.tp, marginBottom: '3px' }}>{req.toolName}</div>
+                {req.inputSummary && (
+                  <div style={{ fontSize: '9px', fontFamily: 'monospace', color: t.ts, marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {req.inputSummary.slice(0, 100)}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button onClick={() => onPermissionRespond(req.requestId, true)} style={{
+                    flex: 1, padding: '4px 8px', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                    background: 'rgba(34,197,94,0.15)', color: t.green, fontSize: '10px', fontWeight: 600,
+                  }}>Allow</button>
+                  <button onClick={() => onPermissionRespond(req.requestId, false)} style={{
+                    flex: 1, padding: '4px 8px', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                    background: 'rgba(239,68,68,0.12)', color: t.red, fontSize: '10px', fontWeight: 600,
+                  }}>Deny</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Live sub-agents (real-time from stream events) */}
+        {activeSubagents.filter(sa => !sa.completed).length > 0 && (
+          <ActivitySection title="Live Sub-agents" count={activeSubagents.filter(sa => !sa.completed).length}>
+            {activeSubagents.filter(sa => !sa.completed).map((sa, i) => (
+              <SubAgentCard key={sa.toolUseId || `live-sa-${i}`} subagent={sa} isRunning={true} />
+            ))}
+          </ActivitySection>
         )}
 
         {/* Tool breakdown */}
@@ -529,6 +674,9 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
   const [chatSessionId, setChatSessionId] = useState(() => {
     try { return localStorage.getItem(`guru-chat-session-${projectId}`) || null; } catch { return null; }
   });
+  const [permissionRequests, setPermissionRequests] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [activeSubagents, setActiveSubagents] = useState([]);
 
   const scrollRef = useRef(null);
   const socketRef = useRef(null);
@@ -601,6 +749,16 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
 
     socket.on('disconnect', () => { setWatching(false); setSending(false); });
 
+    // Permission requests from MCP permission server
+    socket.on('chat-permission-request', (data) => {
+      console.log('[Chat] Permission request:', data);
+      setPermissionRequests(prev => [...prev, data]);
+      // Auto-scroll to show the permission card
+      if (autoScrollRef.current && scrollRef.current) {
+        setTimeout(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
+      }
+    });
+
     // Live activity events
     socket.on('activity-events', (newEvts) => {
       setEvents(prev => [...prev, ...(newEvts || [])].slice(-200));
@@ -634,15 +792,33 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
         for (const block of content) {
           if (block.type === 'text') text += block.text || '';
           else if (block.type === 'tool_use') {
-            toolUses.push({
+            const tc = {
               id: block.id || `tc-${Date.now()}`,
               toolName: block.name,
               rawInput: block.input,
               toolInput: summarizeTool(block.name, block.input),
               category: categorizeTool(block.name),
               result: null, isError: false,
-            });
+            };
+            // Enrich sub-agent tool calls with metadata
+            if (block.name?.toLowerCase() === 'task' && data._guruSubagent) {
+              tc.subagentMeta = data._guruSubagent;
+            } else if (block.name?.toLowerCase() === 'task' && block.input) {
+              tc.subagentMeta = {
+                type: block.input.subagent_type || 'general-purpose',
+                name: block.input.name || block.input.description || 'Sub-agent',
+                description: block.input.description || (block.input.prompt || '').slice(0, 150),
+              };
+            }
+            toolUses.push(tc);
           }
+        }
+        // Track active sub-agents
+        const newSubagents = toolUses.filter(tc => tc.subagentMeta);
+        if (newSubagents.length > 0) {
+          setActiveSubagents(prev => [...prev, ...newSubagents.map(tc => ({
+            ...tc.subagentMeta, toolUseId: tc.id, startedAt: Date.now(), completed: false,
+          }))]);
         }
         setTurns(prev => {
           const copy = [...prev];
@@ -668,6 +844,10 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'tool_result') {
+              // Mark sub-agents as completed
+              setActiveSubagents(prev => prev.map(sa =>
+                sa.toolUseId === block.tool_use_id ? { ...sa, completed: true } : sa
+              ));
               setTurns(prev => {
                 const copy = [...prev];
                 const lastIdx = copy.length - 1;
@@ -823,6 +1003,10 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
       streaming: true, streamingText: '', tokens: null,
     }]);
 
+    // Clear previous permission requests and sub-agents
+    setPermissionRequests([]);
+    setActiveSubagents([]);
+
     socketRef.current.emit('chat-send', {
       projectId, message: msg,
       sessionResume: chatSessionId,
@@ -839,15 +1023,31 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
           return copy;
         });
       }
+      // Track chatId for permission responses
+      if (resp?.chatId) setActiveChatId(resp.chatId);
     });
 
     setTimeout(() => { setSending(prev => prev ? false : prev); }, 60000);
     setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
   }, [input, sending, projectId, chatSessionId]);
 
+  // Handle permission response
+  const handlePermissionResponse = useCallback((requestId, approved) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit('chat-permission-response', {
+      chatId: activeChatId,
+      requestId,
+      approved,
+    });
+    // Remove from pending requests
+    setPermissionRequests(prev => prev.filter(r => r.requestId !== requestId));
+  }, [activeChatId]);
+
   const cancelChat = () => {
     if (socketRef.current) socketRef.current.emit('chat-cancel');
     setSending(false);
+    setPermissionRequests([]);
+    setActiveSubagents([]);
     setTurns(prev => {
       const copy = [...prev];
       const lastIdx = copy.length - 1;
@@ -981,15 +1181,43 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
                 )}
               </div>
             ) : (
-              turns.map((turn, i) => (
-                <div key={turn.id || `turn-${i}`} style={{ marginBottom: '4px' }}>
-                  {turn.userMessage && <UserMessage text={turn.userMessage} />}
-                  <AIGroupCard
-                    turn={turn}
-                    defaultExpanded={i >= turns.length - 3 || turn.streaming}
-                  />
-                </div>
-              ))
+              <>
+                {turns.map((turn, i) => (
+                  <div key={turn.id || `turn-${i}`} style={{ marginBottom: '4px' }}>
+                    {turn.userMessage && <UserMessage text={turn.userMessage} />}
+                    <AIGroupCard
+                      turn={turn}
+                      defaultExpanded={i >= turns.length - 3 || turn.streaming}
+                    />
+                  </div>
+                ))}
+
+                {/* Active sub-agents inline display */}
+                {activeSubagents.filter(sa => !sa.completed).length > 0 && (
+                  <div style={{ margin: '6px 0', padding: '8px 12px', borderRadius: '8px', background: 'rgba(6,182,212,0.04)', border: `1px solid rgba(6,182,212,0.12)` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                      <Spinner size={10} color={t.cyan} />
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: t.cyan, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Sub-agents Running</span>
+                    </div>
+                    {activeSubagents.filter(sa => !sa.completed).map((sa, i) => (
+                      <SubAgentCard key={sa.toolUseId || `sa-${i}`} subagent={sa} isRunning={true} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Pending permission requests */}
+                {permissionRequests.length > 0 && (
+                  <div style={{ margin: '6px 0' }}>
+                    {permissionRequests.map(req => (
+                      <PermissionCard
+                        key={req.requestId}
+                        request={req}
+                        onRespond={handlePermissionResponse}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -1065,6 +1293,9 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
           visible={showActivity}
           onClose={() => setShowActivity(false)}
           sending={sending}
+          activeSubagents={activeSubagents}
+          permissionRequests={permissionRequests}
+          onPermissionRespond={handlePermissionResponse}
         />
       </div>
     </div>

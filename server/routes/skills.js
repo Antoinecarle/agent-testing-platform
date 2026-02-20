@@ -274,7 +274,15 @@ Return JSON:
       { max_completion_tokens: 2000, responseFormat: 'json' }
     );
 
-    const parsed = JSON.parse(result);
+    if (!result || !result.trim()) {
+      throw new Error('GPT returned empty response');
+    }
+    // Strip markdown fences if present
+    let jsonStr = result.trim();
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+    const parsed = JSON.parse(jsonStr);
     res.json({ skills: parsed.skills || [] });
   } catch (err) {
     console.error('[Skills] AI generate error:', err.message);

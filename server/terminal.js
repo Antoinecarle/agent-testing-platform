@@ -12,6 +12,7 @@ const { spawn } = require('child_process');
 const db = require('./db');
 const { generateWorkspaceContext, syncSkillsToHome } = require('./workspace');
 const { ensureUserHome, getUserHomePath } = require('./user-home');
+const permissionHandler = require('./lib/permission-handler');
 
 // ── Agent Environment Isolation ──────────────────────────────────────────────
 // SECURITY: Agent terminals must NEVER inherit platform secrets.
@@ -517,6 +518,9 @@ function setupTerminal(io) {
     });
 
     // ── Chat with Claude (streaming) ────────────────────────────────────────
+    // Track the current chatId for permission handling
+    let currentChatId = null;
+
     socket.on('chat-send', ({ projectId, message, sessionResume, useContinue } = {}, callback) => {
       if (!projectId || !message || !socket.userId) {
         if (typeof callback === 'function') callback({ error: 'Missing projectId or message' });
@@ -529,6 +533,11 @@ function setupTerminal(io) {
         try { existing.kill('SIGTERM'); } catch (_) {}
         chatProcesses.delete(socket.id);
       }
+      // Clean up previous permission session
+      if (currentChatId) {
+        permissionHandler.unregisterChatSession(currentChatId);
+        currentChatId = null;
+      }
 
       try {
         const userHome = getUserHomePath(socket.userId);
@@ -538,18 +547,47 @@ function setupTerminal(io) {
           'workspaces', projectId
         );
 
+        // Generate unique chatId for permission handling
+        const chatId = `chat_${generateId()}_${Date.now()}`;
+        currentChatId = chatId;
+
+        // Register this chat session for permission handling
+        permissionHandler.registerChatSession(chatId, socket);
+
         const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+
+        // Add permission-prompt-tool flag to delegate permissions to our MCP server
+        const permissionServerPath = path.join(__dirname, 'mcp-permission-server.js');
+        if (fs.existsSync(permissionServerPath)) {
+          // Build inline MCP config for the permission server
+          const permMcpConfig = JSON.stringify({
+            mcpServers: {
+              'guru-permission': {
+                command: 'node',
+                args: [permissionServerPath],
+              },
+            },
+          });
+          args.push('--mcp-config', permMcpConfig);
+          args.push('--permission-prompt-tool', 'mcp__guru-permission__permission_prompt');
+        }
+
         if (sessionResume) {
           args.push('--resume', sessionResume);
         } else if (useContinue) {
-          // Fallback: continue the most recent session in this workspace
           args.push('--continue');
         }
         args.push(message);
 
-        console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.join(' '));
-        console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| userId:', socket.userId);
+        // Generate scoped agent session token for chat process
+        const chatSessionId = generateId();
+        const chatAgentToken = generateAgentSessionToken(chatSessionId, projectId, socket.userId);
+        const chatPORT = process.env.PORT || 4000;
+
+        console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.slice(0, 6).join(' '), '...');
+        console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| chatId:', chatId);
         console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
+        console.log('[Chat] Permission server:', fs.existsSync(permissionServerPath) ? 'enabled' : 'disabled');
 
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,
@@ -560,6 +598,13 @@ function setupTerminal(io) {
             PATH: IS_RAILWAY
               ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
               : `/home/claude-user/.local/bin:${process.env.PATH}`,
+            // Agent Proxy
+            AGENT_PROXY_URL: `http://localhost:${chatPORT}/api/agent-proxy`,
+            AGENT_SESSION_TOKEN: chatAgentToken,
+            GURU_PROJECT_ID: projectId || '',
+            // Permission server env vars (inherited by MCP server process)
+            PERMISSION_CALLBACK_URL: `http://localhost:${chatPORT}/api/internal`,
+            PERMISSION_CHAT_ID: chatId,
           }),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -586,9 +631,24 @@ function setupTerminal(io) {
               const parsed = JSON.parse(line);
               // Extract session ID from result messages
               if (parsed.session_id) sessionId = parsed.session_id;
+
+              // Enrich sub-agent events with extra metadata for frontend
+              if (parsed.type === 'assistant' && parsed.message?.content) {
+                for (const block of parsed.message.content) {
+                  if (block.type === 'tool_use' && block.name?.toLowerCase() === 'task') {
+                    // Tag sub-agent tool calls for enhanced frontend display
+                    parsed._guruSubagent = {
+                      type: block.input?.subagent_type || 'general-purpose',
+                      name: block.input?.name || block.input?.description || 'Sub-agent',
+                      description: block.input?.description || block.input?.prompt?.slice(0, 150) || '',
+                      toolUseId: block.id,
+                    };
+                  }
+                }
+              }
+
               socket.emit('chat-stream', parsed);
             } catch {
-              // Not valid JSON, emit as raw text
               socket.emit('chat-stream', { type: 'raw', text: line });
             }
           }
@@ -597,12 +657,20 @@ function setupTerminal(io) {
         chatProc.stderr.on('data', (chunk) => {
           const errText = chunk.toString();
           console.log('[Chat] stderr:', errText.substring(0, 300));
-          socket.emit('chat-stream', { type: 'error', text: errText });
+          // Don't forward MCP permission server logs as errors to the UI
+          if (!errText.includes('[mcp-permission]')) {
+            socket.emit('chat-stream', { type: 'error', text: errText });
+          }
         });
 
         chatProc.on('close', (code) => {
           console.log('[Chat] Process closed, code:', code);
           chatProcesses.delete(socket.id);
+          // Clean up permission session
+          if (currentChatId === chatId) {
+            permissionHandler.unregisterChatSession(chatId);
+            currentChatId = null;
+          }
           // Flush remaining buffer
           if (buffer.trim()) {
             try {
@@ -617,6 +685,10 @@ function setupTerminal(io) {
         chatProc.on('error', (err) => {
           console.error('[Chat] Process error:', err.message);
           chatProcesses.delete(socket.id);
+          if (currentChatId === chatId) {
+            permissionHandler.unregisterChatSession(chatId);
+            currentChatId = null;
+          }
           socket.emit('chat-done', { error: err.message });
         });
 
@@ -632,18 +704,28 @@ function setupTerminal(io) {
           }
         }, 30000);
 
-        // Track that we got output to cancel the startup timer
-        const originalStdoutHandler = chatProc.stdout.listeners('data')[0];
         chatProc.stdout.prependOnceListener('data', () => {
           gotOutput = true;
           clearTimeout(startupTimer);
         });
 
-        if (typeof callback === 'function') callback({ ok: true });
+        // Emit chatId to frontend so it can send permission responses
+        if (typeof callback === 'function') callback({ ok: true, chatId });
       } catch (err) {
         console.error('[Terminal] chat-send error:', err.message);
         if (typeof callback === 'function') callback({ error: err.message });
       }
+    });
+
+    // ── Permission response from frontend ────────────────────────────────────
+    socket.on('chat-permission-response', ({ chatId, requestId, approved, updatedInput } = {}, callback) => {
+      const cid = chatId || currentChatId;
+      if (!cid || !requestId) {
+        if (typeof callback === 'function') callback({ error: 'Missing chatId or requestId' });
+        return;
+      }
+      const success = permissionHandler.handlePermissionResponse(cid, requestId, approved, updatedInput);
+      if (typeof callback === 'function') callback({ ok: success });
     });
 
     socket.on('chat-cancel', (callback) => {
@@ -652,11 +734,21 @@ function setupTerminal(io) {
         try { proc.kill('SIGTERM'); } catch (_) {}
         chatProcesses.delete(socket.id);
       }
+      // Clean up permission session
+      if (currentChatId) {
+        permissionHandler.unregisterChatSession(currentChatId);
+        currentChatId = null;
+      }
       if (typeof callback === 'function') callback({ ok: true });
     });
 
     socket.on('disconnect', () => {
       if (activityCleanup) { activityCleanup(); activityCleanup = null; }
+      // Clean up permission session
+      if (currentChatId) {
+        permissionHandler.unregisterChatSession(currentChatId);
+        currentChatId = null;
+      }
       // Kill any running chat process
       const chatProc = chatProcesses.get(socket.id);
       if (chatProc) {

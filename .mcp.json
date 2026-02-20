@@ -8,6 +8,10 @@
         "--access-token",
         "sbp_5b808e6163b6570d51b3131e77a420deb01d255a"
       ]
+    },
+    "Onyx - Dark": {
+      "type": "sse",
+      "url": "https://guru-api-production.up.railway.app/mcp/Onyx%20-%20Dark/sse?key=gru_0a4fae865ddf756ceec7eaaa572abdc699f46e4700f0e02b580d59827652088d"
     }
   }
 }

@@ -168,6 +168,13 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const [generationModel, setGenerationModel] = useState<string>('');
   const [showQualityPicker, setShowQualityPicker] = useState(false);
 
+  // LLM provider selection
+  const [llmProvider, setLlmProvider] = useState<string>('');
+  const [llmModel, setLlmModel] = useState<string>('');
+  const [availableProviders, setAvailableProviders] = useState<{provider:string, model:string, displayName:string, isActive:boolean}[]>([]);
+  const [hasServerFallback, setHasServerFallback] = useState(true);
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+
   // Readiness score
   const [readiness, setReadiness] = useState<{ score: number; status: string; statusLabel: string; breakdown: any[] }>({ score: 0, status: 'needs_input', statusLabel: '', breakdown: [] });
   const [autoGenerateTriggered, setAutoGenerateTriggered] = useState(false);
@@ -175,13 +182,21 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load agent types + generation tiers on mount
+  // Load agent types + generation tiers + LLM config on mount
   useEffect(() => {
     api('/api/agent-creator/generation-tiers').then(res => {
       setGenerationTiers(res.tiers || []);
     }).catch(() => {});
     api('/api/agent-creator/types').then(res => {
       if (res.types) setAgentTypes(res.types);
+    }).catch(() => {});
+    api('/api/agent-creator/llm-config').then(res => {
+      setAvailableProviders(res.providers || []);
+      setHasServerFallback(res.hasServerFallback ?? true);
+      if (res.activeProvider) {
+        setLlmProvider(res.activeProvider);
+        setLlmModel(res.activeModel || '');
+      }
     }).catch(() => {});
   }, []);
 
@@ -531,7 +546,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     try {
       await apiStream(
         `/api/agent-creator/conversations/${conversationId}/messages`,
-        { message: userMessage.content },
+        { message: userMessage.content, provider: llmProvider || undefined, model: llmModel || undefined },
         {
           onStatus: (msg: string) => {
             // Update placeholder with status while waiting for first chunk
@@ -613,7 +628,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     try {
       await apiStream(
         `/api/agent-creator/conversations/${conversationId}/generate`,
-        { quality: generationQuality },
+        { quality: generationQuality, provider: llmProvider || undefined, model: llmModel || undefined },
         {
           onStatus: (msg: string, data: any) => {
             setGenerationStatus(msg);
@@ -1263,9 +1278,71 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                           </span>
                         </div>
                       )}
+                      {/* LLM Provider selector */}
+                      <div style={{ position: 'relative' }}>
+                        <button onClick={() => { setShowProviderPicker(!showProviderPicker); setShowQualityPicker(false); }} disabled={isGenerating}
+                          style={{
+                            background: t.bg, border: `1px solid ${t.border}`, borderRadius: '6px', padding: '4px 8px',
+                            display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 500,
+                            color: llmProvider === 'anthropic' ? '#d97706' : llmProvider === 'google' ? '#2563eb' : llmProvider === 'openai' ? '#22c55e' : t.tm,
+                            cursor: isGenerating ? 'not-allowed' : 'pointer',
+                          }}>
+                          <Bot size={9} />
+                          {llmProvider === 'openai' ? 'GPT' : llmProvider === 'anthropic' ? 'Claude' : llmProvider === 'google' ? 'Gemini' : 'Server'}
+                          <ChevronDown size={9} />
+                        </button>
+                        {showProviderPicker && (
+                          <div style={{
+                            position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px', background: t.surface, border: `1px solid ${t.border}`,
+                            borderRadius: '8px', padding: '4px', minWidth: '180px', zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                          }}>
+                            {availableProviders.map(p => (
+                              <button key={p.provider}
+                                onClick={() => { setLlmProvider(p.provider); setLlmModel(p.model); setShowProviderPicker(false); }}
+                                style={{
+                                  display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px',
+                                  background: p.provider === llmProvider ? t.surfaceEl : 'transparent',
+                                  border: 'none', borderRadius: '6px', cursor: 'pointer', color: t.tp,
+                                }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600 }}>
+                                  <span style={{
+                                    width: 6, height: 6, borderRadius: '50%',
+                                    background: p.provider === 'openai' ? '#22c55e' : p.provider === 'anthropic' ? '#d97706' : '#2563eb',
+                                  }} />
+                                  {p.displayName}
+                                  {p.isActive && <span style={{ fontSize: '8px', color: t.success, fontWeight: 400 }}>active</span>}
+                                </div>
+                                <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px', paddingLeft: '12px' }}>
+                                  {p.model}
+                                </div>
+                              </button>
+                            ))}
+                            {hasServerFallback && (
+                              <button
+                                onClick={() => { setLlmProvider(''); setLlmModel(''); setShowProviderPicker(false); }}
+                                style={{
+                                  display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px',
+                                  background: !llmProvider ? t.surfaceEl : 'transparent',
+                                  border: 'none', borderRadius: '6px', cursor: 'pointer', color: t.tp,
+                                  borderTop: availableProviders.length > 0 ? `1px solid ${t.border}` : 'none',
+                                  marginTop: availableProviders.length > 0 ? '4px' : '0',
+                                  paddingTop: availableProviders.length > 0 ? '10px' : '6px',
+                                }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.tm }} />
+                                  Server Default (GPT)
+                                </div>
+                                <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px', paddingLeft: '12px' }}>
+                                  gpt-5-mini-2025-08-07
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       {/* Quality tier selector */}
                       <div style={{ position: 'relative' }}>
-                        <button onClick={() => setShowQualityPicker(!showQualityPicker)} disabled={isGenerating}
+                        <button onClick={() => { setShowQualityPicker(!showQualityPicker); setShowProviderPicker(false); }} disabled={isGenerating}
                           style={{
                             background: t.bg, border: `1px solid ${t.border}`, borderRadius: '6px', padding: '4px 8px',
                             display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 500, color: t.tm,

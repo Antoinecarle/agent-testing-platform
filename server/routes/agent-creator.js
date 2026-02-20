@@ -23,6 +23,8 @@ const {
   DOCUMENT_EXTRACTION_MODES,
   resolveExtractionMode,
 } = require('../lib/agent-templates');
+const { prepareStreamRequest, parseProviderSSELine, PROVIDER_CONFIGS } = require('../lib/llm-providers');
+const { resolveUserLLMConfig } = require('../lib/resolve-llm-key');
 
 const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -402,6 +404,42 @@ router.get('/extraction-modes', (req, res) => {
   res.json({ modes });
 });
 
+// ========== LLM CONFIG — User's available providers ==========
+
+router.get('/llm-config', async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user.id;
+    const userKeys = await db.getUserLlmKeys(userId);
+
+    // Build provider list with status
+    const providers = userKeys.map(k => ({
+      provider: k.provider,
+      model: k.model,
+      displayName: k.display_name || PROVIDER_CONFIGS[k.provider]?.name || k.provider,
+      isActive: k.is_active,
+      lastUsed: k.last_used_at,
+      lastError: k.last_error,
+    }));
+
+    // Active provider (if any)
+    const active = providers.find(p => p.isActive);
+
+    // Server fallback info
+    const hasServerKey = !!process.env.OPENAI_API_KEY;
+
+    res.json({
+      providers,
+      activeProvider: active ? active.provider : null,
+      activeModel: active ? active.model : null,
+      hasServerFallback: hasServerKey,
+      serverFallbackModel: hasServerKey ? GPT5_MODEL : null,
+    });
+  } catch (err) {
+    console.error('[agent-creator] Error fetching LLM config:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Create a new conversation
 router.post('/conversations', async (req, res) => {
   try {
@@ -659,7 +697,7 @@ router.put('/conversations/:id', async (req, res) => {
 
 router.post('/conversations/:id/messages', async (req, res) => {
   const { id } = req.params;
-  const { message } = req.body || {};
+  const { message, provider: reqProvider, model: reqModel } = req.body || {};
 
   // SSE headers for streaming
   res.setHeader('Content-Type', 'text/event-stream');
@@ -746,33 +784,29 @@ router.post('/conversations/:id/messages', async (req, res) => {
       }
     }
 
-    console.log(`[agent-creator] Chat request: ${allMessages.length} msgs, ${imageParts.length} images, system prompt ${systemPrompt.length} chars`);
+    // Resolve LLM provider + key
+    const userId = req.user.userId || req.user.id;
+    const llmConfig = await resolveUserLLMConfig(userId, reqProvider, reqModel);
+    console.log(`[agent-creator] Chat request: ${allMessages.length} msgs, ${imageParts.length} images, provider=${llmConfig.provider}, model=${llmConfig.model}, source=${llmConfig.source}`);
 
-    // Call OpenAI with streaming
-    const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Build streaming request for the resolved provider
+    const streamReq = prepareStreamRequest(llmConfig.provider, llmConfig.apiKey, llmConfig.model, gptMessages, { maxTokens: 16000 });
+    const streamRes = await fetch(streamReq.url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: GPT5_MODEL,
-        messages: gptMessages,
-        max_completion_tokens: 16000,
-        stream: true,
-      }),
+      headers: streamReq.headers,
+      body: streamReq.body,
       signal: AbortSignal.timeout(180000),
     });
 
-    if (!gptRes.ok) {
-      const errorText = await gptRes.text().catch(() => 'no body');
-      throw new Error(`GPT-5 API error ${gptRes.status}: ${errorText.slice(0, 200)}`);
+    if (!streamRes.ok) {
+      const errorText = await streamRes.text().catch(() => 'no body');
+      throw new Error(`${llmConfig.provider} API error ${streamRes.status}: ${errorText.slice(0, 200)}`);
     }
 
     // Stream response chunks to client
     let fullContent = '';
     let chunkBuffer = '';
-    const reader = gptRes.body.getReader();
+    const reader = streamRes.body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
@@ -784,33 +818,23 @@ router.post('/conversations/:id/messages', async (req, res) => {
       chunkBuffer = lines.pop() || '';
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const payload = trimmed.slice(6);
-        if (payload === '[DONE]') continue;
-
-        try {
-          const json = JSON.parse(payload);
-          const delta = json.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            fullContent += delta;
-            sendSSE('chunk', { content: delta });
-          }
-        } catch (parseErr) {
-          // Skip malformed chunks
+        const delta = parseProviderSSELine(llmConfig.provider, line);
+        if (delta) {
+          fullContent += delta;
+          sendSSE('chunk', { content: delta });
         }
       }
     }
 
     if (!fullContent) {
-      throw new Error('GPT-5 returned empty response');
+      throw new Error(`${llmConfig.provider} returned empty response`);
     }
 
     // Save assistant response to DB
     const assistantMessage = await db.createConversationMessage(id, 'assistant', fullContent);
 
-    console.log(`[agent-creator] Chat response streamed: ${fullContent.length} chars`);
-    sendSSE('done', { messageId: assistantMessage.id });
+    console.log(`[agent-creator] Chat response streamed: ${fullContent.length} chars (${llmConfig.provider}/${llmConfig.model})`);
+    sendSSE('done', { messageId: assistantMessage.id, provider: llmConfig.provider, model: llmConfig.model });
     res.end();
   } catch (err) {
     console.error('[agent-creator] Error sending message:', err);
@@ -959,7 +983,7 @@ router.get('/conversations/:id/readiness', async (req, res) => {
 
 router.post('/conversations/:id/generate', async (req, res) => {
   const { id } = req.params;
-  const { quality = 'standard' } = req.body || {};
+  const { quality = 'standard', provider: reqProvider, model: reqModel } = req.body || {};
   const tier = GENERATION_QUALITY_TIERS[quality] || GENERATION_QUALITY_TIERS.standard;
 
   // SSE headers
@@ -1033,37 +1057,36 @@ router.post('/conversations/:id/generate', async (req, res) => {
     const generationUserPrompt = getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample, tier);
     const systemPrompt = getGenerationSystemPrompt(agentType, tier);
 
-    sendSSE('status', { message: `Generating (${tier.label})...` });
-    console.log(`[agent-creator] Generating ${agentType} agent for ${derivedName} (quality=${tier.id}, maxTokens=${tier.maxCompletionTokens})`);
+    // Resolve LLM provider + key for generation
+    const userId = req.user.userId || req.user.id;
+    const llmConfig = await resolveUserLLMConfig(userId, reqProvider, reqModel);
+    const effectiveModel = llmConfig.model;
 
-    // Call OpenAI with streaming
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    sendSSE('status', { message: `Generating (${tier.label})...`, provider: llmConfig.provider, model: effectiveModel });
+    console.log(`[agent-creator] Generating ${agentType} agent for ${derivedName} (quality=${tier.id}, provider=${llmConfig.provider}, model=${effectiveModel}, source=${llmConfig.source})`);
+
+    // Build streaming request for the resolved provider
+    const genMessages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: generationUserPrompt },
+    ];
+    const streamReq = prepareStreamRequest(llmConfig.provider, llmConfig.apiKey, effectiveModel, genMessages, { maxTokens: tier.maxCompletionTokens });
+    const genRes = await fetch(streamReq.url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: tier.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: generationUserPrompt },
-        ],
-        max_completion_tokens: tier.maxCompletionTokens,
-        stream: true,
-      }),
+      headers: streamReq.headers,
+      body: streamReq.body,
       signal: AbortSignal.timeout(180000),
     });
 
-    if (!openaiRes.ok) {
-      const errorText = await openaiRes.text();
-      throw new Error(`OpenAI API error: ${openaiRes.status} ${errorText.slice(0, 200)}`);
+    if (!genRes.ok) {
+      const errorText = await genRes.text().catch(() => 'no body');
+      throw new Error(`${llmConfig.provider} API error: ${genRes.status} ${errorText.slice(0, 200)}`);
     }
 
-    // Stream OpenAI response chunks to client
+    // Stream response chunks to client
     let fullContent = '';
     let chunkBuffer = '';
-    const reader = openaiRes.body.getReader();
+    const reader = genRes.body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
@@ -1071,26 +1094,14 @@ router.post('/conversations/:id/generate', async (req, res) => {
       if (done) break;
 
       chunkBuffer += decoder.decode(value, { stream: true });
-
-      // Parse SSE lines from OpenAI
       const lines = chunkBuffer.split('\n');
-      chunkBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+      chunkBuffer = lines.pop() || '';
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        const payload = trimmed.slice(6);
-        if (payload === '[DONE]') continue;
-
-        try {
-          const json = JSON.parse(payload);
-          const delta = json.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            fullContent += delta;
-            sendSSE('chunk', { content: delta });
-          }
-        } catch (parseErr) {
-          // Skip malformed chunks
+        const delta = parseProviderSSELine(llmConfig.provider, line);
+        if (delta) {
+          fullContent += delta;
+          sendSSE('chunk', { content: delta });
         }
       }
     }
@@ -1101,13 +1112,13 @@ router.post('/conversations/:id/generate', async (req, res) => {
     // Store generated agent + quality metadata
     await db.updateConversationGeneratedAgent(id, fullContent, 'complete');
     await db.updateAgentConversation(id, {
-      generation_model: tier.model,
+      generation_model: `${llmConfig.provider}:${effectiveModel}`,
       generation_quality: tier.id,
     });
 
-    console.log(`[agent-creator] Agent generated: ${validation.totalLines} lines, score ${validation.score}/10, quality=${tier.id}`);
+    console.log(`[agent-creator] Agent generated: ${validation.totalLines} lines, score ${validation.score}/10, quality=${tier.id}, provider=${llmConfig.provider}`);
 
-    sendSSE('done', { validation, quality: tier.id, model: tier.model, lines: validation.totalLines });
+    sendSSE('done', { validation, quality: tier.id, model: effectiveModel, provider: llmConfig.provider, lines: validation.totalLines });
     res.end();
   } catch (err) {
     console.error('[agent-creator] Error generating:', err);

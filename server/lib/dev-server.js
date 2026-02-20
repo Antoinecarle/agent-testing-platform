@@ -34,18 +34,50 @@ function getWorkspaceDir(projectId) {
   return path.join(DATA_DIR, 'workspaces', projectId);
 }
 
-function detectStartCommand(workspaceDir) {
+function detectFramework(workspaceDir) {
+  const pkgPath = path.join(workspaceDir, 'package.json');
+  if (!fs.existsSync(pkgPath)) return null;
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    if (allDeps['vite'] || allDeps['@vitejs/plugin-react']) return 'vite';
+    if (allDeps['next']) return 'next';
+    if (allDeps['nuxt']) return 'nuxt';
+    if (allDeps['astro']) return 'astro';
+    return 'node'; // generic (Express, etc.)
+  } catch {
+    return 'node';
+  }
+}
+
+function detectStartCommand(workspaceDir, port) {
   const pkgPath = path.join(workspaceDir, 'package.json');
   if (!fs.existsSync(pkgPath)) return null;
 
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     const scripts = pkg.scripts || {};
+    const framework = detectFramework(workspaceDir);
 
-    // Priority: dev > start > preview
-    if (scripts.dev) return 'npm run dev';
+    // For Vite-based projects, inject --port and --host via -- separator
+    const viteFlags = ` -- --port ${port} --host 0.0.0.0`;
+    // Next.js uses -p flag
+    const nextFlags = ` -- -p ${port} -H 0.0.0.0`;
+
+    if (scripts.dev) {
+      if (framework === 'vite') return `npm run dev${viteFlags}`;
+      if (framework === 'next') return `npm run dev${nextFlags}`;
+      if (framework === 'nuxt') return `npm run dev${viteFlags}`;
+      if (framework === 'astro') return `npm run dev -- --port ${port} --host 0.0.0.0`;
+      return 'npm run dev';
+    }
     if (scripts.start) return 'npm start';
-    if (scripts.preview) return 'npm run preview';
+    if (scripts.preview) {
+      if (framework === 'vite') return `npm run preview${viteFlags}`;
+      return 'npm run preview';
+    }
     return null;
   } catch {
     return null;
@@ -73,7 +105,7 @@ async function startDevServer(projectId, { onLog, onStatusChange } = {}) {
   }
 
   const port = getPort(projectId);
-  const startCmd = detectStartCommand(workspaceDir);
+  const startCmd = detectStartCommand(workspaceDir, port);
   if (!startCmd) {
     throw new Error('No start script found in package.json');
   }
@@ -248,4 +280,5 @@ module.exports = {
   getPort,
   isNodeProject,
   detectStartCommand,
+  detectFramework,
 };

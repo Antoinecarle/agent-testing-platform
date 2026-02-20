@@ -812,6 +812,7 @@ ${workerNames.map(n => `- **${n}**`).join('\n')}
       if (hasTools) {
         // Resolve absolute path to the stdio MCP bridge server
         const stdioServerPath = path.join(__dirname, 'mcp-stdio-server.js');
+        const permissionServerPath = path.join(__dirname, 'mcp-permission-server.js');
 
         const mcpConfig = {
           mcpServers: {
@@ -819,6 +820,11 @@ ${workerNames.map(n => `- **${n}**`).join('\n')}
               command: 'node',
               args: [stdioServerPath],
               // Environment inherited from terminal: AGENT_PROXY_URL, AGENT_SESSION_TOKEN, etc.
+            },
+            'guru-permission': {
+              command: 'node',
+              args: [permissionServerPath],
+              // Environment inherited: PERMISSION_CALLBACK_URL, PERMISSION_CHAT_ID, AGENT_SESSION_TOKEN
             },
           },
         };
@@ -854,16 +860,39 @@ ${workerNames.map(n => `- **${n}**`).join('\n')}
           }
         }
 
+        // Also add permission MCP tool to settings
+        const permPerm = 'mcp__guru-permission__permission_prompt';
+        if (!settings.permissions.allow.includes(permPerm)) {
+          settings.permissions.allow.push(permPerm);
+        }
+
         // Re-write settings with MCP permissions
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
         console.log(`[Workspace] Generated .mcp.json for ${agentName} (${dbTools.length} tools, ${agentPlatforms.length} platforms, ${allToolNames.length} permissions)`);
       } else {
-        // No tools — remove stale .mcp.json
-        if (fs.existsSync(mcpJsonPath)) {
-          fs.unlinkSync(mcpJsonPath);
-          console.log(`[Workspace] Removed stale .mcp.json for ${agentName} (no tools)`);
+        // No agent-specific tools, but still write .mcp.json with permission server
+        // so --permission-prompt-tool works from the chat panel
+        const permissionServerPath = path.join(__dirname, 'mcp-permission-server.js');
+        const mcpConfig = {
+          mcpServers: {
+            'guru-permission': {
+              command: 'node',
+              args: [permissionServerPath],
+            },
+          },
+        };
+        fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2));
+        try { fs.chownSync(mcpJsonPath, 1001, 1001); } catch (_) {}
+
+        // Add permission MCP tool to settings
+        const permPerm = 'mcp__guru-permission__permission_prompt';
+        if (!settings.permissions.allow.includes(permPerm)) {
+          settings.permissions.allow.push(permPerm);
+          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
         }
+
+        console.log(`[Workspace] Generated .mcp.json for ${agentName} (permission server only, no agent tools)`);
       }
     } catch (err) {
       console.warn(`[Workspace] Failed to generate .mcp.json for ${agentName}:`, err.message);

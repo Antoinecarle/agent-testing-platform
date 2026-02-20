@@ -416,50 +416,57 @@ router.post('/import/:projectId', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (project.user_id !== req.user.userId) return res.status(403).json({ error: 'Not authorized' });
 
-    // Get repo contents (root level)
-    const contentsRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/`, {
-      headers: {
-        Authorization: `Bearer ${user.github_access_token}`,
-        Accept: 'application/vnd.github+json',
-      },
-    });
+    const fs = require('fs');
+    const { execSync } = require('child_process');
+    const workspaceDir = path.join(DATA_DIR, 'workspaces', projectId);
 
-    if (!contentsRes.ok) {
-      const err = await contentsRes.json().catch(() => ({}));
-      return res.status(contentsRes.status).json({ error: err.message || 'Failed to access repo' });
+    // Full git clone with auth token
+    const cloneUrl = `https://x-access-token:${user.github_access_token}@github.com/${repoFullName}.git`;
+
+    if (fs.existsSync(workspaceDir)) {
+      // If workspace exists, pull latest
+      try {
+        execSync(`git -C "${workspaceDir}" pull --ff-only 2>&1`, { timeout: 60000 });
+        log.info(`Git pull in ${workspaceDir}`);
+      } catch (pullErr) {
+        // If pull fails, remove and re-clone
+        log.warn('Pull failed, re-cloning:', pullErr.message);
+        fs.rmSync(workspaceDir, { recursive: true, force: true });
+        execSync(`git clone --depth=1 "${cloneUrl}" "${workspaceDir}" 2>&1`, { timeout: 120000 });
+      }
+    } else {
+      execSync(`git clone --depth=1 "${cloneUrl}" "${workspaceDir}" 2>&1`, { timeout: 120000 });
     }
 
-    const contents = await contentsRes.json();
-    const fs = require('fs');
-    const workspaceDir = path.join(DATA_DIR, 'workspaces', projectId);
-    if (!fs.existsSync(workspaceDir)) fs.mkdirSync(workspaceDir, { recursive: true });
+    // Remove .git/config to avoid leaking the token
+    const gitConfigPath = path.join(workspaceDir, '.git', 'config');
+    if (fs.existsSync(gitConfigPath)) {
+      const gitConfig = fs.readFileSync(gitConfigPath, 'utf-8');
+      fs.writeFileSync(gitConfigPath, gitConfig.replace(/x-access-token:[^@]+@/g, ''));
+    }
 
-    let importedFiles = 0;
+    // Count imported files
+    const countFiles = (dir) => {
+      let count = 0;
+      for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (f.name === '.git' || f.name === 'node_modules') continue;
+        if (f.isDirectory()) count += countFiles(path.join(dir, f.name));
+        else count++;
+      }
+      return count;
+    };
+    const importedFiles = countFiles(workspaceDir);
 
-    // Download files from repo root
-    for (const item of contents) {
-      if (item.type !== 'file') continue;
-      if (item.size > 2 * 1024 * 1024) continue; // Skip files > 2MB
-
-      const fileRes = await fetch(item.download_url);
-      if (!fileRes.ok) continue;
-
-      const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
-      fs.writeFileSync(path.join(workspaceDir, item.name), fileBuffer);
-      importedFiles++;
+    // Auto-detect project type
+    const hasPackageJson = fs.existsSync(path.join(workspaceDir, 'package.json'));
+    if (hasPackageJson) {
+      // updateProject takes positional args: (id, name, description, agentName, status, mode, teamId, projectType)
+      await db.updateProject(projectId, project.name, project.description, project.agent_name, project.status, project.mode, project.team_id, 'node');
     }
 
     // Link project to this repo
-    const repoRes = await fetch(`https://api.github.com/repos/${repoFullName}`, {
-      headers: {
-        Authorization: `Bearer ${user.github_access_token}`,
-        Accept: 'application/vnd.github+json',
-      },
-    });
-    const repoData = await repoRes.json();
-
     await db.updateProjectGithub(projectId, {
-      github_repo_url: repoData.html_url || `https://github.com/${repoFullName}`,
+      github_repo_url: `https://github.com/${repoFullName}`,
       github_repo_name: repoFullName,
       github_last_sync: new Date().toISOString(),
     });
@@ -468,6 +475,7 @@ router.post('/import/:projectId', async (req, res) => {
       ok: true,
       imported_files: importedFiles,
       repo_name: repoFullName,
+      project_type: hasPackageJson ? 'node' : 'html',
     });
   } catch (err) {
     log.error('GitHub import error:', err.message);

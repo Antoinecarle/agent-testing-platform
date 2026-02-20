@@ -417,6 +417,10 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const agentProxyRoutes = require('./routes/agent-proxy');
   app.use('/api/agent-proxy', agentProxyRoutes);
 
+  // Internal endpoints — called by MCP permission server (agent token auth)
+  const { permissionRequestRoute } = require('./lib/permission-handler');
+  app.post('/api/internal/permission-request', express.json(), permissionRequestRoute);
+
   // Dev server management routes
   const devServerRoutes = require('./routes/dev-server');
   app.use('/api/dev-server', verifyToken, devServerRoutes);
