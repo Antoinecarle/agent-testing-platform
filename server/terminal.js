@@ -550,7 +550,44 @@ function setupTerminal(io) {
     // Track the current chatId for permission handling
     let currentChatId = null;
 
-    socket.on('chat-send', ({ projectId, message, sessionResume, useContinue } = {}, callback) => {
+    /**
+     * Enrich a user message based on project/agent context.
+     * Two modes:
+     * 1. Orchestra: remind orchestrator to DELEGATE, not do it themselves
+     * 2. Solo agent: remind to use their FULL specialization
+     * @param {string} message - The user's original message
+     * @param {object} project - The project record from DB
+     * @param {object} agent - The agent record from DB (or null)
+     * @returns {string} The enriched message
+     */
+    function enrichChatMessage(message, project, agent) {
+      if (!project) return message;
+
+      // Don't enrich long detailed messages (user knows what they want)
+      if (message.length > 200) return message;
+
+      // Don't enrich non-creative / technical messages
+      const nonCreativePatterns = /^(fix|debug|error|bug|why|how|what|where|show|list|delete|remove|install|run|npm|git|curl|cat |ls |cd |explain|help)/i;
+      if (nonCreativePatterns.test(message.trim())) return message;
+
+      // Orchestra mode: force delegation
+      if (project.mode === 'orchestra' && project.team_id) {
+        return `[ORCHESTRATOR REMINDER: You are the orchestrator. You MUST delegate this task to your team member agents using the Task tool. Do NOT write the output yourself. Break the request into sub-tasks, delegate to workers, and send results to reviewers if available. Report back what your team produced.]
+
+USER REQUEST: ${message}`;
+      }
+
+      // Solo agent with specialization: force full use of their prompt
+      if (agent?.full_prompt && agent.full_prompt.length > 500) {
+        return `[AGENT REMINDER: You are ${agent.name}, a specialized agent. For this request, apply your FULL specialization from your Agent Instructions. Do not produce generic output — use your specific techniques, patterns, and design system as described in your prompt.]
+
+USER REQUEST: ${message}`;
+      }
+
+      return message;
+    }
+
+    socket.on('chat-send', async ({ projectId, message, sessionResume, useContinue } = {}, callback) => {
       if (!projectId || !message || !socket.userId) {
         if (typeof callback === 'function') callback({ error: 'Missing projectId or message' });
         return;
@@ -570,6 +607,14 @@ function setupTerminal(io) {
           'workspaces', projectId
         );
 
+        // Ensure workspace context (CLAUDE.md + .mcp.json) is generated BEFORE chat
+        try {
+          await generateWorkspaceContext(projectId);
+          console.log('[Chat] Workspace context generated for', projectId);
+        } catch (err) {
+          console.warn('[Chat] Workspace context generation failed:', err.message);
+        }
+
         // Generate unique chatId for tracking
         const chatId = `chat_${generateId()}_${Date.now()}`;
         currentChatId = chatId;
@@ -578,8 +623,25 @@ function setupTerminal(io) {
 
         // Auto-approve permissions via MCP proxy (can't use --dangerously-skip-permissions as root)
         const autoApproveServer = path.join(__dirname, 'mcp-auto-approve.js');
+
+        // Merge workspace .mcp.json (agent tools bridge) with auto-approve permission server
+        let workspaceMcpServers = {};
+        const workspaceMcpPath = path.join(cwd, '.mcp.json');
+        if (fs.existsSync(workspaceMcpPath)) {
+          try {
+            const wsMcp = JSON.parse(fs.readFileSync(workspaceMcpPath, 'utf8'));
+            workspaceMcpServers = wsMcp.mcpServers || {};
+            // Remove the interactive permission server — chat uses auto-approve instead
+            delete workspaceMcpServers['guru-permission'];
+            console.log('[Chat] Merged workspace MCP servers:', Object.keys(workspaceMcpServers).join(', '));
+          } catch (err) {
+            console.warn('[Chat] Failed to read workspace .mcp.json:', err.message);
+          }
+        }
+
         const mcpConfig = {
           mcpServers: {
+            ...workspaceMcpServers,
             'guru-permissions': {
               command: 'node',
               args: [autoApproveServer],
@@ -595,7 +657,21 @@ function setupTerminal(io) {
         } else if (useContinue) {
           args.push('--continue');
         }
-        args.push(message);
+
+        // Enrich messages based on project context (orchestra delegation / agent specialization)
+        let finalMessage = message;
+        try {
+          const project = await db.getProject(projectId);
+          const agent = project?.agent_name ? await db.getAgent(project.agent_name) : null;
+          finalMessage = enrichChatMessage(message, project, agent);
+          if (finalMessage !== message) {
+            const mode = project?.mode === 'orchestra' ? 'orchestra-delegation' : 'agent-specialization';
+            console.log(`[Chat] Message enriched (${mode}):`, project.agent_name);
+          }
+        } catch (err) {
+          console.warn('[Chat] Message enrichment skipped:', err.message);
+        }
+        args.push(finalMessage);
 
         // Generate scoped agent session token for chat process
         const chatSessionId = generateId();

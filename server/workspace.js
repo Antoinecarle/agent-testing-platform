@@ -68,6 +68,73 @@ async function getAgentPrompt(agentName) {
 }
 
 /**
+ * Extract key capabilities from ANY agent prompt.
+ * Scans the prompt for structured sections (##, ###, bullet lists)
+ * and returns a summary of what the agent can do.
+ */
+function extractAgentCapabilities(agentPrompt) {
+  if (!agentPrompt || agentPrompt.length < 100) return [];
+
+  const capabilities = [];
+
+  // Extract H2/H3 section titles as capability areas
+  const headingMatches = agentPrompt.match(/^#{2,3}\s+(.+)$/gm) || [];
+  for (const h of headingMatches) {
+    const title = h.replace(/^#+\s+/, '').trim();
+    // Skip generic headings
+    if (/^(context|intro|identity|rules|notes|example|usage|import)/i.test(title)) continue;
+    if (title.length > 5 && title.length < 80) {
+      capabilities.push(title);
+    }
+  }
+
+  // Extract strong/bold items as key features
+  const boldMatches = agentPrompt.match(/\*\*([^*]{5,60})\*\*/g) || [];
+  for (const b of boldMatches) {
+    const text = b.replace(/\*\*/g, '').trim();
+    if (!/^(note|important|warning|never|do not|don't)/i.test(text) && text.length < 60) {
+      capabilities.push(text);
+    }
+  }
+
+  // Deduplicate (case-insensitive) and cap at 15
+  const seen = new Set();
+  return capabilities.filter(c => {
+    const key = c.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 15);
+}
+
+/**
+ * Build quality enforcement section for ANY specialized agent.
+ * Forces the agent to leverage its full prompt instead of producing generic output.
+ */
+function buildQualityEnforcement(agentName, agentPrompt) {
+  if (!agentPrompt || agentPrompt.length < 200) return '';
+
+  const capabilities = extractAgentCapabilities(agentPrompt);
+  if (capabilities.length < 2) return '';
+
+  return `## AGENT SPECIALIZATION ENFORCEMENT — MANDATORY
+
+**You were chosen for this project because of your specific expertise. Use it fully.**
+
+The user selected **${agentName}** deliberately. They expect output that leverages your FULL specialization, not generic work that any basic agent could produce.
+
+### Your Key Capabilities (detected from your instructions):
+${capabilities.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+### Rules — NON-NEGOTIABLE:
+- **ALWAYS apply your specialized techniques** from your Agent Instructions — that is why you were selected
+- **NEVER produce generic/default output** — your output must be distinguishable as coming from YOUR specialization
+- **ALWAYS use the patterns, components, and systems described in your prompt** — they are not suggestions, they are requirements
+- **Quality bar**: If your output could have been produced by a generic agent without your specialization prompt, it is NOT good enough — redo it
+`;
+}
+
+/**
  * Build a text representation of the iteration tree
  */
 function buildTreeText(iterations, parentId = null, indent = 0) {
@@ -545,61 +612,125 @@ ${agentPrompt}` : `## No Agent Assigned
 
 No specific agent is assigned to this project. You can use any design style. Consider asking the user which agent/style they'd like to use.`}
 
+${buildQualityEnforcement(agentName, agentPrompt)}
+
 ${isOrchestra && teamMembers.length > 0 ? (() => {
     const leader = teamMembers.find(m => m.role === 'leader');
     const reviewers = teamMembers.filter(m => m.role === 'reviewer');
     const workers = teamMembers.filter(m => m.role === 'member');
-    let section = `## Orchestra Mode — Team Structure
+    const allDelegates = [...workers, ...reviewers];
 
-This project runs in **Orchestra mode**. You are the **orchestrator** (${leader?.agent_name || agentName}).
+    let section = `## ORCHESTRA MODE — MANDATORY DELEGATION
+
+**THIS IS NON-NEGOTIABLE: You are the ORCHESTRATOR, not a worker. You MUST delegate.**
+
+You are **${leader?.agent_name || agentName}**. Your role is to **coordinate, delegate, and synthesize** — NOT to do the work yourself.
+
+### CRITICAL RULE: YOU DO NOT WRITE CODE OR CONTENT DIRECTLY
+
+- You MUST use the **Task tool** to spawn team member agents for ALL creative/implementation work
+- You MUST delegate to at least one team member for EVERY user request
+- You MUST NOT write \`index.html\` or any deliverable file yourself — that is the workers' job
+- Your job: analyze the request → break it into tasks → delegate → review → synthesize
+
+**If you produce the final output yourself without delegating, you have FAILED your role as orchestrator.**
 
 ### Your Team
 
-| Role | Agent | Specialty |
-|------|-------|-----------|
-| **Orchestrator (You)** | ${leader?.agent_name || agentName} | ${leader?.agent_description || agentDesc || 'Primary coordinator'} |
-${reviewers.map(w => `| **Reviewer** | ${w.agent_name} | ${w.agent_description || 'Quality reviewer'} |`).join('\n')}
-${workers.map(w => `| Worker | ${w.agent_name} | ${w.agent_description || 'Team member'} |`).join('\n')}
+| Role | Agent | Specialty | When to Use |
+|------|-------|-----------|-------------|
+| **Orchestrator (You)** | ${leader?.agent_name || agentName} | ${leader?.agent_description || agentDesc || 'Primary coordinator'} | Coordination only |
+${workers.map(w => `| **Worker** | ${w.agent_name} | ${w.agent_description || 'Team member'} | Delegate implementation tasks |`).join('\n')}
+${reviewers.map(w => `| **Reviewer** | ${w.agent_name} | ${w.agent_description || 'Quality reviewer'} | Send worker output for review |`).join('\n')}
 
-### How to Delegate to Team Members
+### How to Delegate — MANDATORY PATTERN
 
-All team member agents are available in \`.claude/agents/\`. You can delegate work by using the Task tool to spawn a sub-agent:
+Use the **Task tool** with \`subagent_type\` pointing to the agent file in \`.claude/agents/\`:
 
-Available agents you can delegate to:
-${reviewers.map(w => `- **${w.agent_name}** (Reviewer) — ${w.agent_description || 'Review and validate worker output'}`).join('\n')}
-${workers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Available for tasks'}`).join('\n')}
+\`\`\`
+Task tool call:
+  prompt: "Detailed description of what to build, with context and requirements"
+  subagent_type: "general-purpose"
+  description: "Short task summary"
+\`\`\`
+
+The agent's .md file in \`.claude/agents/\` will be loaded as their system prompt. Include in your delegation prompt:
+- What to build (specific, detailed requirements)
+- Context from the user's request
+- Output format expected (e.g., "write to ./index.html" or "./version-1/index.html")
+- Quality expectations
+
+### Agents Available for Delegation:
+${workers.map(w => `- **${w.agent_name}** → \`.claude/agents/${w.agent_name}.md\` — ${w.agent_description || 'Available for implementation tasks'}`).join('\n')}
+${reviewers.map(w => `- **${w.agent_name}** → \`.claude/agents/${w.agent_name}.md\` — ${w.agent_description || 'Available for quality review'}`).join('\n')}
 `;
 
     if (reviewers.length > 0) {
       section += `
-### Review Pipeline
+### REVIEW PIPELINE — MANDATORY WHEN REVIEWERS EXIST
 
-This team includes **reviewer agents**. The workflow is:
+**You MUST send ALL worker output through a reviewer before finalizing. No exceptions.**
 
-1. **Orchestrator** delegates tasks to workers
-2. **Workers** execute their tasks
-3. **Reviewers** receive worker output, review quality, and provide feedback
-4. **Reviewers** report their review to the orchestrator
-5. **Orchestrator** makes final decisions based on reviews
+#### Required Workflow (every single request):
 
-**Reviewer agents you can delegate reviews to:**
-${reviewers.map(w => `- **${w.agent_name}** — Review and validate worker output before finalizing`).join('\n')}
+\`\`\`
+Step 1: ANALYZE
+  └─ Read the user's request
+  └─ Break it into sub-tasks
+  └─ Decide which worker(s) to assign
 
-**When using reviewers:**
-- After a worker completes a task, send the output to the reviewer agent
-- The reviewer will evaluate quality, suggest improvements, and approve/reject
-- Only finalize work that has been reviewed and approved
+Step 2: DELEGATE TO WORKER(S)
+  └─ Use Task tool to spawn worker agent(s)
+  └─ Give them detailed, specific briefs
+  └─ Workers write their output to workspace files
+
+Step 3: SEND TO REVIEWER — MANDATORY
+  └─ Read the worker's output
+  └─ Use Task tool to spawn reviewer agent
+  └─ Ask reviewer to evaluate quality, correctness, and adherence to requirements
+  └─ Reviewer returns feedback (approve / reject with suggestions)
+
+Step 4: ITERATE IF REJECTED
+  └─ If reviewer rejects: send feedback back to worker via new Task
+  └─ Worker revises, then back to reviewer
+  └─ Repeat until reviewer approves
+
+Step 5: FINALIZE
+  └─ Only after reviewer approval: ensure final output is in ./index.html
+  └─ Report results to user with summary of delegation chain
+\`\`\`
+
+**Reviewer agents:**
+${reviewers.map(w => `- **${w.agent_name}** — ${w.agent_description || 'Quality review and validation'}`).join('\n')}
+
+**What the reviewer should evaluate:**
+- Does the output match the user's request?
+- Does it follow the agent's specialization (from its prompt)?
+- Quality: production-ready, no shortcuts, no placeholders
+- Technical: responsive, accessible, performant
+`;
+    } else {
+      section += `
+### DELEGATION WORKFLOW (no reviewers)
+
+\`\`\`
+Step 1: ANALYZE the user's request → break into sub-tasks
+Step 2: DELEGATE to worker(s) via Task tool with detailed briefs
+Step 3: REVIEW worker output yourself (read the files they wrote)
+Step 4: If not good enough → re-delegate with specific feedback
+Step 5: FINALIZE → ensure final output is in ./index.html
+\`\`\`
 `;
     }
 
     section += `
-### Orchestration Guidelines
+### ORCHESTRATOR SELF-CHECK
 
-1. **You coordinate** — break down the user's request into sub-tasks
-2. **Delegate specialized work** to the appropriate team member agents
-${reviewers.length > 0 ? '3. **Send worker output to reviewers** before finalizing\n4. **Synthesize results** — combine reviewed outputs into the final deliverable' : '3. **Synthesize results** — combine outputs into the final deliverable'}
-${reviewers.length > 0 ? '5' : '4'}. **Each agent writes to its own version subdirectory** when doing parallel work
-${reviewers.length > 0 ? '6' : '5'}. **Quality control** — review sub-agent outputs before finalizing
+Before responding to the user, verify:
+- [ ] Did I delegate to at least one team member? (if no → STOP and delegate)
+- [ ] Did I give detailed briefs, not vague one-liners? (if vague → rewrite brief)
+${reviewers.length > 0 ? '- [ ] Did the reviewer approve the output? (if no → iterate)\n' : ''}- [ ] Is the final output in the correct file? (./index.html or version subdirs)
+- [ ] Am I reporting what the TEAM produced, not what I wrote myself?
 `;
     return section;
   })() : ''}
