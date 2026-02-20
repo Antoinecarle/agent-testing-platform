@@ -132,13 +132,28 @@ export default function UnifiedChatPanel({ projectId }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [watching, setWatching] = useState(false);
-  const [chatSessionId, setChatSessionId] = useState(null);
+  // Persist chatSessionId per project in localStorage to survive remounts
+  const [chatSessionId, setChatSessionId] = useState(() => {
+    try { return localStorage.getItem(`guru-chat-session-${projectId}`) || null; } catch { return null; }
+  });
 
   const scrollRef = useRef(null);
   const socketRef = useRef(null);
   const inputRef = useRef(null);
   const autoScrollRef = useRef(true);
   const currentStreamRef = useRef({ text: '', toolCalls: [] });
+  // Ref to access selectedSession inside socket handlers without re-creating socket
+  const selectedSessionRef = useRef(null);
+
+  // Persist chatSessionId to localStorage when it changes
+  useEffect(() => {
+    if (chatSessionId && projectId) {
+      try { localStorage.setItem(`guru-chat-session-${projectId}`, chatSessionId); } catch {}
+    }
+  }, [chatSessionId, projectId]);
+
+  // Keep selectedSession ref in sync for socket handlers
+  useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
 
   // Load sessions list
   useEffect(() => {
@@ -209,7 +224,9 @@ export default function UnifiedChatPanel({ projectId }) {
     // Live activity events from file watcher
     socket.on('activity-events', (newEvents) => {
       // Re-fetch turns when new activity comes in (simple approach, avoids complex merging)
-      const params = selectedSession ? `?sessionId=${selectedSession}&limit=500` : '?limit=500';
+      // Use ref to get current selectedSession without triggering socket reconnection
+      const sid = selectedSessionRef.current;
+      const params = sid ? `?sessionId=${sid}&limit=500` : '?limit=500';
       api(`/api/session-logs/${projectId}/turns${params}`).then(data => {
         setTurns(data.turns || []);
         if (autoScrollRef.current && scrollRef.current) {
@@ -266,7 +283,10 @@ export default function UnifiedChatPanel({ projectId }) {
         });
       } else if (data.type === 'result') {
         const text = data.result?.trim() || data.message?.content?.find(b => b.type === 'text')?.text || '';
-        if (data.session_id) setChatSessionId(data.session_id);
+        if (data.session_id) {
+          console.log('[UnifiedChat] Got session_id from result:', data.session_id);
+          setChatSessionId(data.session_id);
+        }
         setTurns(prev => {
           const copy = [...prev];
           const lastIdx = copy.length - 1;
@@ -317,7 +337,10 @@ export default function UnifiedChatPanel({ projectId }) {
     });
 
     socket.on('chat-done', (data) => {
-      if (data.sessionId) setChatSessionId(data.sessionId);
+      if (data.sessionId) {
+        console.log('[UnifiedChat] Got sessionId from chat-done:', data.sessionId);
+        setChatSessionId(data.sessionId);
+      }
       setSending(false);
       setTurns(prev => {
         const copy = [...prev];
@@ -341,7 +364,7 @@ export default function UnifiedChatPanel({ projectId }) {
       socketRef.current = null;
       setWatching(false);
     };
-  }, [projectId, selectedSession]);
+  }, [projectId]); // Only reconnect socket when project changes, NOT when selectedSession changes
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
@@ -368,10 +391,12 @@ export default function UnifiedChatPanel({ projectId }) {
       tokens: null,
     }]);
 
+    console.log('[UnifiedChat] Sending message, sessionResume:', chatSessionId || 'none (will use --continue)');
     socketRef.current.emit('chat-send', {
       projectId,
       message: msg,
       sessionResume: chatSessionId,
+      useContinue: !chatSessionId, // fallback: --continue when no explicit session ID
     }, (resp) => {
       if (resp?.error) {
         console.error('[Chat] Send error:', resp.error);
@@ -483,6 +508,12 @@ export default function UnifiedChatPanel({ projectId }) {
         sessions={sessions}
         selectedId={selectedSession}
         onSelect={setSelectedSession}
+        onNewSession={() => {
+          setChatSessionId(null);
+          try { localStorage.removeItem(`guru-chat-session-${projectId}`); } catch {}
+          setTurns([]);
+          setSelectedSession(null);
+        }}
       />
 
       {/* Messages / turns area */}
@@ -505,6 +536,11 @@ export default function UnifiedChatPanel({ projectId }) {
               Messages are sent via Claude CLI with the workspace CLAUDE.md applied.
               <br />Activity from terminal sessions appears here too.
             </div>
+            {chatSessionId && (
+              <div style={{ fontSize: '9px', marginTop: '8px', color: t.tm, fontFamily: 'monospace' }}>
+                Session: {chatSessionId.substring(0, 12)}...
+              </div>
+            )}
           </div>
         ) : (
           turns.map((turn, i) => <TurnView key={turn.id || `turn-${i}`} turn={turn} />)

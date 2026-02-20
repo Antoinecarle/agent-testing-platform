@@ -517,7 +517,7 @@ function setupTerminal(io) {
     });
 
     // ── Chat with Claude (streaming) ────────────────────────────────────────
-    socket.on('chat-send', ({ projectId, message, sessionResume } = {}, callback) => {
+    socket.on('chat-send', ({ projectId, message, sessionResume, useContinue } = {}, callback) => {
       if (!projectId || !message || !socket.userId) {
         if (typeof callback === 'function') callback({ error: 'Missing projectId or message' });
         return;
@@ -541,11 +541,15 @@ function setupTerminal(io) {
         const args = ['-p', '--output-format', 'stream-json', '--verbose'];
         if (sessionResume) {
           args.push('--resume', sessionResume);
+        } else if (useContinue) {
+          // Fallback: continue the most recent session in this workspace
+          args.push('--continue');
         }
         args.push(message);
 
         console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.join(' '));
         console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| userId:', socket.userId);
+        console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
 
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,

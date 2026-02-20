@@ -57,11 +57,21 @@ export default function ChatPanel({ projectId }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
+  // Persist sessionId per project to survive remounts
+  const [sessionId, setSessionId] = useState(() => {
+    try { return localStorage.getItem(`guru-chat-session-${projectId}`) || null; } catch { return null; }
+  });
   const scrollRef = useRef(null);
   const socketRef = useRef(null);
   const inputRef = useRef(null);
   const currentAssistantRef = useRef('');
+
+  // Persist sessionId to localStorage when it changes
+  useEffect(() => {
+    if (sessionId && projectId) {
+      try { localStorage.setItem(`guru-chat-session-${projectId}`, sessionId); } catch {}
+    }
+  }, [sessionId, projectId]);
 
   // Connect Socket.IO
   useEffect(() => {
@@ -196,10 +206,12 @@ export default function ChatPanel({ projectId }) {
       id: `user-${Date.now()}`, role: 'user', content: msg, streaming: false,
     }]);
 
+    console.log('[ChatPanel] Sending message, sessionResume:', sessionId || 'none (will use --continue)');
     socketRef.current.emit('chat-send', {
       projectId,
       message: msg,
       sessionResume: sessionId,
+      useContinue: !sessionId, // fallback: --continue when no explicit session ID
     });
 
     setTimeout(() => {
