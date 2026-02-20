@@ -29,6 +29,19 @@ function fmtDuration(ms) {
   return `${(ms / 60000).toFixed(1)}m`;
 }
 
+// ─── Spinner component ──────────────────────────────────────────────────
+function Spinner({ size = 14, color = '#06b6d4' }) {
+  return (
+    <span style={{
+      display: 'inline-block', width: size, height: size, flexShrink: 0,
+      border: `2px solid rgba(255,255,255,0.06)`,
+      borderTopColor: color,
+      borderRadius: '50%',
+      animation: 'spin 0.7s linear infinite',
+    }} />
+  );
+}
+
 // ─── Category badge colors ─────────────────────────────────────────────
 const catColors = {
   subagent: { bg: 'rgba(6,182,212,0.12)', color: '#06b6d4', label: 'Task' },
@@ -210,12 +223,13 @@ function UserMessage({ text }) {
 }
 
 // ─── Activity Sidebar (claude-devtools style context panel) ────────────
-function ActivitySidebar({ turns, events, visible, onClose }) {
+function ActivitySidebar({ turns, events, visible, onClose, sending }) {
   // Aggregate stats from turns
   const stats = useMemo(() => {
     const result = {
       totalTokensIn: 0, totalTokensOut: 0,
-      toolCounts: {}, fileAccess: new Set(), subagents: 0,
+      toolCounts: {}, fileAccess: new Set(), subagents: [],
+      runningSubagents: [], completedSubagents: [],
       errors: 0, turnCount: turns.length,
     };
     for (const turn of turns) {
@@ -227,8 +241,12 @@ function ActivitySidebar({ turns, events, visible, onClose }) {
         const cat = tc.category || 'tool';
         result.toolCounts[cat] = (result.toolCounts[cat] || 0) + 1;
         if (tc.isError) result.errors++;
-        if (cat === 'subagent') result.subagents++;
-        // Track file access
+        if (cat === 'subagent') {
+          const isRunning = !tc.result && !tc.isError && turn.streaming;
+          result.subagents.push({ ...tc, isRunning, turnStreaming: turn.streaming });
+          if (isRunning) result.runningSubagents.push(tc);
+          else result.completedSubagents.push(tc);
+        }
         if (['file_read', 'file_write', 'file_edit'].includes(cat)) {
           const fp = tc.rawInput?.file_path || tc.toolInput;
           if (fp) result.fileAccess.add(fp);
@@ -266,11 +284,47 @@ function ActivitySidebar({ turns, events, visible, onClose }) {
         <StatBox label="Tokens In" value={fmtTokens(stats.totalTokensIn)} color={t.cyan} />
         <StatBox label="Tokens Out" value={fmtTokens(stats.totalTokensOut)} color={t.violet} />
         <StatBox label="Turns" value={stats.turnCount} color={t.green} />
-        <StatBox label="Errors" value={stats.errors} color={stats.errors > 0 ? t.red : t.tm} />
+        <StatBox label="Subagents" value={stats.subagents.length} color={stats.runningSubagents.length > 0 ? t.cyan : t.tm} running={stats.runningSubagents.length} />
       </div>
 
       {/* Scrollable sections */}
       <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+        {/* Running now (always on top when active) */}
+        {(stats.runningSubagents.length > 0 || sending) && (
+          <div style={{ margin: '0 14px 10px', padding: '10px', borderRadius: '8px', background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%', background: t.cyan,
+                boxShadow: `0 0 8px ${t.cyan}`, animation: 'pulse 1.5s ease infinite', flexShrink: 0,
+              }} />
+              <span style={{ fontSize: '11px', fontWeight: '700', color: t.cyan }}>Running Now</span>
+            </div>
+            {sending && stats.runningSubagents.length === 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
+                <Spinner size={12} color={t.violet} />
+                <span style={{ fontSize: '10px', color: t.ts }}>Claude is thinking...</span>
+              </div>
+            )}
+            {stats.runningSubagents.map((tc, i) => (
+              <div key={tc.id || `run-${i}`} style={{
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                padding: '6px 0', borderTop: i > 0 ? `1px solid rgba(6,182,212,0.1)` : 'none',
+              }}>
+                <Spinner size={12} color={t.cyan} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '10px', fontWeight: '600', color: t.cyan }}>
+                    {tc.rawInput?.subagent_type || 'Task'}
+                    {tc.rawInput?.name && <span style={{ color: t.ts, fontWeight: '400', marginLeft: '4px' }}>{tc.rawInput.name}</span>}
+                  </div>
+                  <div style={{ fontSize: '10px', color: t.ts, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                    {tc.rawInput?.description || tc.toolInput}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Tool breakdown */}
         <ActivitySection title="Tool Calls" count={Object.values(stats.toolCounts).reduce((a, b) => a + b, 0)}>
           {Object.entries(stats.toolCounts).sort((a, b) => b[1] - a[1]).map(([cat, count]) => {
@@ -311,24 +365,34 @@ function ActivitySidebar({ turns, events, visible, onClose }) {
         )}
 
         {/* Subagents / Parallel tasks */}
-        {stats.subagents > 0 && (
-          <ActivitySection title="Subagents & Tasks" count={stats.subagents}>
-            {turns.flatMap(turn =>
-              (turn.toolCalls || []).filter(tc => tc.category === 'subagent').map((tc, i) => (
-                <div key={tc.id || `sub-${i}`} style={{
-                  padding: '6px 8px', margin: '2px 0', borderRadius: '6px',
-                  background: t.cyanM, border: `1px solid rgba(6,182,212,0.15)`,
-                }}>
-                  <div style={{ fontSize: '10px', fontWeight: '600', color: t.cyan, marginBottom: '2px' }}>
+        {stats.subagents.length > 0 && (
+          <ActivitySection title="Subagents & Tasks" count={stats.subagents.length}>
+            {stats.subagents.map((tc, i) => (
+              <div key={tc.id || `sub-${i}`} style={{
+                padding: '6px 8px', margin: '2px 0', borderRadius: '6px',
+                background: tc.isRunning ? 'rgba(6,182,212,0.08)' : tc.isError ? t.redM : t.cyanM,
+                border: `1px solid ${tc.isRunning ? 'rgba(6,182,212,0.25)' : tc.isError ? 'rgba(239,68,68,0.2)' : 'rgba(6,182,212,0.15)'}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                  {tc.isRunning && <Spinner size={10} color={t.cyan} />}
+                  <span style={{ fontSize: '10px', fontWeight: '600', color: tc.isRunning ? t.cyan : tc.isError ? t.red : t.ts }}>
                     {tc.rawInput?.subagent_type || 'Task'}
-                  </div>
-                  <div style={{ fontSize: '10px', color: t.ts, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {tc.rawInput?.description || tc.toolInput}
-                  </div>
-                  {tc.isError && <span style={{ fontSize: '9px', color: t.red }}>Failed</span>}
+                    {tc.rawInput?.name && <span style={{ fontWeight: '400', marginLeft: '4px' }}>{tc.rawInput.name}</span>}
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <span style={{
+                    fontSize: '8px', fontWeight: '600', padding: '1px 4px', borderRadius: '3px',
+                    background: tc.isRunning ? 'rgba(6,182,212,0.2)' : tc.isError ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.2)',
+                    color: tc.isRunning ? t.cyan : tc.isError ? t.red : t.green,
+                  }}>
+                    {tc.isRunning ? 'RUNNING' : tc.isError ? 'FAILED' : 'DONE'}
+                  </span>
                 </div>
-              ))
-            )}
+                <div style={{ fontSize: '10px', color: t.ts, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {tc.rawInput?.description || tc.toolInput}
+                </div>
+              </div>
+            ))}
           </ActivitySection>
         )}
 
@@ -363,14 +427,22 @@ function ActivitySidebar({ turns, events, visible, onClose }) {
   );
 }
 
-function StatBox({ label, value, color }) {
+function StatBox({ label, value, color, running }) {
   return (
     <div style={{
       padding: '6px 8px', borderRadius: '6px', background: t.surfaceEl,
       border: `1px solid ${t.border}`,
     }}>
       <div style={{ fontSize: '9px', color: t.tm, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontSize: '16px', fontWeight: '700', color, fontFamily: 'monospace', marginTop: '2px' }}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+        <span style={{ fontSize: '16px', fontWeight: '700', color, fontFamily: 'monospace' }}>{value}</span>
+        {running > 0 && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+            <Spinner size={10} color={t.cyan} />
+            <span style={{ fontSize: '9px', color: t.cyan, fontWeight: '600' }}>{running}</span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -689,6 +761,7 @@ export default function DevToolsChatPanel({ projectId }) {
       <style>{`
         @keyframes blink { 50% { opacity: 0; } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
       {/* ── Top bar ── */}
@@ -863,6 +936,7 @@ export default function DevToolsChatPanel({ projectId }) {
           events={events}
           visible={showActivity}
           onClose={() => setShowActivity(false)}
+          sending={sending}
         />
       </div>
     </div>
