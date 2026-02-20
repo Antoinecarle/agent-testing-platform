@@ -721,13 +721,32 @@ async function handleSpecializedTool(id, toolDef, args, session) {
   const agent = await db.getAgent(session.agentName);
   if (!agent) return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Agent not found' } };
 
-  // 1. Build LEAN system prompt — specialized tools have their own context_template
-  //    so we only need the agent's core identity, NOT the full prompt + all skills
+  // 1. Build system prompt — prompt_mode determines how much agent context to include
+  //    'full'  = full agent prompt + skills + template (maximum quality)
+  //    'lean'  = identity + description + template only (token-efficient, default)
   const hasTemplate = toolDef.context_template && toolDef.context_template.length > 50;
+  const promptMode = toolDef.prompt_mode || 'lean';
   let systemPrompt = '';
 
-  if (hasTemplate) {
-    // Tool has its own context — use a lean agent identity + description only
+  if (promptMode === 'full') {
+    // Full mode: include the complete agent prompt + skills, template appended later
+    systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+    try {
+      const skills = await db.getAgentSkills(session.agentName);
+      if (skills?.length > 0) {
+        systemPrompt += '\n\n## Assigned Skills\n\n';
+        for (const skill of skills) {
+          systemPrompt += `### ${skill.name}\n`;
+          if (skill.description) systemPrompt += `${skill.description}\n\n`;
+          if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+        }
+      }
+    } catch (_) {}
+    if (toolDef.output_instructions) {
+      systemPrompt += `\n## Output Format\n${toolDef.output_instructions}\n`;
+    }
+  } else if (hasTemplate) {
+    // Lean mode with template — agent identity + description only
     const agentDesc = agent.description || '';
     systemPrompt = `You are ${agent.name}. ${agentDesc}\n`;
     if (toolDef.output_instructions) {
@@ -818,7 +837,7 @@ async function handleSpecializedTool(id, toolDef, args, session) {
     { role: 'user', content: enriched.userMessage },
   ];
 
-  console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars (lean: ${hasTemplate})`);
+  console.log(`[MCP Specialized] ${session.agentName}.${toolDef.tool_name} — system: ${systemPrompt.length} chars, user: ${enriched.userMessage.length} chars (prompt_mode: ${promptMode})`);
 
   // 8. Resolve LLM provider (creator's BYOK or server key)
   let { provider, apiKey, model, userLlmKeyId, usingByok } = await resolveByokProvider(session.deploymentId);

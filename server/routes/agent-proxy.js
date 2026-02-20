@@ -591,13 +591,33 @@ router.post('/mcp-call', async (req, res) => {
     }
 
     const hasTemplate = specializedTool.context_template && specializedTool.context_template.length > 50;
+    const promptMode = specializedTool.prompt_mode || 'lean';
     let systemPrompt = '';
-    if (hasTemplate) {
+    if (promptMode === 'full') {
+      // Full mode: include the complete agent prompt + skills
+      systemPrompt = agent.full_prompt || agent.prompt_preview || '';
+      try {
+        const skills = await db.getAgentSkills(agentName);
+        if (skills?.length > 0) {
+          systemPrompt += '\n\n## Assigned Skills\n\n';
+          for (const skill of skills) {
+            systemPrompt += `### ${skill.name}\n`;
+            if (skill.description) systemPrompt += `${skill.description}\n\n`;
+            if (skill.prompt) systemPrompt += `${skill.prompt}\n\n`;
+          }
+        }
+      } catch (_) {}
+      if (specializedTool.output_instructions) {
+        systemPrompt += `\n## Output Format\n${specializedTool.output_instructions}\n`;
+      }
+    } else if (hasTemplate) {
+      // Lean mode with template — agent identity + description only
       systemPrompt = `You are ${agent.name}. ${agent.description || ''}\n`;
       if (specializedTool.output_instructions) {
         systemPrompt += `\n## Output Format\n${specializedTool.output_instructions}\n`;
       }
     } else {
+      // No template — fall back to full agent prompt
       systemPrompt = agent.full_prompt || agent.prompt_preview || '';
     }
 
