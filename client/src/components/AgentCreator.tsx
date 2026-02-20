@@ -474,14 +474,40 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     setMessages(prev => [...prev.filter(m => m.id !== 'welcome'), userMessage]);
     setInputMessage('');
     setIsSending(true);
+
+    // Add a placeholder streaming message
+    const streamId = `stream-${Date.now()}`;
+    let streamContent = '';
+    setMessages(prev => [...prev, { id: streamId, role: 'assistant', content: '' }]);
+
     try {
-      const result = await api(`/api/agent-creator/conversations/${conversationId}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ message: inputMessage }),
-      });
-      setMessages(prev => [...prev, { id: result.message.id, role: 'assistant', content: result.message.content }]);
+      await apiStream(
+        `/api/agent-creator/conversations/${conversationId}/messages`,
+        { message: userMessage.content },
+        {
+          onStatus: (msg: string) => {
+            // Update placeholder with status while waiting for first chunk
+            if (!streamContent) {
+              setMessages(prev => prev.map(m => m.id === streamId ? { ...m, content: '' } : m));
+            }
+          },
+          onChunk: (text: string) => {
+            streamContent += text;
+            setMessages(prev => prev.map(m => m.id === streamId ? { ...m, content: streamContent } : m));
+          },
+          onDone: (data: any) => {
+            // Replace stream ID with real message ID from DB
+            if (data.messageId) {
+              setMessages(prev => prev.map(m => m.id === streamId ? { ...m, id: data.messageId } : m));
+            }
+          },
+          onError: (msg: string) => {
+            setMessages(prev => prev.map(m => m.id === streamId ? { ...m, content: `Error: ${msg}` } : m));
+          },
+        }
+      );
     } catch (err: any) {
-      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: `Error: ${err.message || 'Failed'}` }]);
+      setMessages(prev => prev.map(m => m.id === streamId ? { ...m, content: `Error: ${err.message || 'Failed'}` } : m));
     } finally {
       setIsSending(false);
     }
@@ -1117,23 +1143,28 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                       borderTopRightRadius: msg.role === 'user' ? '3px' : '12px', borderTopLeftRadius: msg.role === 'assistant' ? '3px' : '12px',
                       color: msg.role === 'user' ? 'white' : t.tp, fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap'
                     }}>
-                      {msg.content.split(/(\!\[.*?\]\(.*?\))/).map((part: string, i: number) => {
+                      {msg.content ? msg.content.split(/(\!\[.*?\]\(.*?\))/).map((part: string, i: number) => {
                         const imgMatch = part.match(/^\!\[(.*?)\]\((.*?)\)$/);
                         if (imgMatch) {
                           return <img key={i} src={imgMatch[2]} alt={imgMatch[1]} style={{ maxWidth: '120px', borderRadius: '12px', display: 'block', margin: '4px 0', border: `2px solid ${t.violet}40` }} />;
                         }
                         return <span key={i}>{part}</span>;
-                      })}
+                      }) : null}
+                      {isSending && msg.id.startsWith('stream-') && (
+                        <span style={{ display: 'inline-block', width: '5px', height: '13px', background: t.violet, marginLeft: '1px', verticalAlign: 'text-bottom', animation: 'blink 0.7s step-end infinite' }} />
+                      )}
                     </div>
                   </motion.div>
                 ))}
-                {isSending && (
+                {isSending && !messages.some(m => m.id.startsWith('stream-') && m.content) && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', gap: '10px', maxWidth: '85%', alignSelf: 'flex-start' }}>
                     <div style={{ width: '26px', height: '26px', borderRadius: '7px', background: t.violetM, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Sparkles size={12} color={t.violet} />
                     </div>
-                    <div style={{ background: t.surfaceEl, padding: '9px 13px', borderRadius: '12px', borderTopLeftRadius: '3px', color: t.ts, fontSize: '13px' }}>
-                      Analyzing images & thinking...
+                    <div style={{ background: t.surfaceEl, padding: '9px 13px', borderRadius: '12px', borderTopLeftRadius: '3px', color: t.tm, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ display: 'inline-block', width: '4px', height: '4px', borderRadius: '50%', background: t.violet, animation: 'blink 1s infinite' }} />
+                      <span style={{ display: 'inline-block', width: '4px', height: '4px', borderRadius: '50%', background: t.violet, animation: 'blink 1s infinite 0.2s' }} />
+                      <span style={{ display: 'inline-block', width: '4px', height: '4px', borderRadius: '50%', background: t.violet, animation: 'blink 1s infinite 0.4s' }} />
                     </div>
                   </motion.div>
                 )}

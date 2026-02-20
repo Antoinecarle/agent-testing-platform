@@ -655,27 +655,41 @@ router.put('/conversations/:id', async (req, res) => {
   }
 });
 
-// ========== CONVERSATION MESSAGES (with Vision — images sent to GPT-5) ==========
+// ========== CONVERSATION MESSAGES — SSE streaming chat ==========
 
 router.post('/conversations/:id/messages', async (req, res) => {
+  const { id } = req.params;
+  const { message } = req.body || {};
+
+  // SSE headers for streaming
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const sendSSE = (type, data) => {
+    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
   try {
-    const { id } = req.params;
-    const { message } = req.body;
     const conversation = await db.getAgentConversation(id);
 
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      sendSSE('error', { message: 'Conversation not found' });
+      return res.end();
     }
 
     if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
+      sendSSE('error', { message: 'Message is required' });
+      return res.end();
     }
 
     // Load references with structured analysis
     const references = await db.getConversationReferences(id);
     const referencesContext = buildReferencesContext(references);
 
-    // Build the upgraded system prompt — cap total size to avoid context overflow
+    // Build the upgraded system prompt
     const agentType = conversation.agent_type || 'custom';
     let systemPrompt = getConversationSystemPrompt(agentType)
       + (referencesContext.length > 8000 ? referencesContext.slice(0, 8000) + '\n...(truncated)' : referencesContext)
@@ -684,11 +698,13 @@ router.post('/conversations/:id/messages', async (req, res) => {
     // Save user message
     await db.createConversationMessage(id, 'user', message);
 
-    // Load all messages for GPT context — keep last 20 to avoid token overflow
+    sendSSE('status', { message: 'Thinking...' });
+
+    // Load all messages for GPT context
     const allMessagesRaw = await db.getConversationMessages(id);
     const allMessages = allMessagesRaw.length > 20 ? allMessagesRaw.slice(-20) : allMessagesRaw;
 
-    // Build image content parts for vision — include uploaded images (max 3 to control size)
+    // Build image content parts for vision
     const imageRefs = references.filter(r => r.type === 'image' && r.url).slice(0, 3);
     const imageParts = [];
     for (const ref of imageRefs) {
@@ -707,14 +723,16 @@ router.post('/conversations/:id/messages', async (req, res) => {
       }
     }
 
-    // Build GPT messages — attach images to first user message (not last, to avoid duplication per turn)
-    const gptMessages = [{ role: 'system', content: systemPrompt }];
+    if (imageParts.length > 0) {
+      sendSSE('status', { message: 'Analyzing images...' });
+    }
 
+    // Build GPT messages
+    const gptMessages = [{ role: 'system', content: systemPrompt }];
     let imagesAttached = false;
     for (let i = 0; i < allMessages.length; i++) {
       const m = allMessages[i];
       if (m.role === 'user' && !imagesAttached && imageParts.length > 0) {
-        // First user message: attach images for vision context
         gptMessages.push({
           role: 'user',
           content: [
@@ -730,107 +748,74 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
     console.log(`[agent-creator] Chat request: ${allMessages.length} msgs, ${imageParts.length} images, system prompt ${systemPrompt.length} chars`);
 
-    // Call GPT-5 with vision support (with retry + timeout)
-    const body = {
-      model: GPT5_MODEL,
-      messages: gptMessages,
-      max_completion_tokens: 16000,
-    };
+    // Call OpenAI with streaming
+    const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GPT5_MODEL,
+        messages: gptMessages,
+        max_completion_tokens: 16000,
+        stream: true,
+      }),
+      signal: AbortSignal.timeout(180000),
+    });
 
-    let assistantResponse;
-    const maxRetries = 2;
-    let lastError;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(180000),
-        });
+    if (!gptRes.ok) {
+      const errorText = await gptRes.text().catch(() => 'no body');
+      throw new Error(`GPT-5 API error ${gptRes.status}: ${errorText.slice(0, 200)}`);
+    }
 
-        if (gptRes.ok) {
-          const gptData = await gptRes.json();
-          const choice = gptData.choices && gptData.choices[0];
-          console.log(`[agent-creator] GPT-5 response: choices=${gptData.choices?.length}, finish_reason=${choice?.finish_reason}, content_length=${choice?.message?.content?.length || 0}, usage=${JSON.stringify(gptData.usage || {})}`);
-          if (!choice || !choice.message) {
-            lastError = new Error('GPT-5 returned empty choices');
-            if (attempt < maxRetries) {
-              console.warn(`[agent-creator] GPT-5 empty choices, retrying (attempt ${attempt + 1}/${maxRetries})`);
-              await new Promise(r => setTimeout(r, 2000));
-              continue;
-            }
-            break;
+    // Stream response chunks to client
+    let fullContent = '';
+    let chunkBuffer = '';
+    const reader = gptRes.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      chunkBuffer += decoder.decode(value, { stream: true });
+      const lines = chunkBuffer.split('\n');
+      chunkBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const payload = trimmed.slice(6);
+        if (payload === '[DONE]') continue;
+
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullContent += delta;
+            sendSSE('chunk', { content: delta });
           }
-          // Handle refusal (content filter)
-          if (choice.message.refusal) {
-            lastError = new Error(`GPT-5 refused: ${choice.message.refusal}`);
-            break;
-          }
-          assistantResponse = choice.message.content;
-          // If response was cut off but we have partial content, use it anyway
-          if (assistantResponse && choice.finish_reason === 'length') {
-            console.warn(`[agent-creator] GPT-5 response truncated at token limit but returning partial content (${assistantResponse.length} chars)`);
-          }
-          if (!assistantResponse && choice.finish_reason === 'length') {
-            lastError = new Error('GPT-5 response was cut off (token limit) with no content.');
-            break;
-          }
-          if (!assistantResponse) {
-            lastError = new Error('GPT-5 returned null content');
-            if (attempt < maxRetries) {
-              console.warn(`[agent-creator] GPT-5 null content, retrying (attempt ${attempt + 1}/${maxRetries})`);
-              await new Promise(r => setTimeout(r, 2000));
-              continue;
-            }
-            break;
-          }
-          break;
+        } catch (parseErr) {
+          // Skip malformed chunks
         }
-
-        const errorText = await gptRes.text().catch(() => 'no body');
-        console.error(`[agent-creator] GPT-5 HTTP ${gptRes.status}: ${errorText.slice(0, 500)}`);
-        lastError = new Error(`GPT-5 API error ${gptRes.status}: ${errorText.slice(0, 200)}`);
-
-        // 400 = bad request (payload too large, invalid format) — don't retry
-        if (gptRes.status === 400) {
-          throw lastError;
-        }
-
-        if (gptRes.status >= 500 && attempt < maxRetries) {
-          const delay = (attempt + 1) * 2000;
-          console.warn(`[agent-creator] Chat GPT-5 ${gptRes.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        throw lastError;
-      } catch (err) {
-        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-          lastError = new Error('GPT-5 API timeout after 180s');
-          if (attempt < maxRetries) {
-            console.warn(`[agent-creator] Chat GPT-5 timeout, retrying (attempt ${attempt + 1}/${maxRetries})`);
-            await new Promise(r => setTimeout(r, 2000));
-            continue;
-          }
-        }
-        throw lastError || err;
       }
     }
-    if (!assistantResponse) {
-      console.error(`[agent-creator] No assistant response after all retries. lastError:`, lastError?.message);
-      throw lastError || new Error('GPT-5 returned no response after retries');
+
+    if (!fullContent) {
+      throw new Error('GPT-5 returned empty response');
     }
 
-    // Save assistant response
-    const assistantMessage = await db.createConversationMessage(id, 'assistant', assistantResponse);
+    // Save assistant response to DB
+    const assistantMessage = await db.createConversationMessage(id, 'assistant', fullContent);
 
-    res.json({ message: assistantMessage });
+    console.log(`[agent-creator] Chat response streamed: ${fullContent.length} chars`);
+    sendSSE('done', { messageId: assistantMessage.id });
+    res.end();
   } catch (err) {
     console.error('[agent-creator] Error sending message:', err);
-    res.status(500).json({ error: err.message });
+    sendSSE('error', { message: err.message });
+    res.end();
   }
 });
 
