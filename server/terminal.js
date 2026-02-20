@@ -538,7 +538,7 @@ function setupTerminal(io) {
           'workspaces', projectId
         );
 
-        const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages'];
+        const args = ['-p', '--output-format', 'stream-json'];
         if (sessionResume) {
           args.push('--resume', sessionResume);
         }
@@ -561,6 +561,10 @@ function setupTerminal(io) {
         });
 
         console.log('[Chat] Process spawned, pid:', chatProc.pid);
+        // Close stdin so Claude CLI knows no more input is coming
+        if (chatProc.stdin) {
+          try { chatProc.stdin.end(); } catch (_) {}
+        }
         chatProcesses.set(socket.id, chatProc);
         let sessionId = null;
         let buffer = '';
@@ -610,6 +614,25 @@ function setupTerminal(io) {
           console.error('[Chat] Process error:', err.message);
           chatProcesses.delete(socket.id);
           socket.emit('chat-done', { error: err.message });
+        });
+
+        // Startup timeout: if no output after 30s, likely auth issue or hung process
+        let gotOutput = false;
+        const startupTimer = setTimeout(() => {
+          if (!gotOutput && chatProcesses.has(socket.id)) {
+            console.warn('[Chat] No output after 30s, killing process');
+            try { chatProc.kill('SIGTERM'); } catch (_) {}
+            socket.emit('chat-stream', { type: 'error', text: 'Claude CLI did not respond. Check authentication or try from the terminal.' });
+            socket.emit('chat-done', { error: 'timeout', sessionId: null });
+            chatProcesses.delete(socket.id);
+          }
+        }, 30000);
+
+        // Track that we got output to cancel the startup timer
+        const originalStdoutHandler = chatProc.stdout.listeners('data')[0];
+        chatProc.stdout.prependOnceListener('data', () => {
+          gotOutput = true;
+          clearTimeout(startupTimer);
         });
 
         if (typeof callback === 'function') callback({ ok: true });
