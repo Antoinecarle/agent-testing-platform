@@ -625,7 +625,9 @@ USER REQUEST: ${message}`;
         const chatAgentToken = generateAgentSessionToken(chatSessionId, projectId, socket.userId);
         const chatProxyUrl = `http://localhost:${chatPORT}/api/agent-proxy`;
 
-        const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+        // Build args: --mcp-config MUST come before -p because it's variadic (<configs...>)
+        // and would consume subsequent args including the prompt
+        const args = ['--output-format', 'stream-json', '--verbose'];
 
         // Auto-approve permissions via MCP proxy (can't use --dangerously-skip-permissions as root)
         const autoApproveServer = path.join(__dirname, 'mcp-auto-approve.js');
@@ -667,9 +669,16 @@ USER REQUEST: ${message}`;
           },
         };
         const mcpConfigJson = JSON.stringify(mcpConfig);
+        console.log('[Chat] MCP config:', JSON.stringify(mcpConfig, null, 2).substring(0, 500));
+
+        // --strict-mcp-config prevents CLI from loading .mcp.json from parent directories
+        // (project root has heavy MCP servers like Supabase/Onyx that slow startup)
+        args.push('--strict-mcp-config');
         args.push('--permission-prompt-tool', 'mcp__guru-permissions__permission_prompt');
         args.push('--mcp-config', mcpConfigJson);
 
+        // CRITICAL: --mcp-config is variadic (<configs...>) and consumes ALL subsequent
+        // positional args. We must use -p flag AFTER --mcp-config to signal the prompt.
         if (sessionResume) {
           args.push('--resume', sessionResume);
         } else if (useContinue) {
@@ -689,27 +698,36 @@ USER REQUEST: ${message}`;
         } catch (err) {
           console.warn('[Chat] Message enrichment skipped:', err.message);
         }
-        args.push(finalMessage);
+        // -p MUST come after --mcp-config to avoid being consumed by variadic <configs...>
+        args.push('-p', finalMessage);
 
         console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.slice(0, 6).join(' '), '...');
         console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| chatId:', chatId);
         console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
         console.log('[Chat] Auto-approve via MCP proxy');
 
+        const chatEnv = buildAgentEnv({
+          TERM: 'xterm-256color',
+          HOME: userHome,
+          USER: IS_RAILWAY ? 'root' : 'claude-user',
+          PATH: IS_RAILWAY
+            ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
+            : `/home/claude-user/.local/bin:${process.env.PATH}`,
+          // Agent Proxy (uses pre-generated token/url)
+          AGENT_PROXY_URL: chatProxyUrl,
+          AGENT_SESSION_TOKEN: chatAgentToken,
+          GURU_PROJECT_ID: projectId || '',
+        });
+        // CRITICAL: Ensure Claude Code nesting detection is disabled
+        delete chatEnv.CLAUDECODE;
+        delete chatEnv.CLAUDE_CODE_ENTRYPOINT;
+        delete chatEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
+        console.log('[Chat] Env keys:', Object.keys(chatEnv).join(', '));
+        console.log('[Chat] Has CLAUDECODE:', 'CLAUDECODE' in chatEnv);
+
         const chatProc = spawn(CLAUDE_BIN_PATH, args, {
           cwd,
-          env: buildAgentEnv({
-            TERM: 'xterm-256color',
-            HOME: userHome,
-            USER: IS_RAILWAY ? 'root' : 'claude-user',
-            PATH: IS_RAILWAY
-              ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
-              : `/home/claude-user/.local/bin:${process.env.PATH}`,
-            // Agent Proxy (uses pre-generated token/url)
-            AGENT_PROXY_URL: chatProxyUrl,
-            AGENT_SESSION_TOKEN: chatAgentToken,
-            GURU_PROJECT_ID: projectId || '',
-          }),
+          env: chatEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 
