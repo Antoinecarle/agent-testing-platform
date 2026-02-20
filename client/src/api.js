@@ -83,6 +83,73 @@ export async function refreshAccessToken() {
   }
 }
 
+/**
+ * SSE streaming fetch — calls a POST endpoint that returns Server-Sent Events.
+ * @param {string} path - API path
+ * @param {object} body - JSON body to send
+ * @param {object} callbacks - { onChunk(text), onStatus(msg), onDone(data), onError(msg) }
+ */
+export async function apiStream(path, body, callbacks = {}) {
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(path, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 401) {
+    try {
+      const newToken = await refreshAccessToken();
+      headers['Authorization'] = `Bearer ${newToken}`;
+      const retryRes = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+      return processSSEStream(retryRes, callbacks);
+    } catch {
+      redirectToLogin();
+      throw new Error('Session expired');
+    }
+  }
+
+  if (!res.ok && !res.headers.get('content-type')?.includes('text/event-stream')) {
+    const errorBody = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(errorBody.error || 'Request failed');
+  }
+
+  return processSSEStream(res, callbacks);
+}
+
+async function processSSEStream(res, callbacks) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+      try {
+        const data = JSON.parse(trimmed.slice(6));
+        if (data.type === 'chunk' && callbacks.onChunk) callbacks.onChunk(data.content);
+        else if (data.type === 'status' && callbacks.onStatus) callbacks.onStatus(data.message, data);
+        else if (data.type === 'done' && callbacks.onDone) callbacks.onDone(data);
+        else if (data.type === 'error' && callbacks.onError) callbacks.onError(data.message);
+      } catch {
+        // Skip malformed SSE
+      }
+    }
+  }
+}
+
 export async function api(path, options = {}) {
   const token = getToken();
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };

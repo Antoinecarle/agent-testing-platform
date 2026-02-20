@@ -28,6 +28,41 @@ const GPT5_MODEL = 'gpt-5-mini-2025-08-07';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY;
 
+// ========== GENERATION QUALITY TIERS ==========
+// Calibrated settings per quality tier — same model, different output depth
+const GENERATION_QUALITY_TIERS = {
+  fast: {
+    id: 'fast',
+    label: 'Rapide',
+    description: 'Agent concis, 200-350 lignes (~15s)',
+    maxCompletionTokens: 10000,
+    chatTokens: 8000,
+    targetLines: { min: 200, max: 350 },
+    lineReductionFactor: 0.4,
+    model: GPT5_MODEL,
+  },
+  standard: {
+    id: 'standard',
+    label: 'Standard',
+    description: 'Bon équilibre qualité/vitesse, 350-550 lignes (~30s)',
+    maxCompletionTokens: 18000,
+    chatTokens: 12000,
+    targetLines: { min: 350, max: 550 },
+    lineReductionFactor: 0.7,
+    model: GPT5_MODEL,
+  },
+  full: {
+    id: 'full',
+    label: 'Complet',
+    description: 'Agent exhaustif, 500-900 lignes (~60s)',
+    maxCompletionTokens: 32000,
+    chatTokens: 16000,
+    targetLines: { min: 500, max: 900 },
+    lineReductionFactor: 1.0,
+    model: GPT5_MODEL,
+  },
+};
+
 // Multer setup for image uploads
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'agent-creator-uploads');
@@ -858,71 +893,161 @@ router.get('/conversations/:id/brief', async (req, res) => {
   }
 });
 
-// ========== GENERATE — Multi-step agent file generation ==========
+// ========== GET GENERATION QUALITY TIERS ==========
+
+router.get('/generation-tiers', (req, res) => {
+  const tiers = Object.values(GENERATION_QUALITY_TIERS).map(t => ({
+    id: t.id,
+    label: t.label,
+    description: t.description,
+    targetLines: t.targetLines,
+  }));
+  res.json({ tiers });
+});
+
+// ========== GENERATE — SSE streaming agent file generation ==========
 
 router.post('/conversations/:id/generate', async (req, res) => {
   const { id } = req.params;
+  const { quality = 'standard' } = req.body || {};
+  const tier = GENERATION_QUALITY_TIERS[quality] || GENERATION_QUALITY_TIERS.standard;
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+  res.flushHeaders();
+
+  const sendSSE = (type, data) => {
+    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
   try {
     const conversation = await db.getAgentConversation(id);
 
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      sendSSE('error', { message: 'Conversation not found' });
+      return res.end();
     }
 
     const messages = await db.getConversationMessages(id);
     const references = await db.getConversationReferences(id);
     let brief = conversation.design_brief;
-
     const agentType = conversation.agent_type || 'custom';
+
+    // Send initial status
+    sendSSE('status', { message: 'Preparing generation...', quality: tier.id, model: tier.model });
 
     // Auto-analyze if no brief exists
     if (!brief) {
-      console.log(`[agent-creator] No brief found, auto-analyzing...`);
+      sendSSE('status', { message: 'Analyzing conversation...' });
       brief = await synthesizeDesignBrief(references, messages, agentType);
       await db.updateConversationBrief(id, brief);
     }
 
     await db.updateConversationGeneratedAgent(id, null, 'generating');
 
-    // Build conversation summary (not raw dump — summarize for token efficiency)
-    const recentMessages = messages.slice(-12);
+    // Build conversation summary — calibrated to tier
+    const msgLimit = tier.id === 'fast' ? 6 : tier.id === 'standard' ? 10 : 12;
+    const contentLimit = tier.id === 'fast' ? 300 : tier.id === 'standard' ? 500 : 600;
+    const recentMessages = messages.slice(-msgLimit);
     const conversationSummary = recentMessages.map(m => {
-      const content = m.content.length > 600 ? m.content.slice(0, 600) + '...' : m.content;
+      const content = m.content.length > contentLimit ? m.content.slice(0, contentLimit) + '...' : m.content;
       return `${m.role}: ${content}`;
     }).join('\n\n');
 
-    // Derive agent name from brief or conversation
+    // Derive agent name
     const derivedName = brief.agentIdentity?.aesthetic
       ? brief.agentIdentity.aesthetic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
       : conversation.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    // Build type-aware generation prompts
-    const agentExample = getAgentExample(agentType);
-    const generationUserPrompt = getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample);
+    // Build calibrated prompts
+    const agentExample = tier.id === 'fast' ? '' : getAgentExample(agentType); // Skip example for fast mode
+    const generationUserPrompt = getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample, tier);
+    const systemPrompt = getGenerationSystemPrompt(agentType, tier);
 
-    console.log(`[agent-creator] Generating ${agentType} agent for ${derivedName} (conversation ${id})`);
+    sendSSE('status', { message: `Generating (${tier.label})...` });
+    console.log(`[agent-creator] Generating ${agentType} agent for ${derivedName} (quality=${tier.id}, maxTokens=${tier.maxCompletionTokens})`);
 
-    const agentFile = await callGPT5(
-      [
-        { role: 'system', content: getGenerationSystemPrompt(agentType) },
-        { role: 'user', content: generationUserPrompt },
-      ],
-      { max_completion_tokens: 32000 }
-    );
+    // Call OpenAI with streaming
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: tier.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: generationUserPrompt },
+        ],
+        max_completion_tokens: tier.maxCompletionTokens,
+        stream: true,
+      }),
+      signal: AbortSignal.timeout(180000),
+    });
 
-    // Validate quality (type-aware)
-    const validation = validateAgentQuality(agentFile, agentType);
+    if (!openaiRes.ok) {
+      const errorText = await openaiRes.text();
+      throw new Error(`OpenAI API error: ${openaiRes.status} ${errorText.slice(0, 200)}`);
+    }
 
-    // Store generated agent
-    await db.updateConversationGeneratedAgent(id, agentFile, 'complete');
+    // Stream OpenAI response chunks to client
+    let fullContent = '';
+    let chunkBuffer = '';
+    const reader = openaiRes.body.getReader();
+    const decoder = new TextDecoder();
 
-    console.log(`[agent-creator] Agent generated: ${validation.totalLines} lines, score ${validation.score}/10`);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    res.json({ agentFile, validation });
+      chunkBuffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines from OpenAI
+      const lines = chunkBuffer.split('\n');
+      chunkBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const payload = trimmed.slice(6);
+        if (payload === '[DONE]') continue;
+
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullContent += delta;
+            sendSSE('chunk', { content: delta });
+          }
+        } catch (parseErr) {
+          // Skip malformed chunks
+        }
+      }
+    }
+
+    // Validate quality
+    const validation = validateAgentQuality(fullContent, agentType);
+
+    // Store generated agent + quality metadata
+    await db.updateConversationGeneratedAgent(id, fullContent, 'complete');
+    await db.updateAgentConversation(id, {
+      generation_model: tier.model,
+      generation_quality: tier.id,
+    });
+
+    console.log(`[agent-creator] Agent generated: ${validation.totalLines} lines, score ${validation.score}/10, quality=${tier.id}`);
+
+    sendSSE('done', { validation, quality: tier.id, model: tier.model, lines: validation.totalLines });
+    res.end();
   } catch (err) {
     console.error('[agent-creator] Error generating:', err);
     await db.updateConversationGeneratedAgent(id, null, 'error').catch(() => {});
-    res.status(500).json({ error: err.message });
+    sendSSE('error', { message: err.message });
+    res.end();
   }
 });
 

@@ -11,7 +11,7 @@ import {
   Code, GitBranch, Settings, Megaphone, BarChart3, Wrench, Workflow,
   FileText, Database, PenTool, Briefcase, Wand2
 } from 'lucide-react';
-import { api } from '../api';
+import { api, apiStream } from '../api';
 
 const t = {
   bg: '#0f0f0f',
@@ -161,11 +161,21 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
   // Agent name editing (for save)
   const [agentNameOverride, setAgentNameOverride] = useState('');
 
+  // Generation quality tiers
+  const [generationQuality, setGenerationQuality] = useState<string>('standard');
+  const [generationTiers, setGenerationTiers] = useState<{id:string, label:string, description:string, targetLines:{min:number,max:number}}[]>([]);
+  const [generationStatus, setGenerationStatus] = useState<string>('');
+  const [generationModel, setGenerationModel] = useState<string>('');
+  const [showQualityPicker, setShowQualityPicker] = useState(false);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const convNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load agent types on mount
+  // Load agent types + generation tiers on mount
   useEffect(() => {
+    api('/api/agent-creator/generation-tiers').then(res => {
+      setGenerationTiers(res.tiers || []);
+    }).catch(() => {});
     api('/api/agent-creator/types').then(res => {
       if (res.types) setAgentTypes(res.types);
     }).catch(() => {});
@@ -520,18 +530,42 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
     setIsPreviewOpen(true);
     setGeneratedAgent('');
     setValidation(null);
+    setGenerationStatus('Preparing...');
+    setGenerationModel('');
+
+    let content = '';
     try {
-      const result = await api(`/api/agent-creator/conversations/${conversationId}/generate`, { method: 'POST' });
-      setGeneratedAgent(result.agentFile);
-      setValidation(result.validation);
-      // Extract agent name from frontmatter for editing
-      const nameMatch = result.agentFile.match(/^name:\s*(.+)$/m);
-      if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
+      await apiStream(
+        `/api/agent-creator/conversations/${conversationId}/generate`,
+        { quality: generationQuality },
+        {
+          onStatus: (msg: string, data: any) => {
+            setGenerationStatus(msg);
+            if (data?.model) setGenerationModel(data.model);
+          },
+          onChunk: (text: string) => {
+            content += text;
+            setGeneratedAgent(content);
+          },
+          onDone: (data: any) => {
+            setValidation(data.validation);
+            setGenerationStatus('');
+            // Extract agent name from frontmatter
+            const nameMatch = content.match(/^name:\s*(.+)$/m);
+            if (nameMatch) setAgentNameOverride(nameMatch[1].trim());
+          },
+          onError: (msg: string) => {
+            setGeneratedAgent(`# Error generating agent\n\n${msg}`);
+            setGenerationStatus('');
+          },
+        }
+      );
     } catch (err: any) {
       console.error('Failed to generate:', err);
       setGeneratedAgent(`# Error generating agent\n\n${err.message || 'Unknown error'}`);
     } finally {
       setIsGenerating(false);
+      setGenerationStatus('');
     }
   };
 
@@ -1124,13 +1158,52 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                           {references.filter(r => r.type === 'document').length > 0 && ` ${references.filter(r => r.type === 'document').length} doc`}
                         </span>
                       )}
+                      {/* Quality tier selector */}
+                      <div style={{ position: 'relative' }}>
+                        <button onClick={() => setShowQualityPicker(!showQualityPicker)} disabled={isGenerating}
+                          style={{
+                            background: t.bg, border: `1px solid ${t.border}`, borderRadius: '6px', padding: '4px 8px',
+                            display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 500, color: t.tm,
+                            cursor: isGenerating ? 'not-allowed' : 'pointer',
+                          }}>
+                          <Zap size={9} color={generationQuality === 'fast' ? '#22c55e' : generationQuality === 'full' ? '#f59e0b' : t.violet} />
+                          {generationTiers.find(t => t.id === generationQuality)?.label || 'Standard'}
+                          <ChevronDown size={9} />
+                        </button>
+                        {showQualityPicker && (
+                          <div style={{
+                            position: 'absolute', bottom: '100%', left: 0, marginBottom: '4px', background: t.surface, border: `1px solid ${t.border}`,
+                            borderRadius: '8px', padding: '4px', minWidth: '200px', zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                          }}>
+                            {generationTiers.map(tier => (
+                              <button key={tier.id}
+                                onClick={() => { setGenerationQuality(tier.id); setShowQualityPicker(false); }}
+                                style={{
+                                  display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: tier.id === generationQuality ? t.surfaceEl : 'transparent',
+                                  border: 'none', borderRadius: '6px', cursor: 'pointer', color: t.tp,
+                                }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600 }}>
+                                  <Zap size={10} color={tier.id === 'fast' ? '#22c55e' : tier.id === 'full' ? '#f59e0b' : t.violet} />
+                                  {tier.label}
+                                  <span style={{ fontSize: '9px', color: t.tm, fontWeight: 400 }}>
+                                    {tier.targetLines.min}-{tier.targetLines.max}L
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '9px', color: t.tm, marginTop: '2px', paddingLeft: '16px' }}>
+                                  {tier.description}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <button onClick={generateAgent} disabled={isGenerating || messages.filter(m => m.id !== 'welcome').length < 2}
                         style={{
                           background: isGenerating ? t.surfaceEl : t.violetG, color: isGenerating ? t.tm : t.violet,
                           border: `1px solid ${isGenerating ? t.border : t.violetM}`, borderRadius: '6px', padding: '4px 12px',
                           display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', fontWeight: 600, cursor: isGenerating ? 'not-allowed' : 'pointer',
                         }}>
-                        {isGenerating ? <><RefreshCw size={11} /> Generating...</> : <><FileCode size={11} /> {isPreviewOpen ? 'Regenerate' : 'Generate'}</>}
+                        {isGenerating ? <><RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} /> {generationStatus || 'Generating...'}</> : <><FileCode size={11} /> {isPreviewOpen ? 'Regenerate' : 'Generate'}</>}
                       </button>
                     </div>
                     <button onClick={sendMessage} disabled={!inputMessage.trim() || isSending}
@@ -1160,12 +1233,25 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <FileCode size={13} color={t.ts} />
                     <span style={{ fontSize: '11px', fontWeight: 600, color: t.ts }}>agent.md</span>
+                    {(generationModel || isGenerating) && (
+                      <span style={{
+                        fontSize: '8px', padding: '1px 5px', borderRadius: '3px',
+                        background: 'rgba(139,92,246,0.1)', color: t.violet, fontFamily: t.mono, fontWeight: 500,
+                      }}>
+                        {generationModel || 'gpt-5-mini'}
+                      </span>
+                    )}
+                    {isGenerating && generationStatus && (
+                      <span style={{ fontSize: '9px', color: '#22c55e', fontWeight: 500 }}>
+                        {generationStatus}
+                      </span>
+                    )}
                   </div>
                   {validation && (
                     <div style={{ display: 'flex', gap: '6px', fontSize: '10px', color: t.tm }}>
                       <span>{validation.totalLines}L</span>
-                      <span>{validation.stats.cssVariables}vars</span>
-                      <span>{validation.sections.filter(s => s.found).length}/{validation.sections.length}sec</span>
+                      <span>{validation.stats?.cssVariables || 0}vars</span>
+                      <span>{validation.sections.filter((s: any) => s.found).length}/{validation.sections.length}sec</span>
                     </div>
                   )}
                 </div>
@@ -1292,15 +1378,33 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
                 </div>
               )}
 
-              {/* Agent Content */}
-              <div style={{ flex: 1, padding: '14px', fontFamily: t.mono, fontSize: '10px', lineHeight: '1.6', color: t.ts, backgroundColor: t.bg, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-                {isGenerating ? (
+              {/* Agent Content — streams in real-time */}
+              <div
+                ref={(el) => {
+                  // Auto-scroll to bottom during streaming
+                  if (el && isGenerating && generatedAgent) {
+                    el.scrollTop = el.scrollHeight;
+                  }
+                }}
+                style={{ flex: 1, padding: '14px', fontFamily: t.mono, fontSize: '10px', lineHeight: '1.6', color: t.ts, backgroundColor: t.bg, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                {isGenerating && !generatedAgent ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '14px' }}>
                     <RefreshCw size={22} color={t.violet} style={{ animation: 'spin 1s linear infinite' }} />
-                    <div style={{ color: t.ts, fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>Generating 600-900 line agent...</div>
-                    <div style={{ color: t.tm, fontSize: '10px', fontFamily: 'Inter, sans-serif' }}>30-60 seconds</div>
+                    <div style={{ color: t.ts, fontSize: '12px', fontFamily: 'Inter, sans-serif' }}>
+                      {generationStatus || 'Starting generation...'}
+                    </div>
+                    <div style={{ color: t.tm, fontSize: '10px', fontFamily: 'Inter, sans-serif' }}>
+                      {generationQuality === 'fast' ? '~15s' : generationQuality === 'standard' ? '~30s' : '~60s'}
+                    </div>
                   </div>
-                ) : generatedAgent || 'Generate your agent to preview it here...'}
+                ) : generatedAgent ? (
+                  <>
+                    {generatedAgent}
+                    {isGenerating && (
+                      <span style={{ display: 'inline-block', width: '6px', height: '14px', background: t.violet, marginLeft: '2px', animation: 'blink 0.8s step-end infinite' }} />
+                    )}
+                  </>
+                ) : 'Generate your agent to preview it here...'}
               </div>
 
               {/* Validation Issues */}
@@ -1353,7 +1457,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ onClose, initialAgent }) =>
         )}
       </AnimatePresence>
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes blink { 50% { opacity: 0; } }`}</style>
     </div>
   );
 };

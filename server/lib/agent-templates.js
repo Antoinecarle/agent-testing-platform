@@ -349,24 +349,34 @@ Propose specific improvements with concrete examples:
 
 // ==================== TYPE-SPECIFIC GENERATION PROMPTS ====================
 
-function getGenerationSystemPrompt(agentType) {
+function getGenerationSystemPrompt(agentType, tier) {
   const type = agentType || 'custom';
+  const reduction = tier?.lineReductionFactor ?? 1.0;
+  const quality = tier?.id || 'full';
 
   if (type === 'ux-design') {
+    if (quality === 'fast') return UX_GENERATION_PROMPT_FAST;
     return UX_GENERATION_PROMPT;
   }
 
   const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
   const sectionHeaders = config.sections.map(s => `## ${s.name}`).join('\n');
+  const calibratedSections = config.sections.map((s, i) => {
+    const minLines = Math.max(10, Math.round(s.minLines * reduction));
+    return `${i + 2}. **${s.name}** — Minimum ${minLines} lines of detailed, actionable content`;
+  }).join('\n');
+
+  const targetRange = quality === 'fast' ? '200-350' : quality === 'standard' ? '350-550' : '500-900';
+  const targetMin = quality === 'fast' ? 150 : quality === 'standard' ? 300 : 400;
 
   return `You are a world-class AI agent architect. You produce agent configuration files that are so detailed and precise, any AI reading them becomes an expert specialist.
-
+${quality === 'fast' ? '\n**IMPORTANT: This is a FAST generation. Be concise but precise. Focus on the most critical rules and patterns. Skip examples where possible, prioritize actionable instructions.**\n' : ''}
 ## ABSOLUTE REQUIREMENTS
 
 ### Structure
 The file MUST contain ALL sections in this exact order:
 1. **Frontmatter** (YAML between --- delimiters): name, description, model: claude-opus-4-6, tools, permission_mode
-${config.sections.map((s, i) => `${i + 2}. **${s.name}** — Minimum ${s.minLines} lines of detailed, actionable content`).join('\n')}
+${calibratedSections}
 
 ### The "Expert-Level" Standard
 Every instruction in the file must be CONCRETE and ACTIONABLE:
@@ -418,7 +428,7 @@ ${type === 'data-ai' ? `### Data/AI-Specific Requirements
 - Monitoring must include specific drift metrics and alert thresholds` : ''}
 
 ### Quality Rules
-- Total length: 500-900 lines. No less than 400.
+- Total length: ${targetRange} lines. No less than ${targetMin}.
 - EVERY instruction must be specific enough that another AI could follow it without guessing
 - NO generic filler. If a section doesn't have enough material, add more specifics
 - The file should read like a complete operations manual for this domain
@@ -516,18 +526,46 @@ Any deviation from these exact header names will cause validation failure. Do NO
 - Don't reuse the reference example's colors/fonts — derive everything from the brief
 - Don't rename or rephrase the section headers — use the EXACT names specified above`;
 
+// Fast UX generation prompt — shorter, still precise
+const UX_GENERATION_PROMPT_FAST = `You are a UI design system engineer. Produce a CONCISE but PRECISE agent configuration file.
+
+**FAST MODE: Target 200-350 lines. Be direct — skip lengthy examples, focus on exact CSS values and rules.**
+
+## Structure (ALL sections required in this order):
+1. **Frontmatter** (---): name, description, model: claude-opus-4-6
+2. **Your Design DNA** — Identity + 5-8 key CSS-specific bullets
+3. **Color System** — CSS :root with 15-25 properties, 4+ usage rules
+4. **Typography** — Font families, 4-5 size scale entries, weight rules
+5. **Layout Architecture** — Spacing system + container rules
+6. **Core UI Components** — 5+ components with exact CSS (background, border, radius, shadow, hover)
+7. **Animation Patterns** — 3-4 animation snippets (real CSS/JS)
+8. **Style Injection Pattern** — ensureStyles function
+9. **Section Templates** — 3 key section wireframes
+10. **Responsive & Quality** — Breakpoints + 6 checklist items
+
+Every value must be a SPECIFIC CSS value. No vague descriptions.
+
+MANDATORY headers: ## Your Design DNA, ## Color System, ## Typography, ## Layout Architecture, ## Core UI Components, ## Animation Patterns, ## Style Injection Pattern, ## Section Templates, ## Responsive & Quality`;
+
 // ==================== TYPE-SPECIFIC GENERATION USER PROMPTS ====================
 
-function getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample) {
+function getGenerationUserPrompt(agentType, brief, conversationSummary, derivedName, agentExample, tier) {
   const type = agentType || 'custom';
+  const quality = tier?.id || 'full';
   const config = AGENT_TYPE_CONFIGS[type] || AGENT_TYPE_CONFIGS['custom'];
   const sectionHeaders = config.sections.map(s => `## ${s.name}`).join('\n');
 
+  const uxTargetRange = quality === 'fast' ? '200-350' : quality === 'standard' ? '400-600' : '600-900';
+
   if (type === 'ux-design') {
-    return `Create a complete, production-ready agent configuration file.
+    const briefJson = quality === 'fast'
+      ? JSON.stringify(brief, null, 1).slice(0, 3000)
+      : JSON.stringify(brief, null, 2);
+
+    let prompt = `Create a ${quality === 'fast' ? 'concise but precise' : 'complete, production-ready'} agent configuration file.
 
 ## Design Brief
-${JSON.stringify(brief, null, 2)}
+${briefJson}
 
 ## Conversation Context
 ${conversationSummary}
@@ -536,16 +574,22 @@ ${conversationSummary}
 - Agent name: ${derivedName}
 - Target aesthetic: ${brief?.agentIdentity?.aesthetic || 'professional'}
 - Primary use case: ${brief?.agentIdentity?.role || 'frontend page builder'}
-- Model: claude-opus-4-6
+- Model: claude-opus-4-6`;
+
+    if (agentExample) {
+      prompt += `
 
 ## Reference Example (showing expected FORMAT and DEPTH — your content must be DIFFERENT)
 ${agentExample}
 
-## END OF REFERENCE
+## END OF REFERENCE`;
+    }
 
-Now generate the complete agent file. It MUST be 600-900 lines with ALL 10 sections.
+    prompt += `
+
+Now generate the agent file. It MUST be ${uxTargetRange} lines with ALL ${quality === 'fast' ? '9' : '10'} sections.
 Every CSS value, every color, every spacing token must be specific to the design brief above.
-Do NOT copy the reference example content — use it only as a format guide.
+${agentExample ? 'Do NOT copy the reference example content — use it only as a format guide.' : ''}
 
 CRITICAL — Use these EXACT ## section headers in this EXACT order:
 ## Your Design DNA
@@ -559,13 +603,19 @@ CRITICAL — Use these EXACT ## section headers in this EXACT order:
 ## Responsive & Quality
 
 Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if you use different names.`;
+    return prompt;
   }
 
   // Non-UX types
-  return `Create a complete, production-ready agent configuration file for a **${config.label}** agent.
+  const targetRange = quality === 'fast' ? '200-350' : quality === 'standard' ? '350-550' : '500-900';
+  const briefJson = quality === 'fast'
+    ? JSON.stringify(brief, null, 1).slice(0, 3000)
+    : JSON.stringify(brief, null, 2);
+
+  return `Create a ${quality === 'fast' ? 'concise but precise' : 'complete, production-ready'} agent configuration file for a **${config.label}** agent.
 
 ## Agent Brief
-${JSON.stringify(brief, null, 2)}
+${briefJson}
 
 ## Conversation Context
 ${conversationSummary}
@@ -577,9 +627,10 @@ ${conversationSummary}
 - Tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch
 
 ## Instructions
-Generate a complete agent .md file with frontmatter (---) and ALL required sections.
-The file should be 500-900 lines of DETAILED, ACTIONABLE instructions.
+Generate a ${quality === 'fast' ? 'concise but precise' : 'complete'} agent .md file with frontmatter (---) and ALL required sections.
+The file should be ${targetRange} lines of DETAILED, ACTIONABLE instructions.
 Every rule, pattern, and instruction must be SPECIFIC — not vague.
+${quality === 'fast' ? '\n**FAST MODE: Prioritize actionable rules over examples. Keep each section focused on the most critical patterns.**' : ''}
 
 CRITICAL — Use these EXACT ## section headers in this EXACT order:
 ${sectionHeaders}
@@ -588,8 +639,8 @@ Do NOT rename, rephrase, or skip any of these headers. Validation will FAIL if y
 
 Remember:
 - Frontmatter must include: name, description, model (claude-opus-4-6), tools, permission_mode
-- Every section must have enough depth to be useful (minimum ${config.sections.reduce((a, s) => a + s.minLines, 0)} total lines)
-- Include code examples, decision trees, and specific rules — not generic advice`;
+- Every section must have enough depth to be useful (minimum ${Math.round(config.sections.reduce((a, s) => a + s.minLines, 0) * (tier?.lineReductionFactor ?? 1.0))} total lines)
+- ${quality === 'fast' ? 'Focus on key rules and patterns, skip lengthy examples' : 'Include code examples, decision trees, and specific rules — not generic advice'}`;
 }
 
 // ==================== TYPE-SPECIFIC BRIEF PROMPTS ====================
