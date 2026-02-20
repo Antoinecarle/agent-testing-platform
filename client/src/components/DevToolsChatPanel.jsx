@@ -614,34 +614,118 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
       }).catch(() => {});
     });
 
-    // Chat streaming
+    // Chat streaming — handle ALL Claude CLI stream-json event types
     socket.on('chat-stream', (data) => {
+      // Also track as raw event for activity sidebar
+      setEvents(prev => [...prev, {
+        id: `stream-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: data.type,
+        toolName: data.type === 'assistant'
+          ? (data.message?.content || []).find(b => b.type === 'tool_use')?.name
+          : data.data?.toolName,
+        content: data.type === 'raw' ? data.text : undefined,
+      }].slice(-200));
+
       if (data.type === 'assistant') {
         const content = data.message?.content || [];
+        const usage = data.message?.usage;
         let text = '';
-        let toolUse = null;
+        const toolUses = [];
         for (const block of content) {
           if (block.type === 'text') text += block.text || '';
           else if (block.type === 'tool_use') {
-            toolUse = {
+            toolUses.push({
               id: block.id || `tc-${Date.now()}`,
               toolName: block.name,
               rawInput: block.input,
               toolInput: summarizeTool(block.name, block.input),
               category: categorizeTool(block.name),
               result: null, isError: false,
-            };
+            });
           }
         }
         setTurns(prev => {
           const copy = [...prev];
           const lastIdx = copy.length - 1;
           if (lastIdx >= 0 && copy[lastIdx].streaming) {
-            if (toolUse) copy[lastIdx] = { ...copy[lastIdx], toolCalls: [...(copy[lastIdx].toolCalls || []), toolUse] };
-            if (text) copy[lastIdx] = { ...copy[lastIdx], streamingText: text };
+            let turn = { ...copy[lastIdx] };
+            if (toolUses.length > 0) turn.toolCalls = [...(turn.toolCalls || []), ...toolUses];
+            if (text) turn.streamingText = text;
+            if (usage) {
+              turn.tokens = {
+                input: (turn.tokens?.input || 0) + (usage.input_tokens || 0),
+                output: (turn.tokens?.output || 0) + (usage.output_tokens || 0),
+              };
+            }
+            copy[lastIdx] = turn;
           }
           return copy;
         });
+
+      } else if (data.type === 'user') {
+        // Tool results come back as user messages with tool_result blocks
+        const content = data.message?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_result') {
+              setTurns(prev => {
+                const copy = [...prev];
+                const lastIdx = copy.length - 1;
+                if (lastIdx >= 0 && copy[lastIdx].streaming && copy[lastIdx].toolCalls?.length > 0) {
+                  const turn = { ...copy[lastIdx], toolCalls: [...copy[lastIdx].toolCalls] };
+                  // Match by tool_use_id or attach to last unresolved tool call
+                  const target = turn.toolCalls.findIndex(tc => tc.id === block.tool_use_id)
+                    !== -1 ? turn.toolCalls.findIndex(tc => tc.id === block.tool_use_id)
+                    : turn.toolCalls.findIndex(tc => !tc.result);
+                  if (target !== -1) {
+                    const resultText = typeof block.content === 'string'
+                      ? block.content
+                      : Array.isArray(block.content)
+                        ? block.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+                        : '';
+                    turn.toolCalls[target] = {
+                      ...turn.toolCalls[target],
+                      result: resultText.substring(0, 2000),
+                      isError: block.is_error || false,
+                    };
+                  }
+                  copy[lastIdx] = turn;
+                }
+                return copy;
+              });
+            }
+          }
+        }
+
+      } else if (data.type === 'progress') {
+        // MCP progress, tool progress, hook progress
+        const pd = data.data || {};
+        if (pd.type === 'mcp_progress' && pd.toolName) {
+          setTurns(prev => {
+            const copy = [...prev];
+            const lastIdx = copy.length - 1;
+            if (lastIdx >= 0 && copy[lastIdx].streaming && copy[lastIdx].toolCalls?.length > 0) {
+              const turn = { ...copy[lastIdx], toolCalls: [...copy[lastIdx].toolCalls] };
+              const target = turn.toolCalls.findIndex(tc => tc.id === data.toolUseID)
+                !== -1 ? turn.toolCalls.findIndex(tc => tc.id === data.toolUseID)
+                : turn.toolCalls.length - 1;
+              if (target !== -1) {
+                turn.toolCalls[target] = {
+                  ...turn.toolCalls[target],
+                  mcpProgress: {
+                    status: pd.status,
+                    serverName: pd.serverName,
+                    toolName: pd.toolName,
+                    elapsedMs: pd.elapsedTimeMs,
+                  },
+                };
+              }
+              copy[lastIdx] = turn;
+            }
+            return copy;
+          });
+        }
+
       } else if (data.type === 'result') {
         const text = data.result?.trim() || data.message?.content?.find(b => b.type === 'text')?.text || '';
         if (data.session_id) setChatSessionId(data.session_id);
@@ -653,8 +737,8 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
           }
           return copy;
         });
+
       } else if (data.type === 'error') {
-        // Detect Claude CLI auth errors
         const errText = (data.text || '').toLowerCase();
         if (errText.includes('auth') || errText.includes('not authenticated') || errText.includes('login') || errText.includes('credentials') || errText.includes('check authentication')) {
           setClaudeAuthError(true);
@@ -667,6 +751,7 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
           }
           return copy;
         });
+
       } else if (data.type === 'raw' && data.text?.trim()) {
         setTurns(prev => {
           const copy = [...prev];
@@ -695,6 +780,20 @@ export default function DevToolsChatPanel({ projectId, claudeConnected }) {
         }
         return copy;
       });
+
+      // Re-watch activity (session file may be new since the chat created it)
+      socket.emit('watch-activity', { projectId }, (resp) => {
+        if (resp?.watching) setWatching(true);
+      });
+
+      // Reload full turns from JSONL for complete data (tool results, tokens, etc.)
+      const sid = selectedSessionRef.current;
+      const params = sid ? `?sessionId=${sid}&limit=500` : '?limit=500';
+      setTimeout(() => {
+        api(`/api/session-logs/${projectId}/turns${params}`).then(d => {
+          if (d.turns?.length > 0) setTurns(d.turns);
+        }).catch(() => {});
+      }, 500);
     });
 
     return () => {
