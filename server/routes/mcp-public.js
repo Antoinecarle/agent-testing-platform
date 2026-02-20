@@ -116,13 +116,14 @@ async function resolveByokProvider(deploymentId) {
 // =================== MCP SSE TRANSPORT (JSON-RPC 2.0) ===================
 const mcpSessions = new Map(); // sessionId -> { res, deploymentId, agentName, slug }
 
-// Cleanup stale sessions every 5 min
+// SSE keep-alive ping every 15s — prevents Railway/proxy from killing idle connections
+// during long LLM calls (e.g. create_dashboard_page takes ~90s)
 setInterval(() => {
   for (const [id, session] of mcpSessions) {
     try { session.res.write(':ping\n\n'); }
     catch (_) { mcpSessions.delete(id); }
   }
-}, 5 * 60 * 1000);
+}, 15 * 1000);
 
 // GET /mcp/:slug/sse — SSE stream for MCP protocol
 router.get('/:slug/sse', async (req, res) => {
