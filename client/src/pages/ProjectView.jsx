@@ -866,7 +866,7 @@ export default function ProjectView() {
 
         {/* Panel content */}
         {leftMode === 'chat' ? (
-          <DevToolsChatPanel projectId={projectId} />
+          <DevToolsChatPanel projectId={projectId} claudeConnected={userClaudeConnected} />
         ) : leftMode === 'orchestra' && project?.mode === 'orchestra' ? (
           <OrchestraView
             project={project}

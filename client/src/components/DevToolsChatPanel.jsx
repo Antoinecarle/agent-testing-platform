@@ -515,12 +515,13 @@ function SessionBar({ sessions, selectedId, onSelect, onNewSession, chatSessionI
 }
 
 // ─── Main DevTools Chat Panel ──────────────────────────────────────────
-export default function DevToolsChatPanel({ projectId }) {
+export default function DevToolsChatPanel({ projectId, claudeConnected }) {
   const [turns, setTurns] = useState([]);
   const [events, setEvents] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [claudeAuthError, setClaudeAuthError] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [watching, setWatching] = useState(false);
@@ -653,6 +654,11 @@ export default function DevToolsChatPanel({ projectId }) {
           return copy;
         });
       } else if (data.type === 'error') {
+        // Detect Claude CLI auth errors
+        const errText = (data.text || '').toLowerCase();
+        if (errText.includes('auth') || errText.includes('not authenticated') || errText.includes('login') || errText.includes('credentials') || errText.includes('check authentication')) {
+          setClaudeAuthError(true);
+        }
         setTurns(prev => {
           const copy = [...prev];
           const lastIdx = copy.length - 1;
@@ -679,6 +685,7 @@ export default function DevToolsChatPanel({ projectId }) {
 
     socket.on('chat-done', (data) => {
       if (data.sessionId) setChatSessionId(data.sessionId);
+      if (data.error === 'timeout') setClaudeAuthError(true);
       setSending(false);
       setTurns(prev => {
         const copy = [...prev];
@@ -886,6 +893,28 @@ export default function DevToolsChatPanel({ projectId }) {
               ))
             )}
           </div>
+
+          {/* ── Claude auth banner ── */}
+          {(claudeAuthError || claudeConnected === false) && (
+            <div style={{
+              padding: '8px 12px', borderTop: `1px solid rgba(239,68,68,0.2)`,
+              background: 'rgba(239,68,68,0.06)', display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: t.red, flexShrink: 0 }} />
+              <span style={{ fontSize: '11px', color: t.red, flex: 1 }}>
+                Claude CLI is not authenticated. Connect to use chat.
+              </span>
+              <button
+                onClick={() => { window.location.href = '/setup-claude'; }}
+                style={{
+                  padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                  background: t.violet, color: '#fff', fontSize: '11px', fontWeight: '600', flexShrink: 0,
+                }}
+              >
+                Connect Claude
+              </button>
+            </div>
+          )}
 
           {/* ── Input area ── */}
           <div style={{
