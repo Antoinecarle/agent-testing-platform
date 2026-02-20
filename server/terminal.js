@@ -619,6 +619,12 @@ USER REQUEST: ${message}`;
         const chatId = `chat_${generateId()}_${Date.now()}`;
         currentChatId = chatId;
 
+        // Generate scoped agent session token FIRST (needed for MCP env)
+        const chatSessionId = generateId();
+        const chatPORT = process.env.PORT || 4000;
+        const chatAgentToken = generateAgentSessionToken(chatSessionId, projectId, socket.userId);
+        const chatProxyUrl = `http://localhost:${chatPORT}/api/agent-proxy`;
+
         const args = ['-p', '--output-format', 'stream-json', '--verbose'];
 
         // Auto-approve permissions via MCP proxy (can't use --dangerously-skip-permissions as root)
@@ -633,6 +639,18 @@ USER REQUEST: ${message}`;
             workspaceMcpServers = wsMcp.mcpServers || {};
             // Remove the interactive permission server — chat uses auto-approve instead
             delete workspaceMcpServers['guru-permission'];
+            // Inject env vars into each MCP server so they can reach the agent proxy
+            for (const [name, server] of Object.entries(workspaceMcpServers)) {
+              server.env = {
+                ...(server.env || {}),
+                AGENT_PROXY_URL: chatProxyUrl,
+                AGENT_SESSION_TOKEN: chatAgentToken,
+                GURU_PROJECT_ID: projectId || '',
+                PATH: process.env.PATH || '',
+                HOME: userHome,
+                NODE_ENV: process.env.NODE_ENV || 'production',
+              };
+            }
             console.log('[Chat] Merged workspace MCP servers:', Object.keys(workspaceMcpServers).join(', '));
           } catch (err) {
             console.warn('[Chat] Failed to read workspace .mcp.json:', err.message);
@@ -673,11 +691,6 @@ USER REQUEST: ${message}`;
         }
         args.push(finalMessage);
 
-        // Generate scoped agent session token for chat process
-        const chatSessionId = generateId();
-        const chatAgentToken = generateAgentSessionToken(chatSessionId, projectId, socket.userId);
-        const chatPORT = process.env.PORT || 4000;
-
         console.log('[Chat] Spawning:', CLAUDE_BIN_PATH, args.slice(0, 6).join(' '), '...');
         console.log('[Chat] CWD:', cwd, '| HOME:', userHome, '| chatId:', chatId);
         console.log('[Chat] Resume:', sessionResume || 'none', '| Continue:', !!useContinue);
@@ -692,8 +705,8 @@ USER REQUEST: ${message}`;
             PATH: IS_RAILWAY
               ? `${NPM_GLOBAL_BIN}:/app/node_modules/.bin:${process.env.PATH}`
               : `/home/claude-user/.local/bin:${process.env.PATH}`,
-            // Agent Proxy
-            AGENT_PROXY_URL: `http://localhost:${chatPORT}/api/agent-proxy`,
+            // Agent Proxy (uses pre-generated token/url)
+            AGENT_PROXY_URL: chatProxyUrl,
             AGENT_SESSION_TOKEN: chatAgentToken,
             GURU_PROJECT_ID: projectId || '',
           }),
