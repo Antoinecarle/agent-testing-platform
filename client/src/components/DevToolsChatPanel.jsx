@@ -685,7 +685,7 @@ export default function DevToolsChatPanel({ projectId }) {
   const totalTokens = turns.reduce((s, t) => s + (t.tokens ? t.tokens.input + t.tokens.output : 0), 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: t.bg }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, height: '100%', background: t.bg }}>
       <style>{`
         @keyframes blink { 50% { opacity: 0; } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -776,7 +776,7 @@ export default function DevToolsChatPanel({ projectId }) {
       {/* ── Main content: Chat + Activity sidebar ── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
         {/* Chat timeline */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {/* Scrollable turns */}
           <div
             ref={scrollRef}
