@@ -396,101 +396,336 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Quick Actions Bar */}
+      {/* Premium CTA Cards */}
       <motion.div variants={itemVariants} className="dash-actions" style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px'
+        display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px'
       }}>
-        <button
+        {/* New Project CTA */}
+        <motion.div
+          whileHover={{ y: -4, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           onClick={() => navigate('/project/new')}
+          className="premium-cta-card"
           style={{
-            padding: '20px', borderRadius: '12px', background: t.surface, border: `1px solid ${t.violet}66`,
-            display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'all 0.3s',
-            textAlign: 'left', boxShadow: `0 0 20px ${t.violet}15`
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.borderColor = t.violet;
-            e.currentTarget.style.boxShadow = `0 10px 30px ${t.violet}25`;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = `${t.violet}66`;
-            e.currentTarget.style.boxShadow = `0 0 20px ${t.violet}15`;
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '32px',
+            background: `linear-gradient(145deg, #1a1035 0%, ${t.surface} 60%, #0d0d1a 100%)`,
+            border: `1px solid ${t.violet}40`,
+            display: 'flex', alignItems: 'center', gap: '28px',
+            minHeight: '180px',
+            boxShadow: `0 4px 30px ${t.violet}10, inset 0 1px 0 ${t.violet}15`,
           }}
         >
-          <div style={{ padding: '10px', borderRadius: '8px', background: t.violet, color: '#fff', boxShadow: `0 0 15px ${t.violet}88` }}>
-            <Plus size={20} />
+          {/* Glow orb */}
+          <div style={{
+            position: 'absolute', top: '-30px', right: '-30px',
+            width: '180px', height: '180px', borderRadius: '50%',
+            background: `radial-gradient(circle, ${t.violet}15 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          {/* Mascot image */}
+          <div style={{
+            width: '130px', height: '130px', borderRadius: '18px', flexShrink: 0,
+            overflow: 'hidden', position: 'relative',
+            boxShadow: `0 8px 32px ${t.violet}30`,
+            border: `1px solid ${t.violet}25`,
+          }}>
+            <img src="/guru-new-project.png" alt="Guru Build" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '15px', color: t.tp, marginBottom: '2px' }}>New Project</div>
-            <div style={{ fontSize: '12px', color: t.ts }}>Initialize testing environment</div>
+          {/* Text content */}
+          <div style={{ flex: 1, zIndex: 1 }}>
+            <div style={{
+              fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: t.violet, marginBottom: '10px',
+              fontFamily: t.mono,
+            }}>
+              Quick Start
+            </div>
+            <h3 style={{
+              margin: '0 0 8px 0', fontSize: '22px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.02em', lineHeight: 1.2,
+            }}>
+              New Project
+            </h3>
+            <p style={{
+              margin: '0 0 18px 0', fontSize: '14px', color: t.ts,
+              lineHeight: 1.5, maxWidth: '280px',
+            }}>
+              Initialize your testing environment <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', color: t.violet, fontWeight: 600,
+              }}>with AI</span>
+            </p>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+              padding: '8px 18px', borderRadius: '10px',
+              background: `linear-gradient(135deg, ${t.violet}, #a855f7)`,
+              color: '#fff', fontSize: '13px', fontWeight: 600,
+              boxShadow: `0 4px 16px ${t.violet}44`,
+              transition: 'all 0.2s',
+            }}>
+              <Plus size={16} /> Start Building
+            </div>
           </div>
-        </button>
+          {/* Arrow */}
+          <div style={{
+            position: 'absolute', top: '20px', right: '20px',
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: `${t.violet}15`, border: `1px solid ${t.violet}25`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: t.violet,
+          }}>
+            <ArrowUpRight size={18} />
+          </div>
+        </motion.div>
 
-        <button
+        {/* Create Agent CTA */}
+        <motion.div
+          whileHover={{ y: -4, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           onClick={() => setShowAgentCreator(true)}
+          className="premium-cta-card"
           style={{
-            padding: '20px', borderRadius: '12px', background: t.surface, border: `1px solid ${t.success}66`,
-            display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'all 0.3s',
-            textAlign: 'left', boxShadow: `0 0 20px rgba(34, 197, 94, 0.08)`
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.borderColor = t.success;
-            e.currentTarget.style.boxShadow = `0 10px 30px rgba(34, 197, 94, 0.15)`;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = `${t.success}66`;
-            e.currentTarget.style.boxShadow = `0 0 20px rgba(34, 197, 94, 0.08)`;
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '32px',
+            background: `linear-gradient(145deg, #0d1f17 0%, ${t.surface} 60%, #0d0d1a 100%)`,
+            border: `1px solid ${t.success}40`,
+            display: 'flex', alignItems: 'center', gap: '28px',
+            minHeight: '180px',
+            boxShadow: `0 4px 30px rgba(34,197,94,0.08), inset 0 1px 0 ${t.success}15`,
           }}
         >
-          <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(34, 197, 94, 0.15)', color: t.success, boxShadow: `0 0 15px rgba(34, 197, 94, 0.2)` }}>
-            <Sparkles size={20} />
+          <div style={{
+            position: 'absolute', top: '-30px', right: '-30px',
+            width: '180px', height: '180px', borderRadius: '50%',
+            background: `radial-gradient(circle, ${t.success}12 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            width: '130px', height: '130px', borderRadius: '18px', flexShrink: 0,
+            overflow: 'hidden', position: 'relative',
+            boxShadow: `0 8px 32px rgba(34,197,94,0.25)`,
+            border: `1px solid ${t.success}25`,
+          }}>
+            <img src="/guru-create-agent.png" alt="Guru Create" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '15px', color: t.tp, marginBottom: '2px' }}>Create Agent</div>
-            <div style={{ fontSize: '12px', color: t.ts }}>Design with GPT-5</div>
+          <div style={{ flex: 1, zIndex: 1 }}>
+            <div style={{
+              fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: t.success, marginBottom: '10px',
+              fontFamily: t.mono,
+            }}>
+              AI Powered
+            </div>
+            <h3 style={{
+              margin: '0 0 8px 0', fontSize: '22px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.02em', lineHeight: 1.2,
+            }}>
+              Create <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: `linear-gradient(135deg, ${t.success}, #6ee7b7)`,
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>your Agent</span>
+            </h3>
+            <p style={{
+              margin: '0 0 18px 0', fontSize: '14px', color: t.ts,
+              lineHeight: 1.5, maxWidth: '280px',
+            }}>
+              Design a custom agent <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', color: t.success, fontWeight: 600,
+              }}>with GPT-5</span>
+            </p>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+              padding: '8px 18px', borderRadius: '10px',
+              background: `linear-gradient(135deg, ${t.success}, #16a34a)`,
+              color: '#fff', fontSize: '13px', fontWeight: 600,
+              boxShadow: `0 4px 16px rgba(34,197,94,0.35)`,
+              transition: 'all 0.2s',
+            }}>
+              <Sparkles size={16} /> Create Now
+            </div>
           </div>
-        </button>
+          <div style={{
+            position: 'absolute', top: '20px', right: '20px',
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: `${t.success}15`, border: `1px solid ${t.success}25`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: t.success,
+          }}>
+            <ArrowUpRight size={18} />
+          </div>
+        </motion.div>
 
-        <button
+        {/* Browse Agents CTA */}
+        <motion.div
+          whileHover={{ y: -4, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           onClick={() => navigate('/agents')}
+          className="premium-cta-card"
           style={{
-            padding: '20px', borderRadius: '12px', background: t.surface, border: `1px solid ${t.border}`,
-            display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'all 0.3s',
-            textAlign: 'left'
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '32px',
+            background: `linear-gradient(145deg, #0d1528 0%, ${t.surface} 60%, #0d0d1a 100%)`,
+            border: `1px solid rgba(99,102,241,0.35)`,
+            display: 'flex', alignItems: 'center', gap: '28px',
+            minHeight: '180px',
+            boxShadow: `0 4px 30px rgba(99,102,241,0.08), inset 0 1px 0 rgba(99,102,241,0.12)`,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = t.surfaceEl; e.currentTarget.style.borderColor = t.borderS; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; }}
         >
-          <div style={{ padding: '10px', borderRadius: '8px', background: t.surfaceEl, color: t.tp, border: `1px solid ${t.borderS}` }}>
-            <Globe size={20} />
+          <div style={{
+            position: 'absolute', bottom: '-40px', left: '-20px',
+            width: '180px', height: '180px', borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            width: '130px', height: '130px', borderRadius: '18px', flexShrink: 0,
+            overflow: 'hidden', position: 'relative',
+            boxShadow: `0 8px 32px rgba(99,102,241,0.25)`,
+            border: `1px solid rgba(99,102,241,0.25)`,
+          }}>
+            <img src="/guru-browse.png" alt="Guru Browse" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '15px', color: t.tp, marginBottom: '2px' }}>Browse Agents</div>
-            <div style={{ fontSize: '12px', color: t.ts }}>Explore pretrained models</div>
+          <div style={{ flex: 1, zIndex: 1 }}>
+            <div style={{
+              fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: '#818cf8', marginBottom: '10px',
+              fontFamily: t.mono,
+            }}>
+              Explore
+            </div>
+            <h3 style={{
+              margin: '0 0 8px 0', fontSize: '22px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.02em', lineHeight: 1.2,
+            }}>
+              Browse <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: `linear-gradient(135deg, #818cf8, #c4b5fd)`,
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>Agents</span>
+            </h3>
+            <p style={{
+              margin: '0 0 18px 0', fontSize: '14px', color: t.ts,
+              lineHeight: 1.5, maxWidth: '280px',
+            }}>
+              Explore pretrained models and find the <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', color: '#818cf8', fontWeight: 600,
+              }}>perfect fit</span>
+            </p>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+              padding: '8px 18px', borderRadius: '10px',
+              background: `linear-gradient(135deg, #6366f1, #818cf8)`,
+              color: '#fff', fontSize: '13px', fontWeight: 600,
+              boxShadow: `0 4px 16px rgba(99,102,241,0.35)`,
+              transition: 'all 0.2s',
+            }}>
+              <Globe size={16} /> Explore Library
+            </div>
           </div>
-        </button>
+          <div style={{
+            position: 'absolute', top: '20px', right: '20px',
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: `rgba(99,102,241,0.12)`, border: `1px solid rgba(99,102,241,0.25)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#818cf8',
+          }}>
+            <ArrowUpRight size={18} />
+          </div>
+        </motion.div>
 
-        <button
+        {/* Marketplace CTA */}
+        <motion.div
+          whileHover={{ y: -4, scale: 1.01 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           onClick={() => navigate('/marketplace')}
+          className="premium-cta-card"
           style={{
-            padding: '20px', borderRadius: '12px', background: t.surface, border: `1px solid ${t.border}`,
-            display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'all 0.3s',
-            textAlign: 'left'
+            position: 'relative', overflow: 'hidden', cursor: 'pointer',
+            borderRadius: '20px', padding: '32px',
+            background: `linear-gradient(145deg, #1a1508 0%, ${t.surface} 60%, #0d0d1a 100%)`,
+            border: `1px solid rgba(245,158,11,0.35)`,
+            display: 'flex', alignItems: 'center', gap: '28px',
+            minHeight: '180px',
+            boxShadow: `0 4px 30px rgba(245,158,11,0.08), inset 0 1px 0 rgba(245,158,11,0.12)`,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = t.surfaceEl; e.currentTarget.style.borderColor = t.borderS; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = t.surface; e.currentTarget.style.borderColor = t.border; }}
         >
-          <div style={{ padding: '10px', borderRadius: '8px', background: t.surfaceEl, color: t.tp, border: `1px solid ${t.borderS}` }}>
-            <Zap size={20} />
+          <div style={{
+            position: 'absolute', top: '-20px', left: '50%',
+            width: '200px', height: '200px', borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(245,158,11,0.1) 0%, transparent 70%)`,
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            width: '130px', height: '130px', borderRadius: '18px', flexShrink: 0,
+            overflow: 'hidden', position: 'relative',
+            boxShadow: `0 8px 32px rgba(245,158,11,0.25)`,
+            border: `1px solid rgba(245,158,11,0.25)`,
+          }}>
+            <img src="/guru-marketplace.png" alt="Guru Marketplace" style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+            }} />
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '15px', color: t.tp, marginBottom: '2px' }}>Marketplace</div>
-            <div style={{ fontSize: '12px', color: t.ts }}>Discover & share agents</div>
+          <div style={{ flex: 1, zIndex: 1 }}>
+            <div style={{
+              fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.12em', color: t.warning, marginBottom: '10px',
+              fontFamily: t.mono,
+            }}>
+              Community
+            </div>
+            <h3 style={{
+              margin: '0 0 8px 0', fontSize: '22px', fontWeight: 700,
+              color: t.tp, letterSpacing: '-0.02em', lineHeight: 1.2,
+            }}>
+              <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', fontWeight: 600,
+                background: `linear-gradient(135deg, ${t.warning}, #fbbf24)`,
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>Marketplace</span>
+            </h3>
+            <p style={{
+              margin: '0 0 18px 0', fontSize: '14px', color: t.ts,
+              lineHeight: 1.5, maxWidth: '280px',
+            }}>
+              Discover, share & download agents from the <span style={{
+                fontFamily: '"Playfair Display", Georgia, "Times New Roman", serif',
+                fontStyle: 'italic', color: t.warning, fontWeight: 600,
+              }}>community</span>
+            </p>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+              padding: '8px 18px', borderRadius: '10px',
+              background: `linear-gradient(135deg, ${t.warning}, #d97706)`,
+              color: '#fff', fontSize: '13px', fontWeight: 600,
+              boxShadow: `0 4px 16px rgba(245,158,11,0.35)`,
+              transition: 'all 0.2s',
+            }}>
+              <Zap size={16} /> Discover Agents
+            </div>
           </div>
-        </button>
+          <div style={{
+            position: 'absolute', top: '20px', right: '20px',
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: `rgba(245,158,11,0.12)`, border: `1px solid rgba(245,158,11,0.25)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: t.warning,
+          }}>
+            <ArrowUpRight size={18} />
+          </div>
+        </motion.div>
       </motion.div>
 
       {/* Persona Onboarding CTA */}
@@ -1239,15 +1474,20 @@ export default function Dashboard() {
           .dash-main-grid { grid-template-columns: 1fr !important; }
         }
         @media (max-width: 768px) {
-          .dash-actions { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+          .dash-actions { grid-template-columns: 1fr !important; gap: 14px !important; }
           .dash-metrics { grid-template-columns: 1fr !important; gap: 12px !important; }
           .dash-main-grid { grid-template-columns: 1fr !important; }
           .dash-header { flex-direction: column; align-items: flex-start !important; }
           .dash-persona-cta { flex-direction: column !important; padding: 20px !important; gap: 16px !important; align-items: flex-start !important; }
           .dash-persona-right { display: none !important; }
+          .premium-cta-card { min-height: 140px !important; padding: 20px !important; gap: 16px !important; }
+          .premium-cta-card img { width: 90px !important; height: 90px !important; }
+          .premium-cta-card h3 { font-size: 18px !important; }
         }
         @media (max-width: 480px) {
           .dash-actions { grid-template-columns: 1fr !important; }
+          .premium-cta-card { flex-direction: column !important; text-align: center !important; align-items: center !important; }
+          .premium-cta-card img { width: 100px !important; height: 100px !important; }
         }
       `}} />
 
