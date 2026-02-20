@@ -417,6 +417,31 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   const agentProxyRoutes = require('./routes/agent-proxy');
   app.use('/api/agent-proxy', agentProxyRoutes);
 
+  // Dev server management routes
+  const devServerRoutes = require('./routes/dev-server');
+  app.use('/api/dev-server', verifyToken, devServerRoutes);
+
+  // Dev server proxy — forward requests to project's running dev server
+  const { getDevServerPort } = require('./lib/dev-server');
+  app.use('/api/preview/dev/:projectId', (req, res) => {
+    const port = getDevServerPort(req.params.projectId);
+    if (!port) {
+      return res.status(503).send(`<html><body style="background:#0a0a0b;color:#a1a1aa;display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;margin:0"><div style="text-align:center"><h2 style="color:#8B5CF6">Dev server not running</h2><p>Start it from the project settings or terminal:<br><code style="color:#06b6d4">npm run dev</code></p></div></body></html>`);
+    }
+
+    const targetUrl = `http://127.0.0.1:${port}${req.url.replace(/^\/api\/preview\/dev\/[^/]+/, '') || '/'}`;
+    const proxyReq = require('http').request(targetUrl, { method: req.method, headers: { ...req.headers, host: `127.0.0.1:${port}` } }, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+
+    proxyReq.on('error', () => {
+      res.status(502).send(`<html><body style="background:#0a0a0b;color:#a1a1aa;display:flex;align-items:center;justify-content:center;height:100vh;font-family:monospace;margin:0"><div style="text-align:center"><h2 style="color:#ef4444">Dev server unreachable</h2><p>The server on port ${port} is not responding yet.<br>Wait a moment and refresh.</p></div></body></html>`);
+    });
+
+    req.pipe(proxyReq, { end: true });
+  });
+
   // Preview route (no auth for iframe embedding)
   app.use('/api/preview', previewRoutes);
 
@@ -748,7 +773,14 @@ console.log(`[Orchestrator] Claude binary: ${CLAUDE_BIN}`);
   });
 
   app.use(express.static(distPath, { extensions: ['html'] }));
+
+  // SPA fallback — return index.html for navigation routes only.
+  // Static asset requests (JS/CSS/images) that weren't found above must 404,
+  // otherwise the browser gets HTML with the wrong MIME type after deploys.
   app.get('*', (req, res) => {
+    if (req.path.startsWith('/assets/') || req.path.match(/\.(js|css|map|png|jpg|svg|woff2?|ttf|ico)$/)) {
+      return res.status(404).end();
+    }
     res.sendFile(path.join(distPath, 'index.html'));
   });
 
